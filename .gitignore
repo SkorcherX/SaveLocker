@@ -4,7 +4,8 @@
 
 # Local runtime state (SQLite db + archives)
 **/localstate/
-**/data/
+# Only ignore root-level data/ (runtime DB mount), not src/Server/Data/ source folder
+/data/
 
 # Test scratch
 /.verify/
