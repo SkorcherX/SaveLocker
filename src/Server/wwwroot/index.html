@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
+<title>LocalGameSync — Admin</title>
+<style>
+  :root { color-scheme: light dark; --bg:#0f1115; --card:#1a1d24; --fg:#e6e8eb; --muted:#9aa3af;
+          --accent:#4f8cff; --warn:#ffb020; --bad:#ff5a5a; --good:#3ecf8e; --line:#2a2f3a; }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--fg); }
+  header { padding:16px 24px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:center; }
+  header h1 { font-size:18px; margin:0; flex:1; }
+  input, button, select { font:inherit; }
+  input[type=password], input[type=text] { background:var(--card); color:var(--fg); border:1px solid var(--line);
+          border-radius:8px; padding:7px 10px; min-width:240px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:8px; padding:7px 12px; cursor:pointer; }
+  button.ghost { background:transparent; border:1px solid var(--line); color:var(--fg); }
+  button.warn { background:var(--warn); color:#1a1d24; }
+  button.bad { background:var(--bad); color:#1a1d24; }
+  button:disabled { opacity:.5; cursor:default; }
+  main { padding:24px; max-width:1100px; margin:0 auto; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; margin-bottom:14px; overflow:hidden; }
+  .card.disabled { opacity:.55; }
+  .row { display:flex; align-items:center; gap:14px; padding:14px 18px; }
+  .cover { width:46px; height:69px; object-fit:cover; border-radius:6px; border:1px solid var(--line); background:#0c0e12; flex:0 0 auto; }
+  .cover.noart { display:flex; align-items:center; justify-content:center; font-size:10px; color:var(--muted); text-align:center; }
+  .row .name { font-weight:600; font-size:15px; flex:1; }
+  .meta { color:var(--muted); font-size:12.5px; }
+  .badge { padding:2px 9px; border-radius:999px; font-size:12px; font-weight:600; }
+  .badge.free { background:#26303f; color:var(--muted); }
+  .badge.leased { background:#2a3550; color:var(--accent); }
+  .badge.conflict { background:#3a2222; color:var(--bad); }
+  .badge.ok { background:#1f3a2e; color:var(--good); }
+  .badge.latest { background:#1f3a2e; color:var(--good); }
+  .badge.off { background:#332a1a; color:var(--warn); }
+  .detail { border-top:1px solid var(--line); padding:12px 18px; display:none; background:#15181f; }
+  .detail.open { display:block; }
+  table { width:100%; border-collapse:collapse; }
+  td, th { text-align:left; padding:6px 8px; border-bottom:1px solid var(--line); font-size:13px; }
+  th { color:var(--muted); font-weight:600; }
+  code { font-family:ui-monospace,Consolas,monospace; color:var(--muted); }
+  .empty { color:var(--muted); text-align:center; padding:40px; }
+  .err { color:var(--bad); padding:0 24px; }
+  .conflict-box { background:#241a1a; border:1px solid #4a2a2a; border-radius:8px; padding:10px 12px; margin-top:10px; }
+  .wizard-box { background:#1a2330; border:1px solid #2a3a52; border-radius:8px; padding:10px 12px; margin-top:10px; }
+  .section { margin:14px 0 6px; color:var(--muted); font-weight:600; font-size:12.5px; text-transform:uppercase; letter-spacing:.04em; }
+  nav#nav { display:flex; gap:6px; }
+  button.nav.active { background:var(--accent); color:#fff; border-color:var(--accent); }
+  .page-title { font-size:16px; font-weight:600; margin:0 0 14px; }
+  .btnrow { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LocalGameSync <span class="meta">admin dashboard</span></h1>
+  <nav id="nav">
+    <button class="ghost nav active" data-view="home">Games</button>
+    <button class="ghost nav" data-view="config">Configuration</button>
+  </nav>
+  <input id="key" type="password" placeholder="API key (any registered machine)" />
+  <button id="connect">Connect</button>
+  <button id="addgame" class="ghost">+ Add game</button>
+  <button id="refresh" class="ghost">Refresh</button>
+</header>
+<div id="error" class="err"></div>
+<main id="app"><div class="empty">Enter an API key and click Connect.</div></main>
+
+<script>
+const $ = s => document.querySelector(s);
+let API_KEY = localStorage.getItem("lgs_key") || "";
+$("#key").value = API_KEY;
+
+function headers() { return { "X-Api-Key": API_KEY }; }
+async function api(path, opts={}) {
+  const res = await fetch("/api" + path, { ...opts, headers: { ...headers(), ...(opts.headers||{}) } });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const ct = res.headers.get("content-type") || "";
+  return ct.includes("json") ? res.json() : res.text();
+}
+const shortId = g => g ? g.replace(/-/g,"").slice(0,8) : "—";
+const when = t => t ? new Date(t).toLocaleString() : "—";
+const esc = s => (s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+let currentView = (location.hash === "#config") ? "config" : "home";
+const openDetails = new Set();
+
+async function load() {
+  $("#error").textContent = "";
+  if (!API_KEY) { $("#app").innerHTML = `<div class="empty">Enter an API key and click Connect.</div>`; return; }
+  try {
+    const [overview, conflicts, machines, commands, settings] = await Promise.all([
+      api("/overview"), api("/conflicts"), api("/machines"), api("/commands"), api("/settings")
+    ]);
+    const conflictByGame = {};
+    conflicts.forEach(c => conflictByGame[c.gameId] = c);
+    // Stash for detail rendering (set before render so handlers can read it).
+    window.__lgs = { overview, conflictByGame, machines, commands, settings };
+  } catch (e) {
+    $("#app").innerHTML = "";
+    $("#error").textContent = "Failed to load: " + e.message + " (check the API key).";
+    return;
+  }
+  render();
+}
+
+// Render the active view from already-fetched data (no refetch needed on tab switch).
+function render() {
+  if (!window.__lgs) return;
+  document.querySelectorAll(".nav").forEach(b => b.classList.toggle("active", b.dataset.view === currentView));
+  $("#addgame").style.display = currentView === "home" ? "" : "none";   // Add game is a Games-page action
+  $("#app").innerHTML = currentView === "config" ? renderConfig() : renderHome();
+  for (const id of openDetails) showDetail(id);
+}
+
+function setView(v) {
+  currentView = v;
+  location.hash = v === "config" ? "config" : "";
+  if (window.__lgs) render(); else load();
+}
+
+// ----- Configuration page: admin tools (server settings + machines/API keys) -----
+function renderConfig() {
+  const { machines, settings } = window.__lgs;
+
+  const sgdbStatus = settings.steamGridDbConfigured
+    ? `<span class="badge ok">configured</span> <code>${esc(settings.steamGridDbKeyMasked || "")}</code>` +
+      (settings.steamGridDbFromConfig ? ` <span class="meta">(from config file — saving here overrides it)</span>` : ``)
+    : `<span class="badge off">not set</span>`;
+  const settingsHtml = `
+    <div class="card">
+      <div class="row"><div class="name">Server settings</div>
+        <span class="meta">SteamGridDB artwork</span></div>
+      <div class="row meta" style="padding-top:0">SteamGridDB API key: ${sgdbStatus}</div>
+      <div class="row" style="padding-top:0; flex-wrap:wrap">
+        <input id="sgdbkey" type="password" placeholder="Paste SteamGridDB API key" />
+        <button onclick="saveSgdbKey()">Save key</button>
+        ${settings.steamGridDbConfigured ? `<button class="ghost" onclick="clearSgdbKey()">Clear</button>` : ``}
+        <span class="meta">Free key: steamgriddb.com → user menu → Preferences → API.</span>
+      </div>
+    </div>`;
+
+  const machinesHtml = `
+    <div class="card">
+      <div class="row"><div class="name">Machines / API keys</div>
+        <span class="meta">delete unwanted users/keys</span></div>
+      <table><thead><tr><th>Machine</th><th>Registered</th><th>Last seen</th><th></th></tr></thead><tbody>
+      ${machines.map(m => `<tr>
+        <td>${esc(m.name)}</td><td>${when(m.createdAt)}</td><td>${when(m.lastSeen)}</td>
+        <td><button class="bad" onclick="deleteMachine('${m.id}','${esc(m.name)}')">Delete</button></td>
+      </tr>`).join("") || `<tr><td colspan="4" class="meta">No machines registered.</td></tr>`}
+      </tbody></table>
+    </div>`;
+
+  return `<div class="page-title">Configuration</div>` + settingsHtml + machinesHtml;
+}
+
+// ----- Games (home) page -----
+function renderHome() {
+  const { overview } = window.__lgs;
+  if (!overview.length)
+    return `<div class="empty">No games tracked yet. Click “+ Add game” to define one.</div>`;
+  return overview.map(s => {
+    const g = s.game, head = s.head, lease = s.lease;
+    const leaseBadge = lease && lease.holderMachineName
+      ? `<span class="badge leased">leased by ${esc(lease.holderMachineName)}</span>`
+      : `<span class="badge free">free</span>`;
+    const conflictBadge = s.hasOpenConflict ? `<span class="badge conflict">conflict</span>` : `<span class="badge ok">in sync</span>`;
+    const offBadge = g.enabled ? "" : `<span class="badge off">disabled</span>`;
+    const cover = g.gridUrl
+      ? `<img class="cover" src="${esc(g.gridUrl)}" alt="cover" />`
+      : `<div class="cover noart">no&nbsp;art</div>`;
+    return `
+    <div class="card${g.enabled ? "" : " disabled"}" data-game="${g.id}">
+      <div class="row">
+        ${cover}
+        <div class="name">${esc(g.name)}</div>
+        ${offBadge} ${conflictBadge} ${leaseBadge}
+        <button class="ghost" onclick="refreshArt('${g.id}')">Refresh art</button>
+        <button class="ghost" onclick="setEnabled('${g.id}', ${!g.enabled})">${g.enabled ? "Disable" : "Enable"}</button>
+        <button class="ghost" onclick="toggle('${g.id}')">Details</button>
+        <button class="bad" onclick="deleteGame('${g.id}','${esc(g.name)}')">Delete</button>
+      </div>
+      <div class="row meta" style="padding-top:0">
+        latest <code>${shortId(head&&head.id)}</code>
+        ${head ? `from <b>${esc(head.machineName)}</b> at ${when(head.createdAt)} · ${head.size} bytes` : "(no saves yet)"}
+      </div>
+      <div class="detail" id="detail-${g.id}"></div>
+    </div>`;
+  }).join("");
+}
+
+async function toggle(gameId) {
+  const el = $("#detail-" + gameId);
+  if (el.classList.contains("open")) {
+    el.classList.remove("open"); el.innerHTML = "";
+    openDetails.delete(gameId); return;
+  }
+  openDetails.add(gameId);
+  await showDetail(gameId);
+}
+
+async function showDetail(gameId) {
+  const el = $("#detail-" + gameId);
+  if (!el) return;
+  el.classList.add("open");
+  el.innerHTML = "Loading…";
+  const { conflictByGame, machines, commands } = window.__lgs;
+  const state = window.__lgs.overview.find(s => s.game.id === gameId);
+  const versions = await api(`/games/${gameId}/versions`);
+  const headId = state.head ? state.head.id : null;
+
+  let html = "";
+
+  // Suggested save folder (propagated to agents that have this path).
+  const sdir = state.game.suggestedSaveDir;
+  html += `<div class="row meta" style="padding:0 0 8px">
+    suggested save folder: ${sdir ? `<code>${esc(sdir)}</code>` : "<i>not set</i>"}
+    <button class="ghost" style="margin-left:8px" onclick="setSaveDir('${gameId}')">Edit</button>
+  </div>`;
+
+  // Conflict resolution UI.
+  const c = conflictByGame[gameId];
+  if (c) {
+    const va = versions.find(v => v.id === c.versionAId);
+    const vb = versions.find(v => v.id === c.versionBId);
+    const opt = v => v ? `<code>${shortId(v.id)}</code> from <b>${esc(v.machineName)}</b> (${when(v.createdAt)})` : "—";
+    html += `<div class="conflict-box">
+      <b style="color:var(--bad)">Conflict — choose the version to keep:</b>
+      <div class="btnrow">
+        <button onclick="resolve('${c.id}','${c.versionAId}')">Keep A: ${opt(va)}</button>
+        <button onclick="resolve('${c.id}','${c.versionBId}')">Keep B: ${opt(vb)}</button>
+      </div></div>`;
+  }
+
+  // Initial-sync wizard: pick the machine whose save is the real progress.
+  // Offered whenever more than one machine has uploaded a version.
+  const latestByMachine = {};
+  for (const v of versions) {                 // versions are newest-first
+    if (!latestByMachine[v.machineId]) latestByMachine[v.machineId] = v;
+  }
+  const contributors = Object.values(latestByMachine);
+  if (contributors.length > 1) {
+    html += `<div class="wizard-box">
+      <b>Initial sync — which machine has your real progress?</b>
+      <div class="meta">Sets that machine's newest save as Latest (what every machine pulls).</div>
+      <div class="btnrow">${contributors.map(v =>
+        `<button onclick="setLatest('${gameId}','${v.id}')">${esc(v.machineName)} (${when(v.createdAt)})${v.id===headId?" — current":""}</button>`
+      ).join("")}</div></div>`;
+  }
+
+  // Lease admin.
+  if (state.lease && state.lease.holderMachineName) {
+    html += `<div style="margin:10px 0"><button class="warn" onclick="forceRelease('${gameId}')">Force-release lease (${esc(state.lease.holderMachineName)})</button></div>`;
+  }
+
+  // Last sync per machine (last upload for this game + last server contact),
+  // with remote actions (queued for the agent's next poll — command channel).
+  html += `<div class="section">Machines</div>`;
+  html += `<table><thead><tr><th>Machine</th><th>Last upload (this game)</th><th>Last seen</th><th>Remote actions</th></tr></thead><tbody>`;
+  html += machines.map(m => {
+    const last = latestByMachine[m.id];
+    return `<tr><td>${esc(m.name)}</td>
+      <td>${last ? when(last.createdAt) : "—"}</td>
+      <td>${when(m.lastSeen)}</td>
+      <td class="btnrow" style="margin:0">
+        <button class="ghost" onclick="cmd('${m.id}','${gameId}','Pull',true)">Pull</button>
+        <button class="ghost" onclick="cmd('${m.id}','${gameId}','Push',true)">Push</button>
+        <button class="ghost" onclick="cmd('${m.id}','${gameId}','Sync',false)">Sync</button>
+      </td></tr>`;
+  }).join("") || `<tr><td colspan="4" class="meta">No machines registered.</td></tr>`;
+  html += `</tbody></table>`;
+
+  // Recent commands queued for agents on this game (command channel status).
+  const gameCmds = commands.filter(c => c.gameId === gameId).slice(0, 8);
+  if (gameCmds.length) {
+    html += `<div class="section">Recent remote commands</div>`;
+    html += `<table><thead><tr><th>When</th><th>Machine</th><th>Action</th><th>Status</th><th>Result</th></tr></thead><tbody>`;
+    html += gameCmds.map(c => `<tr>
+      <td>${when(c.createdAt)}</td><td>${esc(c.machineName)}</td>
+      <td>${c.type}${c.force?" (force)":""}</td><td>${c.status}</td>
+      <td class="meta">${esc(c.result) || (c.status==="Pending"?"awaiting next poll…":"—")}</td>
+    </tr>`).join("");
+    html += `</tbody></table>`;
+  }
+
+  // Version history with "Set as Latest".
+  html += `<div class="section">Versions</div>`;
+  html += `<table><thead><tr><th>Version</th><th>Machine</th><th>When</th><th>Size</th><th></th></tr></thead><tbody>`;
+  html += versions.map(v => `<tr>
+    <td><code>${shortId(v.id)}</code> ${v.id===headId?'<span class="badge latest">Latest</span>':''}</td>
+    <td>${esc(v.machineName)}</td><td>${when(v.createdAt)}</td><td>${v.size}</td>
+    <td>${v.id===headId?'':`<button class="ghost" onclick="setLatest('${gameId}','${v.id}')">Set as Latest</button>`}</td>
+  </tr>`).join("");
+  html += `</tbody></table>`;
+
+  el.innerHTML = html;
+}
+
+async function resolve(conflictId, versionId) {
+  try { await api(`/conflicts/${conflictId}/resolve?version=${versionId}`, { method:"POST" }); await load(); }
+  catch(e){ alert("Resolve failed: "+e.message); }
+}
+async function setLatest(gameId, versionId) {
+  if (!confirm("Set this version as Latest? Every machine will pull it on next sync.")) return;
+  try { await api(`/games/${gameId}/set-latest?version=${versionId}`, { method:"POST" }); await load(); }
+  catch(e){ alert("Set as Latest failed: "+e.message); }
+}
+async function refreshArt(gameId) {
+  try {
+    const res = await fetch(`/api/games/${gameId}/art/refresh`, { method:"POST", headers: headers() });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { alert(body.message || `Refresh art failed (${res.status})`); return; }
+    await load();
+  } catch(e){ alert("Refresh art failed: "+e.message); }
+}
+async function cmd(machineId, gameId, type, force) {
+  try {
+    await api(`/commands`, { method:"POST", headers:{ "Content-Type":"application/json" },
+      body: JSON.stringify({ machineId, gameId, type, force }) });
+    await load();
+  } catch(e){ alert("Could not queue command: "+e.message); }
+}
+async function setEnabled(gameId, value) {
+  try { await api(`/games/${gameId}/enabled?value=${value}`, { method:"POST" }); await load(); }
+  catch(e){ alert("Could not change enabled state: "+e.message); }
+}
+async function deleteMachine(machineId, name) {
+  if (!confirm(`Delete machine "${name}"? Its API key stops working immediately. ` +
+    `Saved versions it uploaded are kept as history.`)) return;
+  try {
+    const res = await fetch(`/api/machines/${machineId}`, { method:"DELETE", headers: headers() });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      alert(body.message || `Delete failed (${res.status})`);
+      return;
+    }
+    await load();
+  } catch(e){ alert("Delete machine failed: "+e.message); }
+}
+async function deleteGame(gameId, name) {
+  if (!confirm(`Delete "${name}"? This removes its versions and history on the server. Agents keep their local saves.`)) return;
+  try { await api(`/games/${gameId}`, { method:"DELETE" }); await load(); }
+  catch(e){ alert("Delete failed: "+e.message); }
+}
+async function forceRelease(gameId) {
+  if (!confirm("Force-release this lease?")) return;
+  try { await api(`/games/${gameId}/lease/force`, { method:"DELETE" }); await load(); }
+  catch(e){ alert("Force-release failed: "+e.message); }
+}
+async function addGame() {
+  const name = prompt("New game name (defines it on the server; agents map their local save dir):");
+  if (!name || !name.trim()) return;
+  const dir = prompt("Suggested save folder (optional). The path on the machine that will sync this game, " +
+    "e.g. C:\\Users\\me\\AppData\\Roaming\\Game. Agents use it if it exists on that machine; leave blank to skip:", "");
+  try { await api(`/games`, { method:"POST", headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ name: name.trim(), manifestKey: null, customPathsJson: null,
+      suggestedSaveDir: dir && dir.trim() ? dir.trim() : null }) }); await load(); }
+  catch(e){ alert("Add game failed: "+e.message); }
+}
+async function setSaveDir(gameId) {
+  // Read the current value from stashed state (NOT interpolated into JS) so
+  // backslashes and spaces in the path survive intact.
+  const st = window.__lgs.overview.find(s => s.game.id === gameId);
+  const current = (st && st.game.suggestedSaveDir) || "";
+  const dir = prompt("Suggested save folder for agents (path on the syncing machine). Leave blank to clear:", current);
+  if (dir === null) return; // cancelled
+  // encodeURIComponent preserves spaces (%20) and backslashes (%5C); server decodes.
+  try { await api(`/games/${gameId}/save-dir?value=${encodeURIComponent(dir.trim())}`, { method:"POST" }); await load(); }
+  catch(e){ alert("Could not set save folder: "+e.message); }
+}
+
+async function saveSgdbKey() {
+  const v = $("#sgdbkey").value.trim();
+  if (!v) { alert("Paste a SteamGridDB API key first."); return; }
+  try {
+    const res = await api(`/settings/steamgriddb-key`, { method:"POST",
+      headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ apiKey: v }) });
+    $("#sgdbkey").value = "";
+    alert(res.message || "Saved.");
+    await load();
+  } catch(e){ alert("Could not save key: "+e.message); }
+}
+async function clearSgdbKey() {
+  if (!confirm("Clear the SteamGridDB API key? Artwork refresh will stop working until a key is set.")) return;
+  try {
+    await api(`/settings/steamgriddb-key`, { method:"POST",
+      headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ apiKey: null }) });
+    await load();
+  } catch(e){ alert("Could not clear key: "+e.message); }
+}
+
+$("#connect").onclick = () => { API_KEY = $("#key").value.trim(); localStorage.setItem("lgs_key", API_KEY); load(); };
+$("#refresh").onclick = load;
+$("#addgame").onclick = addGame;
+document.querySelectorAll(".nav").forEach(b => b.onclick = () => setView(b.dataset.view));
+window.addEventListener("hashchange", () => {
+  const v = location.hash === "#config" ? "config" : "home";
+  if (v !== currentView) { currentView = v; render(); }
+});
+window.toggle = toggle; window.resolve = resolve; window.setLatest = setLatest;
+window.setEnabled = setEnabled; window.deleteGame = deleteGame; window.forceRelease = forceRelease;
+window.cmd = cmd; window.setSaveDir = setSaveDir; window.refreshArt = refreshArt;
+window.deleteMachine = deleteMachine;
+window.saveSgdbKey = saveSgdbKey; window.clearSgdbKey = clearSgdbKey;
+if (API_KEY) load();
+setInterval(() => { if (API_KEY) load(); }, 15000);
+</script>
+</body>
+</html>

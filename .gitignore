@@ -1,0 +1,28 @@
+# Build output
+**/bin/
+**/obj/
+
+# Local runtime state (SQLite db + archives)
+**/localstate/
+**/data/
+
+# Test scratch
+/.verify/
+
+# IDE / user files
+*.user
+.vs/
+
+# Secrets — never commit
+appsettings.Development.json
+
+# Runtime-generated artwork cache (downloaded by ArtService at runtime)
+src/Server/wwwroot/art/
+
+# Node
+agent-ui/node_modules/
+agent-ui/dist/
+web/node_modules/
+
+# Built installer binaries
+installer/dist/

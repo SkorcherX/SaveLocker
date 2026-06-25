@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #0d1114; }
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3a4048; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555e66; }
+    input[type="checkbox"] { accent-color: #129271; width: 14px; height: 14px; cursor: pointer; flex-shrink: 0; }
+  </style>
+</helmet>
+
+<div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; background: #0d1114; padding: 30px; font-family: 'Inter', system-ui, -apple-system, sans-serif;">
+
+  <!-- App Window -->
+  <div style="width: 900px; height: 600px; display: flex; border-radius: 9px; overflow: hidden; box-shadow: 0 28px 70px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05); flex-shrink: 0;">
+
+    <!-- ══ SIDEBAR ══ -->
+    <div style="width: 212px; min-width: 212px; background: #1E252A; border-right: 1px solid #494949; display: flex; flex-direction: column; overflow: hidden;">
+
+      <!-- Brand -->
+      <div style="padding: 15px 14px; border-bottom: 1px solid #494949; display: flex; align-items: center; gap: 10px; flex-shrink: 0;">
+        <img src="./uploads/SaveLocker_Logo_crop.png" alt="SaveLocker" style="width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; border-radius: 5px;" />
+        <div>
+          <div style="color: #ECEFF1; font-size: 13px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.2;">SaveLocker</div>
+          <div style="color: #9CA3AF; font-size: 10px; letter-spacing: 0.07em; text-transform: uppercase; line-height: 1.5;">Agent v1.0</div>
+        </div>
+      </div>
+
+      <!-- Navigation -->
+      <nav style="padding: 10px 8px; flex: 1; display: flex; flex-direction: column; gap: 2px;">
+        <div style="{{ navOverviewStyle }}" onClick="{{ navToOverview }}">
+          {{ iconMonitor }}<span>Overview</span>
+        </div>
+        <div style="{{ navAddGamesStyle }}" onClick="{{ navToAddGames }}">
+          {{ iconPlus }}<span>Add Games</span>
+        </div>
+        <div style="{{ navSettingsStyle }}" onClick="{{ navToSettings }}">
+          {{ iconSettings }}<span>Settings</span>
+        </div>
+      </nav>
+
+      <!-- Machine Footer -->
+      <div style="padding: 11px 14px; border-top: 1px solid #494949; flex-shrink: 0; display: flex; align-items: center; gap: 7px;">
+        {{ iconHardDrive }}
+        <span style="color: #9CA3AF; font-size: 11px;">Machine: ThunderHorse</span>
+      </div>
+    </div>
+
+    <!-- ══ MAIN CONTENT ══ -->
+    <div style="flex: 1; min-width: 0; background: #2A3238; display: flex; flex-direction: column; overflow: hidden;">
+
+      <!-- Status Header -->
+      <div style="padding: 10px 20px; border-bottom: 1px solid #494949; background: #1E252A; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; min-height: 54px;">
+        <div style="display: flex; align-items: center; gap: 11px;">
+          {{ iconShield }}
+          <div>
+            <div style="color: #9CA3AF; font-size: 9px; letter-spacing: 0.13em; text-transform: uppercase; line-height: 1; margin-bottom: 4px;">Agent Status</div>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span style="width: 7px; height: 7px; background: #129271; border-radius: 50%; box-shadow: 0 0 7px rgba(18,146,113,0.85); display: inline-block; flex-shrink: 0;"></span>
+              <span style="color: #129271; font-size: 13px; font-weight: 700; letter-spacing: 0.05em;">CONNECTED</span>
+            </div>
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 7px; padding: 5px 10px; background: rgba(18,146,113,0.07); border: 1px solid rgba(18,146,113,0.2); border-radius: 5px;">
+          {{ iconServer }}
+          <span style="color: #9CA3AF; font-size: 11px; font-family: ui-monospace, 'Cascadia Code', Consolas, monospace;">localhost:5173</span>
+        </div>
+      </div>
+
+      <!-- Dynamic Content -->
+      <div style="flex: 1; position: relative; overflow: hidden;">
+
+        <!-- ── OVERVIEW ── -->
+        <sc-if value="{{ isOverview }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; padding: 24px;">
+            {{ iconCpu }}
+            <div style="text-align: center;">
+              <div style="color: #ECEFF1; font-size: 18px; font-weight: 700; letter-spacing: -0.02em;">Agent Running</div>
+              <div style="color: #9CA3AF; font-size: 13px; margin-top: 5px; line-height: 1.5;">Monitoring save game activity on ThunderHorse</div>
+            </div>
+            <div style="display: flex; gap: 14px; margin-top: 4px;">
+              <div style="background: #1E252A; border: 1px solid #494949; border-radius: 7px; padding: 14px 22px; text-align: center; min-width: 112px;">
+                <div style="color: #129271; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;">3</div>
+                <div style="color: #9CA3AF; font-size: 11px; margin-top: 5px; letter-spacing: 0.02em;">Games Tracked</div>
+              </div>
+              <div style="background: #1E252A; border: 1px solid #494949; border-radius: 7px; padding: 14px 22px; text-align: center; min-width: 112px;">
+                <div style="color: #ECEFF1; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;">24</div>
+                <div style="color: #9CA3AF; font-size: 11px; margin-top: 5px; letter-spacing: 0.02em;">Saves Backed Up</div>
+              </div>
+              <div style="background: #1E252A; border: 1px solid #494949; border-radius: 7px; padding: 14px 22px; text-align: center; min-width: 112px;">
+                <div style="color: #9CA3AF; font-size: 28px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1;">2m</div>
+                <div style="color: #9CA3AF; font-size: 11px; margin-top: 5px; letter-spacing: 0.02em;">Last Sync</div>
+              </div>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ── ADD GAMES ── -->
+        <sc-if value="{{ isAddGames }}" hint-placeholder-val="{{ true }}">
+          <div style="position: absolute; inset: 0; display: flex; flex-direction: column; gap: 11px; padding: 16px 20px; overflow: hidden;">
+
+            <p style="color: #9CA3AF; font-size: 12px; line-height: 1.65; flex-shrink: 0;">
+              Tick games to sync. Games without a known save folder need one set before enrolling.
+            </p>
+
+            <!-- Toolbar -->
+            <div style="display: flex; gap: 6px; flex-shrink: 0; flex-wrap: wrap;">
+              <button type="button" style="display: flex; align-items: center; gap: 5px; padding: 5px 11px; background: transparent; border: 1px solid #494949; border-radius: 4px; color: #ECEFF1; font-size: 12px; cursor: pointer; font-family: inherit;">
+                {{ iconRefresh }}<span>Rescan</span>
+              </button>
+              <button type="button" style="display: flex; align-items: center; gap: 5px; padding: 5px 11px; background: transparent; border: 1px solid #494949; border-radius: 4px; color: #ECEFF1; font-size: 12px; cursor: pointer; font-family: inherit;">
+                {{ iconFolder }}<span>Set save folder...</span>
+              </button>
+              <button type="button" onClick="{{ toggleHideSteamCloud }}" style="{{ steamCloudBtnStyle }}">
+                {{ iconCloud }}<span>Hide Steam Cloud</span>
+              </button>
+            </div>
+
+            <!-- Game List -->
+            <div style="background: #1E252A; border: 1px solid #494949; border-radius: 6px; overflow-y: auto; flex: 1; min-height: 0;">
+              <sc-for list="{{ gameItems }}" as="item" hint-placeholder-count="3">
+                <div style="display: flex; align-items: flex-start; padding: 10px 13px; border-bottom: 1px solid rgba(73,73,73,0.4); gap: 10px;">
+                  <input type="checkbox" checked="{{ item.checked }}" onChange="{{ item.onToggle }}" style="margin-top: 2px;" />
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                      <span style="color: #ECEFF1; font-size: 13px; font-weight: 500;">{{ item.name }}</span>
+                      <span style="color: #9CA3AF; font-size: 10px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.09); padding: 1px 6px; border-radius: 3px; font-family: ui-monospace, Consolas, monospace; letter-spacing: 0.01em;">{{ item.source }}</span>
+                      <sc-if value="{{ item.hasSteamCloud }}" hint-placeholder-val="{{ false }}">
+                        <span style="color: #60a5fa; font-size: 10px; background: rgba(96,165,250,0.08); border: 1px solid rgba(96,165,250,0.22); padding: 1px 6px; border-radius: 3px;">Steam Cloud</span>
+                      </sc-if>
+                    </div>
+                    <sc-if value="{{ item.path }}" hint-placeholder-val="{{ false }}">
+                      <div style="color: #9CA3AF; font-size: 10px; margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Consolas, monospace;">{{ item.path }}</div>
+                    </sc-if>
+                  </div>
+                </div>
+              </sc-for>
+            </div>
+
+            <!-- Footer -->
+            <div style="display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;">
+              <span style="color: #9CA3AF; font-size: 12px;">Found 16 candidate(s).</span>
+              <button type="button" style="padding: 7px 18px; background: #129271; border: none; border-radius: 5px; color: #fff; font-size: 13px; font-weight: 600; cursor: pointer; font-family: inherit; letter-spacing: 0.01em;">
+                Enroll selected
+              </button>
+            </div>
+          </div>
+        </sc-if>
+
+        <!-- ── SETTINGS ── -->
+        <sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+          <div style="position: absolute; inset: 0; overflow-y: auto; padding: 18px 20px; display: flex; flex-direction: column; gap: 22px;">
+
+            <!-- Connection section -->
+            <div>
+              <div style="color: #9CA3AF; font-size: 10px; text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid #494949;">Connection</div>
+              <div style="display: flex; flex-direction: column; gap: 11px;">
+
+                <div>
+                  <label style="color: #9CA3AF; font-size: 11px; display: block; margin-bottom: 5px;">Server URL</label>
+                  <div style="display: flex; gap: 6px;">
+                    <input type="text" value="{{ serverUrl }}" onChange="{{ onServerUrlChange }}" style="flex: 1; min-width: 0; background: #1E252A; border: 1px solid #494949; border-radius: 4px; padding: 7px 10px; color: #ECEFF1; font-size: 12px; font-family: ui-monospace, Consolas, monospace; outline: none;" />
+                    <button type="button" style="padding: 7px 15px; background: #129271; border: none; border-radius: 4px; color: #fff; font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit; flex-shrink: 0;">Save</button>
+                    <button type="button" style="padding: 7px 11px; background: transparent; border: 1px solid #494949; border-radius: 4px; color: #ECEFF1; font-size: 12px; cursor: pointer; font-family: inherit; flex-shrink: 0; white-space: nowrap;">Register / Re-register</button>
+                  </div>
+                </div>
+
+                <div>
+                  <label style="color: #9CA3AF; font-size: 11px; display: block; margin-bottom: 5px;">Machine Name</label>
+                  <input type="text" value="{{ machineName }}" onChange="{{ onMachineNameChange }}" style="width: 240px; background: #1E252A; border: 1px solid #494949; border-radius: 4px; padding: 7px 10px; color: #ECEFF1; font-size: 13px; font-family: inherit; outline: none;" />
+                </div>
+
+                <div>
+                  <label style="color: #9CA3AF; font-size: 11px; display: block; margin-bottom: 5px;">API Key</label>
+                  <div style="display: flex; gap: 6px;">
+                    <input type="text" value="{{ apiKey }}" onChange="{{ onApiKeyChange }}" style="flex: 1; min-width: 0; background: #1E252A; border: 1px solid #494949; border-radius: 4px; padding: 7px 10px; color: #ECEFF1; font-size: 12px; font-family: ui-monospace, Consolas, monospace; outline: none;" />
+                    <button type="button" onClick="{{ onCopyApiKey }}" style="{{ copyBtnStyle }}">
+                      {{ iconCopy }}<span>{{ copyBtnText }}</span>
+                    </button>
+                  </div>
+                </div>
+
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; user-select: none;">
+                  <input type="checkbox" checked="{{ startWithWindows }}" onChange="{{ onStartWithWindowsChange }}" />
+                  <span style="color: #ECEFF1; font-size: 13px;">Start with Windows (launch agent at login)</span>
+                </label>
+
+              </div>
+            </div>
+
+            <!-- Tracked Games section -->
+            <div>
+              <div style="color: #9CA3AF; font-size: 10px; text-transform: uppercase; letter-spacing: 0.11em; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 1px solid #494949;">Currently Tracked Games</div>
+
+              <div style="background: #1E252A; border: 1px solid #494949; border-radius: 5px; overflow: hidden; margin-bottom: 10px;">
+                <div style="display: flex; align-items: flex-start; padding: 10px 13px; gap: 10px;">
+                  <input type="checkbox" style="margin-top: 2px;" />
+                  <div style="flex: 1; min-width: 0;">
+                    <div style="color: #ECEFF1; font-size: 13px; font-weight: 500; margin-bottom: 3px;">OCTOPATH TRAVELER 0</div>
+                    <div style="color: #9CA3AF; font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, Consolas, monospace;">C:\Users\skorc\AppData\Local\OCTOPATH_TRAVELER\Saved\SaveGames\</div>
+                  </div>
+                </div>
+              </div>
+
+              <div style="display: flex; gap: 6px;">
+                <button type="button" style="display: flex; align-items: center; gap: 5px; padding: 6px 12px; background: transparent; border: 1px solid #494949; border-radius: 4px; color: #ECEFF1; font-size: 12px; cursor: pointer; font-family: inherit;">
+                  {{ iconFolder }}<span>Set save folder...</span>
+                </button>
+                <button type="button" style="display: flex; align-items: center; gap: 5px; padding: 6px 12px; background: transparent; border: 1px solid #f4a60d; border-radius: 4px; color: #f4a60d; font-size: 12px; cursor: pointer; font-family: inherit;">
+                  {{ iconTrash }}<span>Remove selected</span>
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </sc-if>
+
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;: {&quot;width&quot;: 960, &quot;height&quot;: 660}}">
+class Component extends DCLogic {
+  state = {
+    activeView: 'addGames',
+    checkedGames: new Set(),
+    hideSteamCloud: false,
+    serverUrl: 'http://localhost:5173',
+    machineName: 'ThunderHorse',
+    apiKey: '4_AAXrcuQNYa0...',
+    startWithWindows: false,
+    copied: false,
+  };
+
+  GAMES = [
+    { id: 0, name: 'Clair Obscur: Expedition 33', source: 'SteamInstalled', hasSteamCloud: true,  path: '' },
+    { id: 1, name: 'Everything',                  source: 'SaveRoot',       hasSteamCloud: false, path: 'C:\\Users\\skorc\\AppData\\Local\\Packages\\Everything_zsz4vjnfw5ygy\\LocalState' },
+    { id: 2, name: 'OCTOPATH TRAVELER 0',          source: 'SteamShortcut',  hasSteamCloud: false, path: 'C:\\Users\\skorc\\AppData\\Local\\OCTOPATH_TRAVELER\\Saved\\SaveGames' },
+  ];
+
+  // ── Inline SVG icon factory (Lucide-compatible, zero CDN dependency) ──
+  _p  = (d)            => ['path',   { d }];
+  _r  = (x,y,w,h,rx=0) => ['rect',   { x, y, width: w, height: h, rx }];
+  _ci = (cx,cy,r)      => ['circle', { cx, cy, r }];
+
+  _svg(size, color, ...elems) {
+    const kids = elems.map(([tag, attrs], i) => React.createElement(tag, { key: i, ...attrs }));
+    return React.createElement('svg', {
+      viewBox: '0 0 24 24', width: size, height: size, fill: 'none',
+      stroke: color, strokeWidth: 1.75, strokeLinecap: 'round', strokeLinejoin: 'round',
+      style: { flexShrink: 0, display: 'inline-block', verticalAlign: 'middle' },
+    }, ...kids);
+  }
+
+  renderVals() {
+    const { activeView, checkedGames, hideSteamCloud, serverUrl, machineName, apiKey, startWithWindows, copied } = this.state;
+    const p = this._p, r = this._r;
+    const ic = this._svg.bind(this);
+    const nc = (v) => activeView === v ? '#129271' : '#9CA3AF';
+
+    const navItem = (view) => ({
+      display: 'flex', alignItems: 'center', gap: '8px',
+      padding: '8px 10px', borderRadius: '5px', cursor: 'pointer',
+      background: activeView === view ? 'rgba(18,146,113,0.14)' : 'transparent',
+      color: activeView === view ? '#129271' : '#ECEFF1',
+      fontSize: '13px', fontWeight: activeView === view ? '600' : '400',
+      borderLeft: '2px solid ' + (activeView === view ? '#129271' : 'transparent'),
+      transition: 'background 0.12s ease', userSelect: 'none',
+    });
+
+    const gameItems = this.GAMES.map(g => ({
+      ...g,
+      checked: checkedGames.has(g.id),
+      onToggle: () => this.setState(prev => {
+        const next = new Set(prev.checkedGames);
+        next.has(g.id) ? next.delete(g.id) : next.add(g.id);
+        return { checkedGames: next };
+      }),
+    }));
+
+    return {
+      // ── View routing ──
+      isOverview: activeView === 'overview',
+      isAddGames: activeView === 'addGames',
+      isSettings: activeView === 'settings',
+      navToOverview: () => this.setState({ activeView: 'overview' }),
+      navToAddGames: () => this.setState({ activeView: 'addGames' }),
+      navToSettings: () => this.setState({ activeView: 'settings' }),
+      navOverviewStyle: navItem('overview'),
+      navAddGamesStyle: navItem('addGames'),
+      navSettingsStyle: navItem('settings'),
+
+      // ── Icons ──
+      iconShield:    ic(18, '#129271',  p('M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z')),
+      iconMonitor:   ic(14, nc('overview'),  r(2,3,20,14,2), p('M8 21h8'), p('M12 17v4')),
+      iconPlus:      ic(14, nc('addGames'),  p('M12 5v14'), p('M5 12h14')),
+      iconSettings:  ic(14, nc('settings'),
+        p('M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'),
+        p('M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z')
+      ),
+      iconHardDrive: ic(12, '#9CA3AF',
+        p('M22 12H2'),
+        p('M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z'),
+        p('M6 16h.01'), p('M10 16h.01')
+      ),
+      iconServer:    ic(13, '#129271',  r(2,2,20,8,2), r(2,14,20,8,2), p('M6 6h.01'), p('M6 18h.01')),
+      iconRefresh:   ic(13, '#9CA3AF',
+        p('M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8'),
+        p('M21 3v5h-5'),
+        p('M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16'),
+        p('M8 16H3v5')
+      ),
+      iconFolder:    ic(13, '#9CA3AF',
+        p('M6 14l1.45-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.55 6a2 2 0 0 1-1.94 1.5H4a2 2 0 0 1-2-2V5c0-1.1.9-2 2-2h3.93a2 2 0 0 1 1.66.9l.82 1.2A2 2 0 0 0 12.07 6H18a2 2 0 0 1 2 2v2')
+      ),
+      iconCloud:     ic(13, hideSteamCloud ? '#129271' : '#9CA3AF',
+        p('M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z')
+      ),
+      iconCopy:      ic(13, copied ? '#129271' : '#9CA3AF',
+        r(8,8,14,14,2),
+        p('M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2')
+      ),
+      iconTrash:     ic(13, '#f4a60d',
+        p('M3 6h18'),
+        p('M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6'),
+        p('M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2'),
+        p('M10 11v6'), p('M14 11v6')
+      ),
+      iconCpu:       ic(40, '#129271',
+        r(4,4,16,16,2), r(9,9,6,6),
+        p('M9 1v3'), p('M15 1v3'), p('M9 20v3'), p('M15 20v3'),
+        p('M20 9h3'), p('M20 14h3'), p('M1 9h3'), p('M1 14h3')
+      ),
+
+      // ── Add Games ──
+      gameItems,
+      steamCloudBtnStyle: {
+        display: 'flex', alignItems: 'center', gap: '5px', padding: '5px 11px',
+        background: hideSteamCloud ? 'rgba(18,146,113,0.1)' : 'transparent',
+        border: '1px solid ' + (hideSteamCloud ? '#129271' : '#494949'),
+        borderRadius: '4px',
+        color: hideSteamCloud ? '#129271' : '#9CA3AF',
+        fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+      },
+      toggleHideSteamCloud: () => this.setState(prev => ({ hideSteamCloud: !prev.hideSteamCloud })),
+
+      // ── Settings form ──
+      serverUrl, machineName, apiKey, startWithWindows,
+      onServerUrlChange:        (e) => this.setState({ serverUrl: e.target.value }),
+      onMachineNameChange:      (e) => this.setState({ machineName: e.target.value }),
+      onApiKeyChange:           (e) => this.setState({ apiKey: e.target.value }),
+      onStartWithWindowsChange: (e) => this.setState({ startWithWindows: e.target.checked }),
+      onCopyApiKey: () => {
+        navigator.clipboard && navigator.clipboard.writeText(apiKey).catch(() => {});
+        this.setState({ copied: true });
+        setTimeout(() => this.setState({ copied: false }), 2000);
+      },
+      copyBtnText: copied ? '✓ Copied' : 'Copy',
+      copyBtnStyle: {
+        display: 'flex', alignItems: 'center', gap: '5px', padding: '7px 12px',
+        background: copied ? 'rgba(18,146,113,0.1)' : 'transparent',
+        border: '1px solid ' + (copied ? '#129271' : '#494949'),
+        borderRadius: '4px', color: copied ? '#129271' : '#ECEFF1',
+        fontSize: '12px', cursor: 'pointer', fontFamily: 'inherit',
+        flexShrink: 0, whiteSpace: 'nowrap',
+      },
+    };
+  }
+}
+</script>
+</body>
+</html>

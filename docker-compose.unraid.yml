@@ -1,0 +1,18 @@
+services:
+  savelocker:
+    image: ghcr.io/skorcherx/savelocker:latest
+    container_name: savelocker-server
+    ports:
+      - "8080:8080"
+    volumes:
+      - /mnt/user/appdata/savelocker:/data
+    restart: unless-stopped
+
+  watchtower:
+    image: containrrr/watchtower
+    container_name: watchtower-savelocker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /root/.docker/config.json:/config.json
+    command: savelocker-server --interval 300
+    restart: unless-stopped

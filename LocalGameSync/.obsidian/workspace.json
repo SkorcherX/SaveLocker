@@ -1,0 +1,234 @@
+{
+  "main": {
+    "id": "338373906180d002",
+    "type": "split",
+    "children": [
+      {
+        "id": "87c795099fd42c36",
+        "type": "tabs",
+        "dimension": 64.91525423728814,
+        "children": [
+          {
+            "id": "db23022f16b73dee",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "Console Redesign.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "Console Redesign"
+            }
+          }
+        ]
+      },
+      {
+        "id": "49e55ef8624b7f21",
+        "type": "tabs",
+        "dimension": 35.08474576271187,
+        "children": [
+          {
+            "id": "4f1b59e2278d1875",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "UX Roadmap.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "UX Roadmap"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "043b4aa548fde9fb",
+    "type": "split",
+    "children": [
+      {
+        "id": "7c7abdce9595b34a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "7040d9566ea6491b",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "a24e51c5027dc47c",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "c6497db570ec4c94",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "9b1209e19cb64116",
+    "type": "split",
+    "children": [
+      {
+        "id": "5346b94831d4b936",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6e683fcf6e9c659a",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Future Work.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Future Work"
+            }
+          },
+          {
+            "id": "5a8b8314ea50f07d",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Future Work.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from Future Work"
+            }
+          },
+          {
+            "id": "54c7bdca97e84433",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "47c84a8b18be09b5",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "fffabdcd7883add1",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Future Work.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of Future Work"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "4f1b59e2278d1875",
+  "lastOpenFiles": [
+    "Progress.md",
+    "Console Redesign.md",
+    "Progress.md.tmp.37136.2e5919b2e1f5",
+    "Console Redesign.md.tmp.37136.cfd4a1324a15",
+    "Architecture.md",
+    "Progress.md.tmp.11080.d2ed6e8f3fc9",
+    "Progress.md.tmp.13536.d451574b31f7",
+    "Future Work.md.tmp.35296.bec6e3cd7b3b",
+    "Decisions.md.tmp.35296.27da45e533eb",
+    "Build and Run.md",
+    "CLI Reference.md",
+    "Future Work.md",
+    "Gotchas.md",
+    "Home.md",
+    "UX Roadmap.md",
+    "Decisions.md",
+    "Home.md.tmp.24656.6187e6d214fc",
+    "Home.md.tmp.24656.6563ecf79e2c",
+    "Progress.md.tmp.12260.d78fd1a8413e",
+    "Progress.md.tmp.12260.308572dbe047",
+    "Welcome.md",
+    "Game Discovery and Art.md",
+    "API Reference.md"
+  ]
+}

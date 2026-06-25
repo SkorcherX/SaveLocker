@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+**/data/
+**/localstate/
+.verify/
+.git/
+.vs/
+*.user
+LocalGameSync/.obsidian/
