@@ -3,7 +3,7 @@ services:
     image: ghcr.io/skorcherx/savelocker:latest
     container_name: savelocker-server
     ports:
-      - "8080:8080"
+      - "5080:8080"
     volumes:
       - /mnt/user/appdata/savelocker:/data
     restart: unless-stopped
