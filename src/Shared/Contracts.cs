@@ -160,3 +160,15 @@ public record AgentCommandDto(
     string? Result);
 
 public record CommandResultRequest(CommandStatus Status, string? Result);
+
+// ----- Audit log -----
+
+public record AuditEntryDto(
+    Guid Id,
+    DateTime Timestamp,
+    Guid? MachineId,
+    string? MachineName,
+    Guid? GameId,
+    string? GameName,
+    string Action,
+    string? Detail);

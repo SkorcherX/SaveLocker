@@ -63,3 +63,14 @@ export interface MachineSavePath {
   machineName: string;
   savePath: string;
 }
+
+export interface AuditEntry {
+  id: string;
+  timestamp: string;
+  machineId: string | null;
+  machineName: string | null;
+  gameId: string | null;
+  gameName: string | null;
+  action: string;
+  detail: string | null;
+}

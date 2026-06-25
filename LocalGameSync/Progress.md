@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-06-24.
+Back to [[Home]]. Last updated: 2026-06-25.
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -333,6 +333,15 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-06-25:** **Cleanup, full user-visible rename, installer branding, per-machine paths, folder picker fix, audit log.**
+  - Deleted dead WinForms files (`AddGamesForm.cs`, `SettingsForm.cs`, `SaveLocationDialog.cs`) — replaced by React agent UI.
+  - All remaining "LocalGameSync" user-visible strings → "SaveLocker": health check, log/config path comments, default DB (`savelocker.db`) with auto-rename shim for existing installs.
+  - `installer/LocalGameSync.iss` renamed to `installer/SaveLocker.iss`; branded wizard images generated: `SaveLocker_WizardBg.png` (164×314) and `SaveLocker_WizardSmall.png` (55×58).
+  - **Per-machine save paths** — `MachineSavePaths` table (additive startup SQL), SyncService CRUD, new server endpoints, agent two-way sync (reads server path, reports local detection back). Dashboard "Save paths per machine" table. Verified on ThunderHorse and Wideboy with different usernames.
+  - **Folder browser fix** — `ShowFolderPickerAsync` was dispatching `FolderBrowserDialog` to a ThreadPool (MTA) thread because `SynchronizationContext.Current` is null when `TrayApp` constructs (before `Application.Run` installs the WinForms pump). Fixed: spawn a dedicated STA thread per dialog, parent to `Application.OpenForms[0]`.
+  - **Vite dev server LAN binding** — added `host: '0.0.0.0'` to `vite.config.ts`; dashboard now reachable at `192.168.68.58:5173` from Wideboy.
+  - **Audit log view** — `GET /api/audit?limit=200` with LEFT JOIN on machines/games; `AuditView.tsx` with color-coded action badges; "Audit Log" nav tab added.
+
 - **2026-06-24 (continued):** **CI/CD pipeline + unRAID deployment.**
   - **GitHub repo** created at https://github.com/SkorcherX/SaveLocker.
   - **Multi-stage Dockerfile (Phase 3)** — added Node 22 Alpine build stage; `npm ci` +
@@ -493,12 +502,12 @@ UX phase functionally complete and deployed. Queue, in priority order:
    (additive startup SQL); `GET /api/games` injects this machine's stored path into each
    `GameDto`; new endpoints for dashboard set/clear; agent reconcile uses server path as
    highest priority and reports locally-detected paths back to the server (two-way sync).
-   Dashboard "Save paths per machine" table replaces the old single-path row. Built +
-   verified live in dashboard. **Needs real-machine test** — launch agent on ThunderHorse,
-   confirm paths appear in dashboard; repeat on Wideboy to verify per-user paths work.
-6. **Audit-log view** — `AuditLog` entity already exists and is populated; just needs
-   a dashboard UI (table with timestamp, machine, game, action, detail). Imperative for
-   troubleshooting.
+   Dashboard "Save paths per machine" table replaces the old single-path row. **Verified
+   on ThunderHorse and Wideboy** — separate per-user paths stored and used correctly.
+6. ~~**Audit-log view**~~ **DONE 2026-06-25** — `GET /api/audit?limit=200` LEFT JOINs
+   machines + games to resolve names server-side. New `AuditView.tsx` React component:
+   timestamp, machine, game, action badge (color-coded by category), detail. New "Audit
+   Log" nav tab in the dashboard. Verified — endpoint responds, UI renders all events.
 7. **Offline / durable retry queue** — if the agent can't reach the server, pushes are
    lost. Need a local queue (simple JSON file or SQLite) that drains when connectivity
    returns.
@@ -513,7 +522,8 @@ UX phase functionally complete and deployed. Queue, in priority order:
 See [[UX Roadmap]] / [[Future Work]] for the full backlog.
 
 ## How to resume
-- Run server: `cd src/Server && dotnet run` → dashboard http://localhost:5179.
-- Build agent: `dotnet build src/Agent/LocalGameSync.Agent.csproj` (use
-  `--no-incremental`; **stop the running agent/server first** — they lock the DLLs).
+- Run server: `cd src/Server && dotnet run` → API on http://localhost:5179.
+- Run dashboard dev server: `cd web && npm run dev` → http://localhost:5173 (proxies `/api` to :5179). LAN-accessible at `http://192.168.68.58:5173` (host bound to `0.0.0.0`).
+- Build installer: `.\installer\build-installer.ps1` → `installer/dist/SaveLocker-Agent-Setup-0.1.0.exe`.
+- Build agent (dev): `dotnet build src/Agent/LocalGameSync.Agent.csproj` (use `--no-incremental`; **stop the running agent/server first** — they lock the DLLs).
 - Re-read [[Gotchas]] before touching builds/paths. [[CLI Reference]] for commands.

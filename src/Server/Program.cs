@@ -266,6 +266,9 @@ api.MapPost("/commands", async (EnqueueCommandRequest req, SyncService sync) =>
 api.MapGet("/commands", async (SyncService sync) =>
     Results.Ok((await sync.ListCommandsAsync()).Select(c => c.ToDto())));
 
+api.MapGet("/audit", async (SyncService sync, int limit = 200) =>
+    Results.Ok(await sync.GetAuditLogAsync(Math.Clamp(limit, 1, 1000))));
+
 app.Run();
 
 // Streams a downloaded version, exposing its id and content hash as response

@@ -542,6 +542,19 @@ public sealed class SyncService
             v.Machine = await _db.Machines.FindAsync(new object?[] { v.MachineId }, ct);
     }
 
+    public async Task<List<AuditEntryDto>> GetAuditLogAsync(int limit = 200)
+    {
+        return await (
+            from a in _db.AuditLogs
+            join m in _db.Machines on a.MachineId equals m.Id into ms
+            from m in ms.DefaultIfEmpty()
+            join g in _db.Games on a.GameId equals g.Id into gs
+            from g in gs.DefaultIfEmpty()
+            orderby a.Timestamp descending
+            select new AuditEntryDto(a.Id, a.Timestamp, a.MachineId, m.Name, a.GameId, g.Name, a.Action, a.Detail)
+        ).Take(limit).ToListAsync();
+    }
+
     private Task Audit(Guid? machineId, Guid? gameId, string action, string? detail)
     {
         _db.AuditLogs.Add(new AuditLog

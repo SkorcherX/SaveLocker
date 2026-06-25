@@ -2,19 +2,20 @@
 
 Back to [[Home]]. The plan for giving the SaveLocker admin dashboard a "fresh coat of paint" using Claude Design artifacts and modern frontend tooling.
 
-## Status (2026-06-24)
-**Phase 1 complete. Phase 2 complete (feature parity reached). Phase 3 pending (fold into Docker).**
+## Status (2026-06-25)
+**All phases complete except Phase 4 (technical codebase rename, deferred).**
 
 - **Phase 1 — Design:** completed via `design_handoff_savelocker/` package (two high-fidelity
   HTML prototypes: Games dashboard + Configuration page). Design tokens, typography, layout, and
   interactive states are all specified. Approved.
-- **Phase 2 — React project:** `web/` directory created at the repo root. Vite + React +
-  TypeScript + Tailwind CSS v4 (`@tailwindcss/vite`). All API endpoints wired. Dev server at
-  `http://localhost:5173` (proxies `/api` and `/art` to `:5179`). Feature parity with the
-  old console confirmed. Legacy `src/Server/wwwroot/index.html` untouched.
-- **Phase 3 — Docker integration:** pending (fold `npm run build` into the Dockerfile; lands
-  with the deployment-hardening milestone).
-- **Phase 4 — Codebase rename:** pending (after Phase 3 stabilises).
+- **Phase 2 — React project:** `web/` directory at repo root. Vite + React + TypeScript +
+  Tailwind CSS v4. All API endpoints wired. Dev server at `http://localhost:5173` (proxies
+  `/api` and `/art` to `:5179`; bound to `0.0.0.0` for LAN access). Feature parity confirmed.
+  Additional views since initial build: **Audit Log** tab (`AuditView.tsx`).
+- **Phase 3 — Docker integration:** **DONE (2026-06-24).** Multi-stage Dockerfile: Node stage
+  runs `npm run build`, copies `dist/` into `src/Server/wwwroot/`. React dashboard baked into
+  the production image. CI/CD via GitHub Actions → GHCR → Watchtower on unRAID.
+- **Phase 4 — Codebase rename:** pending (namespaces, `.sln`, project files — see [[Future Work]]).
 
 The **current console** (`src/Server/wwwroot/index.html`) is fully functional and clean:
 vanilla JavaScript, hand-written CSS via custom properties, no build toolchain, static file
@@ -93,8 +94,8 @@ The new frontend naturally targets the new names.
   TypeScript types). Saves wiring and catches API drift at compile time.
 
 ## What NOT to do now
-- Don't ship the new frontend until it's folded into the Docker image (Phase 3).
-- Don't rename the codebase until Phase 3 is stable.
+- Don't rename the codebase (`LocalGameSync` → `SaveLocker`) until the technical rename
+  task is intentionally scheduled — it's deferred to productization phase.
 
 ## Open questions — resolved
 - **Color scheme & branding.** Locked via design handoff: dark theme `#2A3238` bg,
@@ -107,18 +108,19 @@ The new frontend naturally targets the new names.
 ## React project structure (`web/`)
 ```
 web/
-  vite.config.ts          proxy /api + /art → :5179; PORT env var for preview tool
+  vite.config.ts          proxy /api + /art → :5179; host 0.0.0.0 for LAN access
   src/
     index.css             Tailwind v4 @theme tokens (design tokens → utilities)
     api.ts                typed fetch client — all API endpoints
     types.ts              TypeScript types for all API shapes
-    App.tsx               root: load, 15s auto-refresh, view routing
+    App.tsx               root: load, 15s auto-refresh, view routing (games/config/audit)
     components/
-      NavBar.tsx          logo, Games/Config tabs, API key input, Connect/Refresh
+      NavBar.tsx          logo, Games/Config/Audit Log tabs, API key input, Connect/Refresh
       GamesSidebar.tsx    220px left sidebar — cover art, name, status badge
       GamesView.tsx       sidebar + detail panel layout
-      GameDetail.tsx      game card + Machines + Commands + Versions tables
+      GameDetail.tsx      game card + Machines + Commands + Versions + per-machine save paths
       ConfigView.tsx      SteamGridDB settings card + Machines/API keys table
+      AuditView.tsx       audit log table with color-coded action badges
     assets/
       SaveLocker_Logo_crop.png
 ```

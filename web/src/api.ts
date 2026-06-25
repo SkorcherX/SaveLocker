@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry } from './types';
 
 let apiKey = localStorage.getItem('sl_key') || '';
 
@@ -57,4 +57,6 @@ export const api = {
   clearMachinePath: (gameId: string, machineId: string) =>
     fetch(`/api/games/${gameId}/paths/${machineId}`, { method: 'DELETE', headers: headers() })
       .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
+
+  audit: (limit = 200) => request<AuditEntry[]>(`/audit?limit=${limit}`),
 };

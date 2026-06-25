@@ -27,9 +27,9 @@ Prepend `"$env:ProgramFiles\dotnet"` to `$env:Path` or open a new shell.
 The agent is a WinExe (GUI subsystem). Launching the installed `.exe` from
 PowerShell or CMD shows **no stdout/stderr** — the shell doesn't wait for a WinExe
 or doesn't pipe its output. Two workarounds:
-- **Redirect to file:** `"C:\Program Files\LocalGameSync\LocalGameSync.Agent.exe" <cmd> > C:\temp\lgs.txt 2>&1`
-- **Read the log** (preferred): `C:\ProgramData\LocalGameSync\agent.log` — the
-  agent now writes all sync events and full exception stack traces there (rolling
+- **Redirect to file:** `"C:\Program Files\SaveLocker Agent\LocalGameSync.Agent.exe" <cmd> > C:\temp\lgs.txt 2>&1`
+- **Read the log** (preferred): `C:\ProgramData\SaveLocker\agent.log` — the
+  agent writes all sync events and full exception stack traces there (rolling
   1 MB, keeps one `.old`). Use the `log` CLI sub-command to tail it:
   `LocalGameSync.Agent.exe log > C:\temp\lgs.txt 2>&1`
 
@@ -41,7 +41,7 @@ If a game's save folder is inside an OneDrive-managed tree
 block the rename even when OneDrive is not running.
 - **Fixed (2026-06-23):** `SaveArchive.RestoreArchive` now accepts an optional
   `stagingRoot`; `SyncEngine` passes `_tempDir`
-  (`C:\ProgramData\LocalGameSync\tmp`) so staging always lives outside the
+  (`C:\ProgramData\SaveLocker\tmp`) so staging always lives outside the
   OneDrive tree. Restore is file-by-file copy rather than directory rename.
   Verified on Wideboy with Octopath Traveler 0 saves in OneDrive Documents.
 
@@ -63,6 +63,18 @@ sidebar was visible.
   explicitly to `ClientSize`.
 - Diagnosed via JS executed after `NavigationCompleted`:
   `window.innerWidth`, `window.innerHeight`, `window.devicePixelRatio`.
+
+## FolderBrowserDialog silently returns Cancel from agent API server
+`AgentApiServer` handles HTTP requests on ThreadPool (MTA) threads. `FolderBrowserDialog.ShowDialog()`
+called on an MTA thread returns `DialogResult.Cancel` immediately without showing anything.
+The original fix used `SynchronizationContext.Post()`, but `SynchronizationContext.Current`
+is **null** when `TrayApp` constructs — `Application.Run` hasn't installed the
+`WindowsFormsSynchronizationContext` yet, so the captured context is the base class which
+just queues to the ThreadPool (also MTA).
+- **Fixed (2026-06-25):** `ShowFolderPickerAsync` spawns a **dedicated STA thread** per
+  call (`thread.SetApartmentState(ApartmentState.STA)`), parents the dialog to
+  `Application.OpenForms[0]` so it appears in front of the agent window, and resolves a
+  `TaskCompletionSource<string?>` when dismissed. No dependency on the WinForms sync context.
 
 ## EF Core version
 Pin EF Core to **9.0.x** (`9.0.9` used). 10.x requires net10 and won't restore on net9.

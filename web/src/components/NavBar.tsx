@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { getApiKey, setApiKey as persistKey } from '../api';
 import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
-type View = 'games' | 'config';
+type View = 'games' | 'config' | 'audit';
 
 interface Props {
   view: View;
@@ -60,6 +60,7 @@ export function NavBar({ view, onViewChange, onConnect, onAddGame, onRefresh, is
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
         <button className={navBtn(view === 'games')} onClick={() => onViewChange('games')}>Games</button>
         <button className={navBtn(view === 'config')} onClick={() => onViewChange('config')}>Configuration</button>
+        <button className={navBtn(view === 'audit')} onClick={() => onViewChange('audit')}>Audit Log</button>
 
         {/* API Key composite input */}
         <div style={{ display: 'flex', alignItems: 'center', background: '#2A3238', border: '1px solid #494949', borderRadius: 5, overflow: 'hidden' }}>

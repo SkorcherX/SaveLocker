@@ -30,16 +30,18 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
 - Background sweep to expire stale leases proactively (currently lazy on access).
 
 ## Agent UX
-- ~~Settings UI in the tray~~ — **DONE** (WS1: `SettingsForm` + Add games picker +
-  `SaveLocationDialog` save-folder browser). See [[Progress]].
+- ~~Settings UI in the tray~~ — **DONE** (WS1 → replaced by React/WebView2 agent UI).
+  `AddGamesForm.cs`, `SettingsForm.cs`, `SaveLocationDialog.cs` were the old WinForms
+  windows — all deleted (2026-06-25). `AgentApiServer.cs` + `agent-ui/` React SPA is the
+  current implementation (three views: Overview, Add Games, Settings). See [[Progress]].
 - ~~**First-run prompt** when unregistered~~ — **DONE** (2026-06-22): `MaybeShowFirstRun`
   welcome → Settings, shown once via `FirstRunCompleted`. See [[Progress]].
 - ~~**Auto-start on login**~~ — **DONE** (2026-06-22): per-user HKCU Run-key entry via
-  `AutoStart.cs` + "Start with Windows" checkbox (with a consent dialog) in Settings. See [[Progress]].
-- ~~**Agent installer**~~ — **DONE** (2026-06-22): Inno Setup `installer/LocalGameSync.iss`
-  + self-contained publish + single-instance mutex; uninstall reverts the Run key and asks
-  about config. See [[Progress]] / [[Decisions]]. *Pending:* interactive install/uninstall
-  test on a real machine; code-sign the exe to avoid SmartScreen; auto-update.
+  `AutoStart.cs` + "Start with Windows" checkbox in Settings. See [[Progress]].
+- ~~**Agent installer**~~ — **DONE**: Inno Setup `installer/SaveLocker.iss` + self-contained
+  publish + single-instance mutex; wizard branded with `SaveLocker_WizardBg.png` /
+  `SaveLocker_WizardSmall.png`; uninstall reverts Run key and asks about config.
+  Verified on Wideboy (2026-06-25). *Pending:* code-sign the exe to avoid SmartScreen; auto-update.
 
 ## Detection
 - Registry-based saves (manifest `registry:` section) — only `files:` handled.
@@ -51,9 +53,10 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   product name is **SaveLocker** (see [[Decisions]]). The codebase (`LocalGameSync.sln`,
   namespaces, the installer, mutex, paths) stays `LocalGameSync` until a deliberate
   **technical rename** (a separate task, sequenced here for later). See below.
-- ~~**Installer art direction.**~~ **DONE (2026-06-24).** SaveLocker logo added as Inno Setup
-  `WizardSmallImageFile` + `WizardImageFile` (`installer/SaveLocker_Logo.png`). Installer
-  `AppName`, `AppPublisher`, `DefaultDirName`, `OutputBaseFilename` all use "SaveLocker".
+- ~~**Installer art direction.**~~ **DONE (2026-06-25).** Branded wizard images:
+  `installer/SaveLocker_WizardBg.png` (164×314 Welcome/Finish panel) and
+  `installer/SaveLocker_WizardSmall.png` (55×58 inner pages). `#2A3238` background,
+  `#129271` accent. Installer script renamed to `SaveLocker.iss`.
   *Remaining:* code-sign the exe to avoid SmartScreen warnings (currently unsigned).
 - **Technical codebase rename** (`LocalGameSync` → `SaveLocker`): namespaces, solution
   file, project names, `AppId` GUID. *Partially done (2026-06-24):* all **user-visible**
@@ -69,7 +72,7 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   "fresh coat of paint" lands.
 
 ## Nice-to-have
-- Dashboard: audit-log view (data is captured in `AuditLog`, not yet surfaced).
+- ~~Dashboard: audit-log view~~ **DONE (2026-06-25)** — `GET /api/audit`, `AuditView.tsx`, "Audit Log" nav tab.
 - Per-game include/exclude globs before archiving.
 
 See [[Progress]] for what *is* done.

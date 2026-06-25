@@ -29,10 +29,11 @@ elsewhere. Content-hash + parent-version lineage is the fallback detector.
   mid-write; conflict files messy for binary saves.
 
 ## UX phase decisions (locked 2026-06-22)
-1. **Dashboard auth:** rely on **CloudFlare Access with Google auth** — only
-   email addresses in the access policy can reach the dashboard. No in-app login
-   for now (personal project, single admin). Multi-admin "each with their own
-   game dashboard" is a later exploration, not built now.
+1. **Dashboard auth:** ~~rely on CloudFlare Access with Google auth~~ **Deferred (2026-06-25).**
+   CloudFlare Tunnel has a 100 MB file size limit that may conflict with large save archives.
+   The desktop PC (primary hub) doesn't travel. Agents only need LAN access.
+   The dashboard can be exposed manually if needed. Real admin auth (distinct from machine
+   keys) is still on the backlog but not blocking.
 2. **Enrollment model:** a game is defined **once on the server** (via the
    dashboard); each agent simply **maps its own local save dir** to that game.
    Scanners suggest candidates, but the server game is the single definition.
@@ -45,26 +46,31 @@ elsewhere. Content-hash + parent-version lineage is the fallback detector.
 5. **Build order:** start with [[UX Roadmap]] Workstream 1 (tray UX) + 2 (scanning).
 
 ## Product name: SaveLocker (locked 2026-06-22)
-The official product/brand name is **SaveLocker**. The codebase remains named
-`LocalGameSync` (namespaces, `LocalGameSync.sln`, repo path, installer `AppName`, the
-single-instance mutex, the `%PROGRAMDATA%\LocalGameSync` config dir, the server database
-`localgamesync.db`) until a deliberate **technical rename** scheduled for the productization
-phase. Docs use **SaveLocker** for the product and `LocalGameSync` only when referring to
-actual code identifiers or paths. The rename will touch: namespaces → `SaveLocker.*`, the
-solution file, all project names, the installer, the mutex, paths, and the database. See
-[[Future Work]] "Productization / branding" and [[Console Redesign]].
+The official product/brand name is **SaveLocker**. As of 2026-06-25:
+- **Already renamed (user-visible):** config dir `%PROGRAMDATA%\SaveLocker`, single-instance
+  mutex `"SaveLocker.Agent"`, registry Run-key value `"SaveLocker"`, installer AppName/publisher/
+  output filename, wizard images, health check endpoint, tray/window/balloon text, all log
+  comments, default DB path `savelocker.db` (with rename shim for existing installs).
+- **Still `LocalGameSync` (internal code identifiers):** namespaces (`LocalGameSync.*`),
+  solution file (`LocalGameSync.sln`), project file names, installer file (`SaveLocker.iss`
+  but csproj name unchanged), Docker container DB path (`/data/localgamesync.db` — explicit
+  config, unaffected by rename shim).
+- The technical rename of code identifiers is a productization-phase task (see [[Future Work]]).
+  Docs use **SaveLocker** for the product and `LocalGameSync` only when referring to actual
+  code identifiers or file paths.
 
 ## Agent installer (locked 2026-06-22)
 - **Tooling: Inno Setup 6** (over WiX/MSI and MSIX). Free, simple, full control over
   registry cleanup + uninstaller. MSIX rejected — its filesystem/registry virtualisation
   would interfere with the agent reading the Steam registry path + arbitrary save folders.
-- **Per-user install** (`PrivilegesRequired=lowest`, `%LOCALAPPDATA%\Programs\…`): no
-  admin prompt; auto-start is the per-user HKCU Run key anyway.
+- **Script:** `installer/SaveLocker.iss` (renamed from `LocalGameSync.iss` on 2026-06-25).
+  Build via `.\installer\build-installer.ps1`. Output: `installer/dist/SaveLocker-Agent-Setup-0.1.0.exe`.
+- **Machine-wide install** to `C:\Program Files\SaveLocker Agent`, `PrivilegesRequired=admin`.
 - **Why an installer at all (user reasoning):** auto-start writes a registry entry; a
   manually-deleted exe would orphan it. The uninstaller must own/revert every system
   change so users aren't left with dangling registry entries.
 - **Uninstall keeps-or-removes config: ask the user.** The uninstaller prompts before
-  deleting `%PROGRAMDATA%\LocalGameSync` (API key + tracked games); *No* preserves it for
+  deleting `%PROGRAMDATA%\SaveLocker` (API key + tracked games); *No* preserves it for
   a reinstall. Auto-start (in-app toggle) also requires an explicit consent dialog first.
 
 ## Environment facts (user-provided)

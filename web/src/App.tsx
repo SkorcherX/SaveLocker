@@ -4,8 +4,9 @@ import type { GameSummary, Machine, Command, Conflict, Settings } from './types'
 import { NavBar } from './components/NavBar';
 import { GamesView } from './components/GamesView';
 import { ConfigView } from './components/ConfigView';
+import { AuditView } from './components/AuditView';
 
-type View = 'games' | 'config';
+type View = 'games' | 'config' | 'audit';
 
 interface AppData {
   games: GameSummary[];
@@ -16,7 +17,9 @@ interface AppData {
 }
 
 function getInitialView(): View {
-  return location.hash === '#config' ? 'config' : 'games';
+  if (location.hash === '#config') return 'config';
+  if (location.hash === '#audit') return 'audit';
+  return 'games';
 }
 
 export default function App() {
@@ -57,7 +60,7 @@ export default function App() {
   }, [load]);
 
   useEffect(() => {
-    location.hash = view === 'config' ? 'config' : '';
+    location.hash = view === 'config' ? 'config' : view === 'audit' ? 'audit' : '';
   }, [view]);
 
   async function handleAddGame() {
@@ -110,6 +113,8 @@ export default function App() {
                 conflicts={data.conflicts}
                 onRefresh={load}
               />
+            : view === 'audit'
+            ? <AuditView />
             : <ConfigView
                 machines={data.machines}
                 settings={data.settings}
