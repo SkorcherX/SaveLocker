@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { FolderOpen, Trash2, Copy } from 'lucide-react'
 import type { AgentState, TrackedGame } from '../types'
 import { api } from '../api'
@@ -43,11 +43,12 @@ export function SettingsView({ state, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [registering, setRegistering] = useState(false)
   const [status, setStatus] = useState('')
+  const dirtyFields = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (state) {
-      setServerUrl(state.serverUrl)
-      setMachineName(state.machineName)
+      if (!dirtyFields.current.has('serverUrl')) setServerUrl(state.serverUrl)
+      if (!dirtyFields.current.has('machineName')) setMachineName(state.machineName)
       setApiKey(state.apiKey)
       setStartWithWindows(state.startWithWindows)
     }
@@ -63,6 +64,7 @@ export function SettingsView({ state, onSaved }: Props) {
     setSaving(true)
     try {
       await api.saveConfig({ serverUrl, machineName })
+      dirtyFields.current.clear()
       onSaved()
       setStatus('Saved.')
       setTimeout(() => setStatus(''), 2000)
@@ -80,6 +82,7 @@ export function SettingsView({ state, onSaved }: Props) {
       await api.saveConfig({ serverUrl, machineName })
       const result = await api.register()
       setApiKey(result.apiKey)
+      dirtyFields.current.clear()
       onSaved()
       setStatus('Registered successfully.')
     } catch (e) {
@@ -141,7 +144,7 @@ export function SettingsView({ state, onSaved }: Props) {
             <label style={LABEL}>Server URL</label>
             <div style={{ display: 'flex', gap: 6 }}>
               <input
-                type="text" value={serverUrl} onChange={e => setServerUrl(e.target.value)}
+                type="text" value={serverUrl} onChange={e => { dirtyFields.current.add('serverUrl'); setServerUrl(e.target.value) }}
                 style={{ ...INPUT, flex: 1, minWidth: 0, fontSize: 12, fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace" }}
               />
               <button style={BTN_PRIMARY} onClick={() => void save()} disabled={busy}>Save</button>
@@ -154,7 +157,7 @@ export function SettingsView({ state, onSaved }: Props) {
           <div>
             <label style={LABEL}>Machine Name</label>
             <input
-              type="text" value={machineName} onChange={e => setMachineName(e.target.value)}
+              type="text" value={machineName} onChange={e => { dirtyFields.current.add('machineName'); setMachineName(e.target.value) }}
               style={{ ...INPUT, width: 240, fontSize: 13 }}
             />
           </div>

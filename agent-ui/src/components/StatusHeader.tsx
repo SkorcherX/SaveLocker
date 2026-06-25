@@ -12,9 +12,9 @@ export function StatusHeader({ connected, serverUrl }: Props) {
 
   return (
     <div style={{
-      padding: '10px 20px', borderBottom: '1px solid #494949',
+      padding: '10px 20px',
       background: '#1E252A', display: 'flex', alignItems: 'center',
-      justifyContent: 'space-between', flexShrink: 0, minHeight: 54,
+      justifyContent: 'space-between', flex: 1,
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
         <Shield size={18} strokeWidth={1.75} color="#129271" />
