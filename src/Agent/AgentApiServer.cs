@@ -295,20 +295,32 @@ internal sealed class AgentApiServer : IDisposable
             path = c.SuggestedSaveDir ?? "",
         }).ToArray();
 
-    /// <summary>Open a Windows folder-picker on the STA WinForms thread and return the chosen path.</summary>
-    private Task<string?> ShowFolderPickerAsync()
+    /// <summary>Open a Windows folder-picker on a dedicated STA thread and return the chosen path.</summary>
+    private static Task<string?> ShowFolderPickerAsync()
     {
         var tcs = new TaskCompletionSource<string?>();
-        _ui.Post(_ =>
+        var thread = new Thread(() =>
         {
-            using var dlg = new FolderBrowserDialog
+            try
             {
-                Description = "Select save folder",
-                UseDescriptionForTitle = true,
-            };
-            var chosen = dlg.ShowDialog() == DialogResult.OK ? dlg.SelectedPath : null;
-            tcs.SetResult(chosen);
-        }, null);
+                using var dlg = new FolderBrowserDialog
+                {
+                    Description = "Select save folder",
+                    UseDescriptionForTitle = true,
+                };
+                // Parent to the first open form so the dialog appears in front of the agent window.
+                var owner = Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null;
+                var chosen = dlg.ShowDialog(owner) == DialogResult.OK ? dlg.SelectedPath : null;
+                tcs.SetResult(chosen);
+            }
+            catch (Exception ex)
+            {
+                tcs.SetException(ex);
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.IsBackground = true;
+        thread.Start();
         return tcs.Task;
     }
 
