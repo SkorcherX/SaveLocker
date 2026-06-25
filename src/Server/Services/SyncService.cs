@@ -57,7 +57,7 @@ public sealed class SyncService
     {
         var hash = Tokens.Hash(apiKey);
         var machine = await _db.Machines.FirstOrDefaultAsync(m => m.ApiKeyHash == hash);
-        if (machine is not null)
+        if (machine is not null && (DateTime.UtcNow - machine.LastSeen).TotalSeconds > 30)
         {
             machine.LastSeen = DateTime.UtcNow;
             await _db.SaveChangesAsync();

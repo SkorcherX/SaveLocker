@@ -75,6 +75,10 @@ using (var scope = app.Services.CreateScope())
 
     db.Database.Migrate();
 
+    // WAL mode: allows concurrent readers alongside the single writer, which prevents
+    // "database is locked" 500s when the dashboard fires several parallel API calls.
+    db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
+
     // Additive table: per-machine save paths (not part of the InitialSchema migration).
     db.Database.ExecuteSqlRaw("""
         CREATE TABLE IF NOT EXISTS "MachineSavePaths" (
