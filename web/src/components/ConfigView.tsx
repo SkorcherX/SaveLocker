@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { api } from '../api';
 import type { Machine, Settings } from '../types';
-import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
 interface Props {
   machines: Machine[];

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { api } from '../api';
 import type { GameSummary, Machine, Command, Conflict } from '../types';
 import { GamesSidebar } from './GamesSidebar';
 import { GameDetail } from './GameDetail';
