@@ -333,6 +333,20 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-06-25 (continued):** **Agent UI polish — settings input clobber fix + header/footer border alignment.**
+  - **Settings input clobber** — `SettingsView.tsx`: the 10-second `/api/state` poll was overwriting
+    the user's in-progress `serverUrl` / `machineName` typing before they could click Save or Register.
+    Fixed by tracking a `dirtyFields` `Set<string>` ref; the sync `useEffect` skips any field the user
+    has typed in. Dirty flags are cleared on a successful Save or Register so future polls resume syncing.
+  - **Header/footer border alignment** — the horizontal border lines at the top and bottom of the app
+    window were misaligned between the sidebar and the content panel because the two independent flex
+    columns had different natural heights (sidebar brand: 64 px; StatusHeader: 54 px min-height; footer
+    content height vs empty div). Fixed by lifting both the header and the footer out of their respective
+    columns into single **shared flex rows** that span the full window width. The border is now one element,
+    making misalignment structurally impossible. Brand + status header → one top row; machine name + empty
+    right cell → one bottom row. `Sidebar` and `StatusHeader` simplified accordingly (removed own
+    borders/minHeight; brand + footer content now live in `App.tsx`).
+
 - **2026-06-25:** **Cleanup, full user-visible rename, installer branding, per-machine paths, folder picker fix, audit log.**
   - Deleted dead WinForms files (`AddGamesForm.cs`, `SettingsForm.cs`, `SaveLocationDialog.cs`) — replaced by React agent UI.
   - All remaining "LocalGameSync" user-visible strings → "SaveLocker": health check, log/config path comments, default DB (`savelocker.db`) with auto-rename shim for existing installs.
