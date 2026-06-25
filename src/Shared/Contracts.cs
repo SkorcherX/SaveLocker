@@ -24,10 +24,14 @@ public record GameDto(
     string? CustomPathsJson,
     bool Enabled,
     string? SuggestedSaveDir = null,
+    string? MachineSavePath = null,
     string? GridUrl = null,
     string? HeroUrl = null,
     string? LogoUrl = null,
     string? IconUrl = null);
+
+/// <summary>A specific machine's stored save path for one game.</summary>
+public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);
 
 public record CreateGameRequest(
     string Name,

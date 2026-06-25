@@ -1,7 +1,7 @@
 namespace LocalGameSync.Agent;
 
 /// <summary>
-/// Thread-safe rolling log file at %ProgramData%\LocalGameSync\agent.log.
+/// Thread-safe rolling log file at %ProgramData%\SaveLocker\agent.log.
 /// Rotates to agent.log.old when the file exceeds 1 MB so it never grows unbounded.
 /// All writes are best-effort — logging failures are silently swallowed so they
 /// can never crash the agent.

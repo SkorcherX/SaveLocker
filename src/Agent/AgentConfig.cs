@@ -5,7 +5,7 @@ namespace LocalGameSync.Agent;
 
 /// <summary>
 /// Per-machine agent configuration, persisted as JSON. Default location is
-/// %PROGRAMDATA%\LocalGameSync\config.json, overridable via --config for tests
+/// %PROGRAMDATA%\SaveLocker\config.json, overridable via --config for tests
 /// (lets two "machines" run side by side against one server).
 /// </summary>
 public sealed class AgentConfig

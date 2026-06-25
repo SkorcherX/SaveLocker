@@ -26,6 +26,13 @@ public sealed class ApiClient
     public async Task<List<GameDto>> ListGamesAsync() =>
         await _http.GetFromJsonAsync<List<GameDto>>("/api/games") ?? new();
 
+    /// <summary>Report this machine's resolved save path for a game back to the server.</summary>
+    public async Task SetMachinePathAsync(Guid gameId, string path)
+    {
+        var resp = await _http.PostAsync($"/api/agent/path/{gameId}?value={Uri.EscapeDataString(path)}", null);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Agent command channel: claim this machine's pending commands.</summary>
     public async Task<List<AgentCommandDto>> GetAgentCommandsAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<AgentCommandDto>>("/api/agent/commands", ct) ?? new();

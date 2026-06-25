@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { GameSummary, Machine, Command, Conflict, Version } from '../types';
+import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath } from '../types';
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
 const when = (t: string | null | undefined) => t ? new Date(t).toLocaleString() : '—';
@@ -17,6 +17,7 @@ interface Props {
 export function GameDetail({ summary, machines, commands, conflicts, onRefresh }: Props) {
   const [versions, setVersions] = useState<Version[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(true);
+  const [machinePaths, setMachinePaths] = useState<MachineSavePath[]>([]);
 
   const { game, head, lease, hasOpenConflict } = summary;
   const headId = head?.id ?? null;
@@ -35,6 +36,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   useEffect(() => {
     setLoadingVersions(true);
     api.versions(game.id).then(vs => { setVersions(vs); setLoadingVersions(false); });
+    api.getGamePaths(game.id).then(setMachinePaths).catch(() => {});
   }, [game.id]);
 
   async function handleRefreshArt() {
@@ -52,9 +54,20 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
 
   async function handleSetSaveDir() {
     const current = game.suggestedSaveDir ?? '';
-    const dir = prompt('Suggested save folder for agents (path on the syncing machine). Leave blank to clear:', current);
+    const dir = prompt('Suggested save folder fallback (used when a machine has no stored path). Leave blank to clear:', current);
     if (dir === null) return;
     try { await api.setSaveDir(game.id, dir.trim()); onRefresh(); } catch (e) { alert('Could not set save folder: ' + (e as Error).message); }
+  }
+
+  async function handleSetMachinePath(machineId: string, machineName: string) {
+    const current = machinePaths.find(p => p.machineId === machineId)?.savePath ?? '';
+    const path = prompt(`Save folder for ${machineName}:\n(Leave blank to clear the stored path)`, current);
+    if (path === null) return;
+    try {
+      if (path.trim() === '') await api.clearMachinePath(game.id, machineId);
+      else await api.setMachinePath(game.id, machineId, path.trim());
+      setMachinePaths(await api.getGamePaths(game.id));
+    } catch (e) { alert('Could not update path: ' + (e as Error).message); }
   }
 
   async function handleSetLatest(versionId: string) {
@@ -152,11 +165,12 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               <p style={{ fontSize: 11.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }}>no saves yet</p>
             )}
 
-            {/* Save path */}
+            {/* Suggested save dir fallback */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#2A3238', padding: '7px 10px', borderRadius: 5, border: '1px solid #494949' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#494949" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span style={{ fontSize: 10, color: '#556070', flexShrink: 0 }}>fallback path:</span>
               <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#8b9aaa', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {game.suggestedSaveDir || <span style={{ color: '#556070', fontStyle: 'italic' }}>no save folder set</span>}
+                {game.suggestedSaveDir || <span style={{ color: '#494949', fontStyle: 'italic' }}>none</span>}
               </span>
               <button style={{ padding: '3px 9px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: 'pointer', flexShrink: 0 }} onClick={handleSetSaveDir}>Edit</button>
             </div>
@@ -230,6 +244,43 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                           <button style={{ padding: '4px 10px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 4, fontSize: 11, cursor: 'pointer' }} onClick={() => handleCmd(m.id, 'Push', true)}>Push</button>
                           <button style={{ padding: '4px 10px', border: 'none', color: '#fff', background: '#129271', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 500 }} onClick={() => handleCmd(m.id, 'Sync', false)}>Sync</button>
                         </div>
+                      </td>
+                    </tr>
+                  );
+                })
+            }
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Save paths per machine ── */}
+      <div style={card}>
+        <div style={cardHeader}><span style={sectionLabel}>Save paths per machine</span></div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#222d34' }}>
+              <th style={thStyle}>Machine</th>
+              <th style={thStyle}>Save folder</th>
+              <th style={{ ...thStyle, width: 80 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {machines.length === 0
+              ? <tr><td colSpan={3} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No machines registered.</td></tr>
+              : machines.map(m => {
+                  const stored = machinePaths.find(p => p.machineId === m.id);
+                  return (
+                    <tr key={m.id} style={rowSep}>
+                      <td style={tdStyle}>{m.name}</td>
+                      <td style={tdMono}>
+                        {stored
+                          ? stored.savePath
+                          : <span style={{ color: '#556070', fontStyle: 'italic' }}>not set</span>}
+                      </td>
+                      <td style={{ padding: '11px 18px' }}>
+                        <button style={ghostBtn()} onClick={() => handleSetMachinePath(m.id, m.name)}>
+                          {stored ? 'Edit' : 'Set'}
+                        </button>
                       </td>
                     </tr>
                   );

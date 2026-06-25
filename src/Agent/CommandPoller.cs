@@ -88,19 +88,32 @@ public sealed class CommandPoller : IDisposable
         {
             if (localById.TryGetValue(sg.Id, out var local))
             {
-                // Already tracked but unmapped: backfill from the server's suggested
-                // folder if it now resolves on this machine.
-                if (string.IsNullOrEmpty(local.SaveDirectory) && await ResolveSaveDirAsync(sg) is { } fill)
+                // Server now has a stored path for this machine → apply it (highest authority).
+                if (!string.IsNullOrWhiteSpace(sg.MachineSavePath) &&
+                    sg.MachineSavePath != local.SaveDirectory)
+                {
+                    local.SaveDirectory = sg.MachineSavePath;
+                    changed = true;
+                    _notify($"Updated '{sg.Name}' save folder from server: {sg.MachineSavePath}");
+                }
+                // Already tracked but unmapped: detect locally and report back to server.
+                else if (string.IsNullOrEmpty(local.SaveDirectory) &&
+                         await ResolveSaveDirAsync(sg) is { } fill)
                 {
                     local.SaveDirectory = fill;
                     changed = true;
                     _notify($"Mapped '{sg.Name}' to {fill}.");
+                    ReportPathAsync(sg.Id, fill);
                 }
                 continue;
             }
 
             // Adopt a server game not tracked here yet.
             var dir = await ResolveSaveDirAsync(sg);
+            // If we resolved via detection (not from the server path), report it back.
+            if (dir is not null && string.IsNullOrWhiteSpace(sg.MachineSavePath))
+                ReportPathAsync(sg.Id, dir);
+
             _config.Games.Add(new TrackedGame
             {
                 GameId = sg.Id,
@@ -122,11 +135,16 @@ public sealed class CommandPoller : IDisposable
     }
 
     /// <summary>
-    /// Best save folder for a server game on THIS machine: the server's suggested
-    /// folder if it exists here, else what the Ludusavi manifest resolves, else null.
+    /// Best save folder for a server game on THIS machine:
+    /// 1. Server-stored path for this machine (highest authority — set by dashboard or prior run).
+    /// 2. SuggestedSaveDir (server hint) if the directory exists here.
+    /// 3. Ludusavi manifest detection.
+    /// Returns null if nothing resolves.
     /// </summary>
     private async Task<string?> ResolveSaveDirAsync(GameDto sg)
     {
+        if (!string.IsNullOrWhiteSpace(sg.MachineSavePath))
+            return sg.MachineSavePath;
         if (!string.IsNullOrWhiteSpace(sg.SuggestedSaveDir) && Directory.Exists(sg.SuggestedSaveDir))
             return Path.GetFullPath(sg.SuggestedSaveDir);
         try
@@ -136,6 +154,14 @@ public sealed class CommandPoller : IDisposable
         }
         catch { return null; }
     }
+
+    /// <summary>Best-effort: tell the server what save path this machine resolved for a game.</summary>
+    private void ReportPathAsync(Guid gameId, string path) =>
+        _ = Task.Run(async () =>
+        {
+            try { await _api().SetMachinePathAsync(gameId, path); }
+            catch (Exception ex) { AgentLogger.LogException("CommandPoller.ReportPath", ex); }
+        });
 
     // ----- command execution -----
 

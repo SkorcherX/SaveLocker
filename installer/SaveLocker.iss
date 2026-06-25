@@ -42,11 +42,11 @@ AppMutex=SaveLocker.Agent
 UninstallDisplayIcon={app}\{#AppExe}
 UninstallDisplayName={#AppName}
 
-; Brand the wizard with the SaveLocker logo.
-; WizardSmallImageFile shows in the top-right corner of every page after Welcome.
-WizardSmallImageFile=SaveLocker_Logo.png
-; WizardImageFile is the large background shown on the Welcome and Finish pages.
-WizardImageFile=SaveLocker_Logo.png
+; Brand the wizard with SaveLocker colors.
+; WizardSmallImageFile (55×58): top-right corner on all pages after Welcome.
+WizardSmallImageFile=SaveLocker_WizardSmall.png
+; WizardImageFile (164×314): left-panel background on Welcome and Finish pages.
+WizardImageFile=SaveLocker_WizardBg.png
 
 [Tasks]
 Name: "autostart"; Description: "Start {#AppName} automatically when I log in"; GroupDescription: "Startup:"

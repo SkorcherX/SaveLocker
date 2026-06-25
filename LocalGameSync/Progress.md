@@ -333,6 +333,28 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-06-24 (continued):** **CI/CD pipeline + unRAID deployment.**
+  - **GitHub repo** created at https://github.com/SkorcherX/SaveLocker.
+  - **Multi-stage Dockerfile (Phase 3)** — added Node 22 Alpine build stage; `npm ci` +
+    `npm run build` in `web/`; `dist/` copied into `src/Server/wwwroot/` before .NET
+    publish. React dashboard now baked into the production image.
+  - **GitHub Actions** (`.github/workflows/docker-publish.yml`) — triggers on push to
+    `main`; logs in to GHCR with `GITHUB_TOKEN`; builds and pushes
+    `ghcr.io/skorcherx/savelocker:latest`. No extra secrets needed.
+  - **Watchtower** — runs as a companion container on unRAID; polls GHCR every 5 min
+    and auto-restarts `savelocker-server` on new image.
+  - **Fixes during CI bringup:**
+    - Removed unused `logoUrl` import (`ConfigView.tsx`) and `api` import (`GamesView.tsx`)
+      that passed locally (Windows, non-strict) but failed `tsc -b` in Docker (Linux).
+    - Fixed `**/data/` gitignore pattern silently excluding `src/Server/Data/` on Windows
+      (case-insensitive match); changed to `/data/` (root-only). Force-added `Data/` to
+      git. **Key gotcha — already in [[Gotchas]].**
+    - Fixed unRAID port mapping: container was started with `5080→5080` instead of
+      `5080→8080`; recreated via `docker compose` to get correct mapping.
+  - **Result:** `git push` → Actions build (~3 min) → Watchtower picks up → zero manual
+    steps. Dashboard live at `http://unraid-ip:5080`.
+
+
 - **2026-06-24 (continued):** **Agent UI polish — tray icon, title bar theming, DPI fix.**
   - **SaveLocker tray/exe icon** — `SaveLocker.ico` added to `src/Agent/Assets/`, set as
     `EmbeddedResource` and `<ApplicationIcon>` in the csproj; `AppResources.cs` loads it with
@@ -454,14 +476,39 @@ UX phase functionally complete and deployed. Queue, in priority order:
    full current schema; `Program.cs` uses `db.Database.Migrate()` with a bootstrap shim that seeds
    `__EFMigrationsHistory` on pre-migration DBs (ThunderHorse/Wideboy) so the first `Migrate()` call
    is a no-op rather than failing to recreate existing tables. 0 warnings. ([[Future Work]])
-4. **Console redesign Phase 3** — fold `web/` build into the Docker image (multi-stage:
-   Node `npm run build → dist/`, .NET `COPY dist/ src/Server/wwwroot/`). Lands with the
-   deployment-hardening milestone below. See [[Console Redesign]].
-4b. **Deployment hardening** — Dockerize the server + deploy to unRAID; CloudFlare Tunnel
-   + Access (Google email allowlist) per [[Decisions]]; real admin auth distinct from
-   machine keys.
-5. **Stretch / nice-to-have** — per-machine save-path storage; hero-thumbnail vs full-res;
-   audit-log view; durable offline retry queue ([[Future Work]]).
+4. ~~**Console redesign Phase 3**~~ **DONE 2026-06-24** — multi-stage Dockerfile: Node
+   `npm run build → dist/` baked into `src/Server/wwwroot/` before .NET publish. React
+   dashboard now served by the production container with no separate dev server.
+4b. ~~**GitHub repo + CI/CD pipeline**~~ **DONE 2026-06-24** — repo at
+   https://github.com/SkorcherX/SaveLocker. GitHub Actions builds on every push to `main`
+   and pushes image to GHCR (`ghcr.io/skorcherx/savelocker:latest`). Watchtower on unRAID
+   auto-pulls every 5 min. Fixed gitignore `Data/` vs `data/` case collision (Linux
+   Docker build was silently excluding `src/Server/Data/`). Server live on unRAID at
+   port 5080 (`5080:8080` container mapping). `git push` is now the full deploy.
+4c. **Deployment hardening** — CloudFlare Tunnel + Access (Google email allowlist)
+   per [[Decisions]]; real admin auth distinct from machine keys. *(Deferred — CF tunnel
+   has a 100 MB file size limit which may conflict with large saves; agents only need
+   LAN access anyway. User can expose the dashboard manually when ready.)*
+5. ~~**Per-machine save-path storage**~~ **DONE 2026-06-25** — `MachineSavePaths` table
+   (additive startup SQL); `GET /api/games` injects this machine's stored path into each
+   `GameDto`; new endpoints for dashboard set/clear; agent reconcile uses server path as
+   highest priority and reports locally-detected paths back to the server (two-way sync).
+   Dashboard "Save paths per machine" table replaces the old single-path row. Built +
+   verified live in dashboard. **Needs real-machine test** — launch agent on ThunderHorse,
+   confirm paths appear in dashboard; repeat on Wideboy to verify per-user paths work.
+6. **Audit-log view** — `AuditLog` entity already exists and is populated; just needs
+   a dashboard UI (table with timestamp, machine, game, action, detail). Imperative for
+   troubleshooting.
+7. **Offline / durable retry queue** — if the agent can't reach the server, pushes are
+   lost. Need a local queue (simple JSON file or SQLite) that drains when connectivity
+   returns.
+8. **Hero image downscaling** — SteamGridDB hero images download at full-res (~9.5 MB);
+   scale to ~460×215 on `ArtService` download using `System.Drawing`.
+9. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
+   still say `LocalGameSync`. User-visible strings are all `SaveLocker` now (done
+   2026-06-25). Full rename is a productization-phase task (see [[Future Work]]).
+10. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for
+    other users. User unfamiliar with the process; will be walked through it when ready.
 
 See [[UX Roadmap]] / [[Future Work]] for the full backlog.
 

@@ -82,10 +82,55 @@ public sealed class SyncService
         _db.Leases.RemoveRange(await _db.Leases.Where(l => l.MachineId == machineId).ToListAsync());
         _db.AgentCommands.RemoveRange(
             await _db.AgentCommands.Where(c => c.MachineId == machineId).ToListAsync());
+        await _db.Database.ExecuteSqlAsync(
+            $"DELETE FROM MachineSavePaths WHERE MachineId = {machineId}");
         _db.Machines.Remove(machine);
         await Audit(null, null, "machine.delete", machine.Name);
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    // ----- Machine save paths -----
+
+    private record GamePathResult(string GameId, string SavePath);
+    private record MachinePathResult(string MachineId, string MachineName, string SavePath);
+
+    /// <summary>All stored save paths for a game, one row per machine that has one.</summary>
+    public async Task<List<MachineSavePathDto>> GetGameMachinePathsAsync(Guid gameId)
+    {
+        var rows = await _db.Database.SqlQuery<MachinePathResult>($"""
+            SELECT p.MachineId, m.Name AS MachineName, p.SavePath
+            FROM MachineSavePaths p
+            JOIN Machines m ON m.Id = p.MachineId
+            WHERE p.GameId = {gameId}
+            ORDER BY m.Name
+            """).ToListAsync();
+        return rows.Select(r => new MachineSavePathDto(Guid.Parse(r.MachineId), r.MachineName, r.SavePath)).ToList();
+    }
+
+    /// <summary>All stored save paths for one machine, keyed by game ID (for reconcile injection).</summary>
+    public async Task<Dictionary<Guid, string>> GetMachinePathMapAsync(Guid machineId)
+    {
+        var rows = await _db.Database.SqlQuery<GamePathResult>(
+            $"SELECT GameId, SavePath FROM MachineSavePaths WHERE MachineId = {machineId}")
+            .ToListAsync();
+        return rows.ToDictionary(r => Guid.Parse(r.GameId), r => r.SavePath);
+    }
+
+    /// <summary>Upsert a machine's save path for a game (agent-reported or dashboard-set).</summary>
+    public async Task SetMachinePathAsync(Guid machineId, Guid gameId, string path)
+    {
+        await _db.Database.ExecuteSqlAsync(
+            $"INSERT OR REPLACE INTO MachineSavePaths (MachineId, GameId, SavePath) VALUES ({machineId}, {gameId}, {path})");
+        await Audit(machineId, gameId, "machine_path.set", path);
+        await _db.SaveChangesAsync();
+    }
+
+    /// <summary>Remove a machine's stored save path for a game.</summary>
+    public async Task ClearMachinePathAsync(Guid machineId, Guid gameId)
+    {
+        await _db.Database.ExecuteSqlAsync(
+            $"DELETE FROM MachineSavePaths WHERE MachineId = {machineId} AND GameId = {gameId}");
     }
 
     // ----- Games -----
@@ -150,6 +195,8 @@ public sealed class SyncService
         _db.SaveVersions.RemoveRange(versions);
         _db.Leases.RemoveRange(await _db.Leases.Where(l => l.GameId == gameId).ToListAsync());
         _db.Conflicts.RemoveRange(await _db.Conflicts.Where(c => c.GameId == gameId).ToListAsync());
+        await _db.Database.ExecuteSqlAsync(
+            $"DELETE FROM MachineSavePaths WHERE GameId = {gameId}");
         _db.Games.Remove(game);
         await Audit(null, gameId, "game.delete", game.Name);
         await _db.SaveChangesAsync();

@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath } from './types';
 
 let apiKey = localStorage.getItem('sl_key') || '';
 
@@ -49,4 +49,12 @@ export const api = {
 
   saveSgdbKey: (key: string | null) =>
     request<{ message?: string }>('/settings/steamgriddb-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key }) }),
+
+  getGamePaths: (gameId: string) =>
+    request<MachineSavePath[]>(`/games/${gameId}/paths`),
+  setMachinePath: (gameId: string, machineId: string, path: string) =>
+    request<void>(`/games/${gameId}/paths/${machineId}?value=${encodeURIComponent(path)}`, { method: 'POST' }),
+  clearMachinePath: (gameId: string, machineId: string) =>
+    fetch(`/api/games/${gameId}/paths/${machineId}`, { method: 'DELETE', headers: headers() })
+      .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
 };

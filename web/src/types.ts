@@ -57,3 +57,9 @@ export interface Settings {
   steamGridDbKeyMasked: string | null;
   steamGridDbFromConfig: boolean;
 }
+
+export interface MachineSavePath {
+  machineId: string;
+  machineName: string;
+  savePath: string;
+}

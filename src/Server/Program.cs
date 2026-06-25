@@ -6,8 +6,17 @@ using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
 
-var dbPath = builder.Configuration["Storage:DbPath"]
-             ?? Path.Combine(AppContext.BaseDirectory, "data", "localgamesync.db");
+var configuredDbPath = builder.Configuration["Storage:DbPath"];
+var defaultDbPath = Path.Combine(AppContext.BaseDirectory, "data", "savelocker.db");
+var dbPath = configuredDbPath ?? defaultDbPath;
+
+// Migrate the DB file from the old default name on first run after rename.
+if (configuredDbPath is null && !File.Exists(dbPath))
+{
+    var legacyPath = Path.Combine(AppContext.BaseDirectory, "data", "localgamesync.db");
+    if (File.Exists(legacyPath))
+        File.Move(legacyPath, dbPath);
+}
 Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
 builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite($"Data Source={dbPath}"));
@@ -65,13 +74,23 @@ using (var scope = app.Services.CreateScope())
     }
 
     db.Database.Migrate();
+
+    // Additive table: per-machine save paths (not part of the InitialSchema migration).
+    db.Database.ExecuteSqlRaw("""
+        CREATE TABLE IF NOT EXISTS "MachineSavePaths" (
+            "MachineId" TEXT NOT NULL,
+            "GameId"    TEXT NOT NULL,
+            "SavePath"  TEXT NOT NULL,
+            PRIMARY KEY ("MachineId", "GameId")
+        );
+        """);
 }
 
 // Serve the admin dashboard (wwwroot/index.html) at "/".
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.MapGet("/health", () => Results.Ok(new { service = "LocalGameSync", status = "ok" }));
+app.MapGet("/health", () => Results.Ok(new { service = "SaveLocker", status = "ok" }));
 
 // ---- Public: machine registration ----
 app.MapPost("/api/machines/register", async (MachineRegisterRequest req, SyncService sync) =>
@@ -84,8 +103,14 @@ app.MapPost("/api/machines/register", async (MachineRegisterRequest req, SyncSer
 // ---- Authenticated API (requires X-Api-Key) ----
 var api = app.MapGroup("/api").AddEndpointFilter<ApiKeyFilter>();
 
-api.MapGet("/games", async (SyncService sync) =>
-    Results.Ok((await sync.ListGamesAsync()).Select(g => g.ToDto())));
+// Include this machine's stored save path in each game so the agent can use it in reconcile.
+api.MapGet("/games", async (HttpContext http, SyncService sync) =>
+{
+    var machine = http.CurrentMachine();
+    var games = await sync.ListGamesAsync();
+    var pathMap = await sync.GetMachinePathMapAsync(machine.Id);
+    return Results.Ok(games.Select(g => g.ToDtoWithPath(pathMap.GetValueOrDefault(g.Id))));
+});
 
 api.MapGet("/machines", async (SyncService sync) =>
     Results.Ok((await sync.ListMachinesAsync()).Select(m => m.ToDto())));
@@ -103,6 +128,33 @@ api.MapPost("/games/{id:guid}/enabled", async (Guid id, bool value, SyncService 
 
 api.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, SyncService sync) =>
     await sync.SetSuggestedSaveDirAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+// ---- Per-machine save paths ----
+api.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
+    Results.Ok(await sync.GetGameMachinePathsAsync(id)));
+
+api.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, SyncService sync) =>
+{
+    if (string.IsNullOrWhiteSpace(value))
+        await sync.ClearMachinePathAsync(machineId, id);
+    else
+        await sync.SetMachinePathAsync(machineId, id, value.Trim());
+    return Results.Ok();
+});
+
+api.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, SyncService sync) =>
+{
+    await sync.ClearMachinePathAsync(machineId, id);
+    return Results.NoContent();
+});
+
+// Agent reports its own resolved save path (so the dashboard + future reconciles see it).
+api.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http, string? value, SyncService sync) =>
+{
+    if (!string.IsNullOrWhiteSpace(value))
+        await sync.SetMachinePathAsync(http.CurrentMachine().Id, gameId, value.Trim());
+    return Results.Ok();
+});
 
 api.MapGet("/overview", async (SyncService sync) =>
     Results.Ok(await sync.GetOverviewAsync()));

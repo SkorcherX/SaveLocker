@@ -37,7 +37,7 @@ if (-not $iscc) {
 }
 if (-not $iscc) { throw 'ISCC.exe not found. Install Inno Setup 6 (winget install JRSoftware.InnoSetup).' }
 
-& $iscc (Join-Path $PSScriptRoot 'LocalGameSync.iss')
+& $iscc (Join-Path $PSScriptRoot 'SaveLocker.iss')
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
 
 Write-Host '== Done ==' -ForegroundColor Green
