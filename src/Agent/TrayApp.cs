@@ -33,6 +33,8 @@ internal sealed class TrayContext : ApplicationContext
     private readonly Detection _detection;
     private readonly CommandPoller _commandPoller;
     private readonly AgentApiServer _apiServer;
+    private readonly OfflineQueue _offlineQueue = new();
+    private readonly OfflineQueueDrainer _drainer;
     private AgentWindow? _window;
     private ProcessWatcher _processWatcher;
     private SyncEngine _engine = null!;
@@ -45,6 +47,9 @@ internal sealed class TrayContext : ApplicationContext
 
         AgentLogger.Log("SaveLocker agent starting…");
         RebuildEngine();
+        _drainer = new OfflineQueueDrainer(
+            _offlineQueue, _config, () => _engine,
+            msg => { Notify(msg); AgentLogger.Log(msg); });
 
         _icon = new NotifyIcon
         {
@@ -110,7 +115,7 @@ internal sealed class TrayContext : ApplicationContext
     private void RebuildEngine()
     {
         var api = new ApiClient(_config.ServerUrl, _config.ApiKey);
-        _engine = new SyncEngine(_config, api, msg => { Notify(msg); AgentLogger.Log(msg); });
+        _engine = new SyncEngine(_config, api, msg => { Notify(msg); AgentLogger.Log(msg); }, _offlineQueue);
     }
 
     private void RebuildMenu()
@@ -287,6 +292,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (disposing)
         {
+            _drainer.Dispose();
             _apiServer.Dispose();
             _window?.Dispose();
             _icon.Visible = false;

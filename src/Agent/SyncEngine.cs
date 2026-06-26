@@ -14,12 +14,14 @@ public sealed class SyncEngine
     private readonly ApiClient _api;
     private readonly Action<string> _log;
     private readonly string _tempDir;
+    private readonly OfflineQueue? _offlineQueue;
 
-    public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null)
+    public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, OfflineQueue? offlineQueue = null)
     {
         _config = config;
         _api = api;
         _log = log ?? (_ => { });
+        _offlineQueue = offlineQueue;
         _tempDir = Path.Combine(AgentConfig.DefaultDir, "tmp");
         Directory.CreateDirectory(_tempDir);
     }
@@ -65,6 +67,19 @@ public sealed class SyncEngine
             }
             _config.Save();
             return result;
+        }
+        catch (HttpRequestException ex) when (!ct.IsCancellationRequested)
+        {
+            _log($"[{game.Name}] server unreachable — queued for retry. ({ex.Message})");
+            _offlineQueue?.Enqueue(game.GameId, game.Name, force);
+            return null;
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // HttpClient internal timeout fired (not a user cancellation).
+            _log($"[{game.Name}] upload timed out — queued for retry.");
+            _offlineQueue?.Enqueue(game.GameId, game.Name, force);
+            return null;
         }
         finally
         {
