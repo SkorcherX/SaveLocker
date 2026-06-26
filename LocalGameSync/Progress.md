@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-06-25 (session 3).
+Back to [[Home]]. Last updated: 2026-06-25 (session 4).
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -333,6 +333,28 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-06-25 (session 4):** **Hero downscaling, storage display, per-game retention, version delete.**
+  - **Hero image downscaling** — `ArtService`: added `ResizeHeroAsync` using `SixLabors.ImageSharp 3.1.7`
+    (downgraded from 4.0.0 which required a paid license). Hero images resized to max 920 px wide,
+    JPEG q85, stored as `hero.jpg` overwriting any previous extension. Other asset kinds unchanged.
+    `SixLabors.ImageSharp` added to `LocalGameSync.Server.csproj`.
+  - **Storage display** — `GameStateDto` gains `TotalStorageBytes: long = 0`. `GetOverviewAsync` does
+    a single `GROUP BY` batch query for all game storage totals (no N+1). `GetGameStateAsync` accepts
+    a pre-computed total or queries its own SUM. Frontend: sidebar header shows grand total MB; each
+    sidebar row shows per-game MB; `GameDetail` card shows "total stored: X MB across N versions";
+    versions table + head line changed from bytes to MB. `types.ts` adds `totalStorageBytes` to
+    `GameSummary`. Pushed and deployed; all verified on the live server.
+  - **Per-game retention limits** — `Game.RetainVersions` (nullable int); additive `ALTER TABLE Games
+    ADD COLUMN RetainVersions INTEGER NULL` at startup (pragma-guarded). `PruneVersionsAsync` uses
+    per-game limit when set, falls back to `_retainPerGame`. `SetGameRetentionAsync` + endpoint
+    `POST /games/{id}/retain?value=N`. `GameDto` + `Mapping` carry the field. Frontend: `Game` type
+    gains `retainVersions`; Configuration page gains "Save retention" card (games sorted by storage
+    desc, number input per game, Save). `api.setRetention`.
+  - **Manual version delete** — `DeleteVersionAsync` refuses head + open-conflict versions;
+    `DELETE /games/{id}/versions/{versionId}` endpoint. `GameDetail` versions table: new Delete
+    column with amber confirm-gated button on every non-head row. `api.deleteVersion`.
+  - Commits: `57cd313` hero downscaling · `6e146f3` storage display · `8b65b54` retention + delete.
+
 - **2026-06-25 (session 3):** **Offline / durable retry queue.**
   - `OfflineQueue.cs` — JSON-backed queue at `%PROGRAMDATA%\SaveLocker\offline-queue.json`.
     One entry per game (deduped by `GameId`); `force=true` is sticky if either the original
@@ -557,9 +579,23 @@ UX phase functionally complete and deployed. Queue, in priority order:
    automatically when the server comes back. Deduped by `GameId`; `force=true` is sticky;
    retry count + last-attempt timestamp persisted. **Verified end-to-end:** push queued
    while server down → drained and logged on reconnect.
-8. **Hero image downscaling** — SteamGridDB hero images download at full-res (~9.5 MB);
-   scale to ~460×215 on `ArtService` download using `System.Drawing`.
-9. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
+8. ~~**Hero image downscaling**~~ **DONE 2026-06-25 (session 4).** `ArtService.DownloadAsync`
+   now resizes hero images to max 920 px wide (aspect-ratio preserved) and stores as JPEG
+   quality 85 (~100–200 KB vs ~9.5 MB original). Uses `SixLabors.ImageSharp 3.1.7`
+   (pure .NET, cross-platform — works in the Linux Docker container). Other asset kinds
+   (grid, logo, icon) unchanged. Trigger **Refresh art** per game to replace old full-res files.
+9. ~~**Per-game retention limits + manual version delete**~~ **DONE 2026-06-25 (session 4).**
+   - `Game.RetainVersions` (nullable int): per-game override; null → server global default
+     (`Storage:RetainVersionsPerGame`, default 10). Added via additive `ALTER TABLE` at
+     startup (pragma-guarded column check on `Games`).
+   - `PruneVersionsAsync` respects per-game limit when set.
+   - `POST /games/{id}/retain?value=N` — set limit (blank/absent = reset to default, 0 = unlimited).
+   - `DELETE /games/{id}/versions/{versionId}` — delete a specific version; refuses head and
+     open-conflict versions.
+   - **Configuration page** — new "Save retention" card: games sorted by storage used (desc),
+     editable keep-count input per game (blank = default, 0 = unlimited), Save button.
+   - **Game detail** — Delete button on every non-head version (amber, confirm-gated).
+10. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
    still say `LocalGameSync`. User-visible strings are all `SaveLocker` now (done
    2026-06-25). Full rename is a productization-phase task (see [[Future Work]]).
 10. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for

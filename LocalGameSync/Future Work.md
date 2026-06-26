@@ -72,6 +72,8 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
 
 ## Nice-to-have
 - ~~Dashboard: audit-log view~~ **DONE (2026-06-25)** — `GET /api/audit`, `AuditView.tsx`, "Audit Log" nav tab.
+- ~~**Hero image downscaling**~~ **DONE 2026-06-25 (session 4)** — `SixLabors.ImageSharp 3.1.7`; max 920 px wide, JPEG q85. See [[Progress]].
+- ~~**Per-game retention limits + manual version delete**~~ **DONE 2026-06-25 (session 4)** — `Game.RetainVersions`; Configuration page "Save retention" card; Delete button on versions. See [[Progress]].
 - Per-game include/exclude globs before archiving.
 
 See [[Progress]] for what *is* done.
