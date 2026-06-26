@@ -12,6 +12,7 @@ export interface Game {
   enabled: boolean;
   gridUrl: string | null;
   suggestedSaveDir: string | null;
+  retainVersions: number | null;
 }
 
 export interface Version {

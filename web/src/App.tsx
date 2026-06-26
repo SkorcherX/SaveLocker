@@ -113,6 +113,7 @@ export default function App() {
             : view === 'audit'
             ? <AuditView />
             : <ConfigView
+                games={data.games}
                 machines={data.machines}
                 settings={data.settings}
                 onRefresh={load}

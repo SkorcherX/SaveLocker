@@ -378,20 +378,20 @@ public sealed class SyncService
     }
 
     /// <summary>
-    /// Keep only the most recent <c>RetainVersionsPerGame</c> versions per game,
-    /// deleting older archives to bound storage. Never prunes the current head or
-    /// versions referenced by an open conflict.
+    /// Keep only the most recent N versions per game (per-game limit, falling back to the
+    /// server global default). Never prunes the current head or open-conflict versions.
     /// </summary>
     private async Task PruneVersionsAsync(Guid gameId, CancellationToken ct)
     {
-        if (_retainPerGame <= 0) return;
-
         var game = await _db.Games.FindAsync(new object?[] { gameId }, ct);
+        var limit = game?.RetainVersions ?? _retainPerGame;
+        if (limit <= 0) return;
+
         var versions = await _db.SaveVersions
             .Where(v => v.GameId == gameId)
             .OrderByDescending(v => v.CreatedAt)
             .ToListAsync(ct);
-        if (versions.Count <= _retainPerGame) return;
+        if (versions.Count <= limit) return;
 
         var protectedIds = new HashSet<Guid>();
         if (game?.HeadVersionId is { } head) protectedIds.Add(head);
@@ -400,13 +400,48 @@ public sealed class SyncService
             .ToListAsync(ct);
         foreach (var c in openConflicts) { protectedIds.Add(c.VersionAId); protectedIds.Add(c.VersionBId); }
 
-        foreach (var old in versions.Skip(_retainPerGame))
+        foreach (var old in versions.Skip(limit))
         {
             if (protectedIds.Contains(old.Id)) continue;
             _store.Delete(old.ArchivePath);
             _db.SaveVersions.Remove(old);
         }
         await _db.SaveChangesAsync(ct);
+    }
+
+    /// <summary>Set (or clear) the per-game version retention limit. Null = use global default.</summary>
+    public async Task<bool> SetGameRetentionAsync(Guid gameId, int? retain)
+    {
+        var game = await _db.Games.FindAsync(gameId);
+        if (game is null) return false;
+        game.RetainVersions = retain;
+        await Audit(null, gameId, "game.retention", retain?.ToString() ?? "default");
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Delete a single version by id. Refuses to delete the current head or any version
+    /// referenced by an open conflict. Returns (true, null) on success or (false, reason).
+    /// </summary>
+    public async Task<(bool ok, string? error)> DeleteVersionAsync(Guid gameId, Guid versionId)
+    {
+        var version = await _db.SaveVersions.FindAsync(versionId);
+        if (version is null || version.GameId != gameId) return (false, "not_found");
+
+        var game = await _db.Games.FindAsync(gameId);
+        if (game?.HeadVersionId == versionId) return (false, "Cannot delete the current head version.");
+
+        var inConflict = await _db.Conflicts.AnyAsync(c =>
+            c.GameId == gameId && c.Status == ConflictStatus.Open &&
+            (c.VersionAId == versionId || c.VersionBId == versionId));
+        if (inConflict) return (false, "Cannot delete a version that is part of an open conflict.");
+
+        _store.Delete(version.ArchivePath);
+        _db.SaveVersions.Remove(version);
+        await Audit(null, gameId, "version.delete", versionId.ToString());
+        await _db.SaveChangesAsync();
+        return (true, null);
     }
 
     // ----- Download -----

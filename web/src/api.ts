@@ -37,6 +37,10 @@ export const api = {
   addGame: (name: string, suggestedSaveDir: string | null) =>
     request<void>('/games', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name, manifestKey: null, customPathsJson: null, suggestedSaveDir }) }),
   setSaveDir: (gameId: string, value: string) => request<void>(`/games/${gameId}/save-dir?value=${encodeURIComponent(value)}`, { method: 'POST' }),
+  setRetention: (gameId: string, value: number | null) =>
+    request<void>(`/games/${gameId}/retain${value !== null ? `?value=${value}` : ''}`, { method: 'POST' }),
+  deleteVersion: (gameId: string, versionId: string) =>
+    request<void>(`/games/${gameId}/versions/${versionId}`, { method: 'DELETE' }),
   setLatest: (gameId: string, versionId: string) => request<void>(`/games/${gameId}/set-latest?version=${versionId}`, { method: 'POST' }),
   forceRelease: (gameId: string) => request<void>(`/games/${gameId}/lease/force`, { method: 'DELETE' }),
   resolveConflict: (conflictId: string, versionId: string) => request<void>(`/conflicts/${conflictId}/resolve?version=${versionId}`, { method: 'POST' }),

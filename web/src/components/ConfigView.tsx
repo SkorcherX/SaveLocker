@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { api, setPassword } from '../api';
-import type { Machine, Settings } from '../types';
+import type { GameSummary, Machine, Settings } from '../types';
 
 interface Props {
+  games: GameSummary[];
   machines: Machine[];
   settings: Settings;
   onRefresh: () => void;
@@ -10,10 +11,14 @@ interface Props {
 
 const when = (t: string | null | undefined) => t ? new Date(t).toLocaleString() : '—';
 
-export function ConfigView({ machines, settings, onRefresh }: Props) {
+export function ConfigView({ games, machines, settings, onRefresh }: Props) {
   const [sgdbInput, setSgdbInput] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  // Per-game retention inputs: gameId -> string (empty = use default)
+  const [retentionInputs, setRetentionInputs] = useState<Record<string, string>>(
+    () => Object.fromEntries(games.map(s => [s.game.id, s.game.retainVersions?.toString() ?? '']))
+  );
 
   async function handleSaveKey() {
     const v = sgdbInput.trim();
@@ -51,6 +56,16 @@ export function ConfigView({ machines, settings, onRefresh }: Props) {
       setPassword('');
       onRefresh();
     } catch (e) { alert('Could not clear password: ' + (e as Error).message); }
+  }
+
+  async function handleSaveRetention(gameId: string, gameName: string) {
+    const raw = retentionInputs[gameId]?.trim();
+    const value = raw === '' ? null : parseInt(raw, 10);
+    if (value !== null && (isNaN(value) || value < 0)) { alert('Enter a positive number, or leave blank to use the server default.'); return; }
+    try {
+      await api.setRetention(gameId, value);
+      onRefresh();
+    } catch (e) { alert(`Could not update retention for ${gameName}: ` + (e as Error).message); }
   }
 
   async function handleDeleteMachine(machineId: string, name: string) {
@@ -183,6 +198,59 @@ export function ConfigView({ machines, settings, onRefresh }: Props) {
           </p>
 
         </div>
+      </div>
+
+      {/* ── Save retention ── */}
+      <div style={card}>
+        <div style={cardHeader}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Save retention</span>
+          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>versions stored per game</span>
+        </div>
+        <div style={{ padding: '10px 18px 4px', fontSize: 11, color: '#556070' }}>
+          Leave blank to use the server default (10). Set to 0 for unlimited. Changes take effect on the next upload.
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#222d34', borderBottom: '1px solid #494949' }}>
+              <th style={thStyle}>Game</th>
+              <th style={thStyle}>Storage used</th>
+              <th style={{ ...thStyle, width: 160 }}>Keep versions</th>
+              <th style={{ ...thStyle, width: 80 }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {games.length === 0
+              ? <tr><td colSpan={4} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No games tracked yet.</td></tr>
+              : games
+                  .slice()
+                  .sort((a, b) => b.totalStorageBytes - a.totalStorageBytes)
+                  .map(s => (
+                    <tr key={s.game.id} style={rowSep}>
+                      <td style={tdStyle}>{s.game.name}</td>
+                      <td style={tdMono}>{(s.totalStorageBytes / (1024 * 1024)).toFixed(2)} MB</td>
+                      <td style={{ padding: '8px 18px' }}>
+                        <input
+                          type="number"
+                          min={0}
+                          value={retentionInputs[s.game.id] ?? ''}
+                          onChange={e => setRetentionInputs(prev => ({ ...prev, [s.game.id]: e.target.value }))}
+                          placeholder="default (10)"
+                          style={{ width: '100%', padding: '5px 8px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
+                        />
+                      </td>
+                      <td style={{ padding: '8px 18px' }}>
+                        <button
+                          onClick={() => handleSaveRetention(s.game.id, s.game.name)}
+                          style={{ padding: '4px 12px', background: '#129271', color: '#fff', border: 'none', borderRadius: 4, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          Save
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+            }
+          </tbody>
+        </table>
       </div>
 
       {/* ── Machines / API Keys ── */}

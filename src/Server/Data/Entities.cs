@@ -36,6 +36,9 @@ public class Game
     public string? LogoUrl { get; set; }
     public string? IconUrl { get; set; }
 
+    /// <summary>How many versions to keep for this game. Null = use the server global default.</summary>
+    public int? RetainVersions { get; set; }
+
     /// <summary>The current authoritative version agents should pull. Null until first upload.</summary>
     public Guid? HeadVersionId { get; set; }
 

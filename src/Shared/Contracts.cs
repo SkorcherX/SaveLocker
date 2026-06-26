@@ -28,7 +28,8 @@ public record GameDto(
     string? GridUrl = null,
     string? HeroUrl = null,
     string? LogoUrl = null,
-    string? IconUrl = null);
+    string? IconUrl = null,
+    int? RetainVersions = null);
 
 /// <summary>A specific machine's stored save path for one game.</summary>
 public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);

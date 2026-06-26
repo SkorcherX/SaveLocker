@@ -70,6 +70,15 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     } catch (e) { alert('Could not update path: ' + (e as Error).message); }
   }
 
+  async function handleDeleteVersion(versionId: string) {
+    if (!confirm('Delete this version? The archive will be permanently removed from the server.')) return;
+    try {
+      await api.deleteVersion(game.id, versionId);
+      setVersions(await api.versions(game.id));
+      onRefresh();
+    } catch (e) { alert('Delete failed: ' + (e as Error).message); }
+  }
+
   async function handleSetLatest(versionId: string) {
     if (!confirm('Set this version as Latest? Every machine will pull it on next sync.')) return;
     try {
@@ -346,13 +355,14 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               <th style={thStyle}>Machine</th>
               <th style={thStyle}>When</th>
               <th style={thStyle}>Size</th>
+              <th style={thStyle}></th>
             </tr>
           </thead>
           <tbody>
             {loadingVersions
-              ? <tr><td colSpan={4} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>Loading…</td></tr>
+              ? <tr><td colSpan={5} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>Loading…</td></tr>
               : versions.length === 0
-                ? <tr><td colSpan={4} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No versions yet.</td></tr>
+                ? <tr><td colSpan={5} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No versions yet.</td></tr>
                 : versions.map(v => (
                     <tr key={v.id} style={rowSep}>
                       <td style={{ padding: '11px 18px' }}>
@@ -367,6 +377,16 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                       <td style={tdStyle}>{v.machineName}</td>
                       <td style={tdMono}>{when(v.createdAt)}</td>
                       <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#8b9aaa' }}>{fmtMb(v.size)}</td>
+                      <td style={{ padding: '11px 18px' }}>
+                        {v.id !== headId && (
+                          <button
+                            onClick={() => handleDeleteVersion(v.id)}
+                            style={{ padding: '2px 8px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 3, fontSize: 10, cursor: 'pointer' }}
+                          >
+                            Delete
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))
             }

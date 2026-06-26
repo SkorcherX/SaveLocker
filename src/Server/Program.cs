@@ -88,6 +88,13 @@ using (var scope = app.Services.CreateScope())
             PRIMARY KEY ("MachineId", "GameId")
         );
         """);
+
+    // Additive column: per-game retention limit (added after InitialSchema).
+    var gameColumns = db.Database
+        .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Games')")
+        .ToList();
+    if (!gameColumns.Contains("RetainVersions"))
+        db.Database.ExecuteSqlRaw("""ALTER TABLE "Games" ADD COLUMN "RetainVersions" INTEGER NULL;""");
 }
 
 // Serve the admin dashboard (wwwroot/index.html) at "/".
@@ -178,6 +185,15 @@ admin.MapPost("/games/{id:guid}/enabled", async (Guid id, bool value, SyncServic
 
 admin.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, SyncService sync) =>
     await sync.SetSuggestedSaveDirAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+admin.MapPost("/games/{id:guid}/retain", async (Guid id, int? value, SyncService sync) =>
+    await sync.SetGameRetentionAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+admin.MapDelete("/games/{id:guid}/versions/{versionId:guid}", async (Guid id, Guid versionId, SyncService sync) =>
+{
+    var (ok, error) = await sync.DeleteVersionAsync(id, versionId);
+    return ok ? Results.Ok() : (error == "not_found" ? Results.NotFound() : Results.BadRequest(error));
+});
 
 // ---- Per-machine save paths (admin) ----
 admin.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
