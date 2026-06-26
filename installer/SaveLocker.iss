@@ -47,6 +47,9 @@ UninstallDisplayName={#AppName}
 WizardSmallImageFile=SaveLocker_WizardSmall.png
 ; WizardImageFile (164×314): left-panel background on Welcome and Finish pages.
 WizardImageFile=SaveLocker_WizardBg.png
+; Sidebar background if the image doesn't fill the panel (e.g. at non-96dpi).
+; Value is a Windows COLORREF (BGR): #1E252A → $2A251E.
+WizardImageBackColor=$2A251E
 
 [Tasks]
 Name: "autostart"; Description: "Start {#AppName} automatically when I log in"; GroupDescription: "Startup:"
