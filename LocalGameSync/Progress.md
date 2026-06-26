@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-06-25.
+Back to [[Home]]. Last updated: 2026-06-25 (session 2).
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -333,6 +333,13 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-06-25 (session 2):** **Admin password auth, favicon, git hygiene.**
+  - **Admin password auth** — replaced the dashboard's `X-Api-Key` auth with a new `AdminPasswordFilter` checking `X-Admin-Password`. Route groups split: agent routes keep `ApiKeyFilter` (machine identity); all dashboard routes move to the new admin filter. Filter passes through freely when no password is configured (open state on first run). Password stored as PBKDF2-SHA256 (100k iterations, salted, `v1:{salt}:{hash}`) in `SettingsService` under `"Admin:PasswordHash"`. New `GET /api/admin/status` (public, returns `{ passwordRequired }`) and `POST /api/admin/password` (admin-gated). `ConfigView.tsx` gains an "Admin password" card (set/change/clear with confirmation). `App.tsx` now auto-loads on mount (no key gate); 401 shows a targeted "wrong password" message. Attribution on resolve/rollback/set-latest now records `"admin"` instead of `CurrentMachine().Name`. Self-delete guard on `DELETE /machines/{id}` removed (admin can delete any machine). See [[Future Work]] — "real admin auth" item now done.
+  - **Favicon refresh** — replaced old `favicon.svg` + broken `favicon.png` reference with a full modern set: `favicon.ico` (universal), `favicon-32x32.png` + `favicon-16x16.png` (modern browsers), `apple-touch-icon.png` (iOS), `android-chrome-192x192/512x512.png` + `site.webmanifest` (PWA/Android). `web/index.html` updated with proper `<link>` tags. Old `favicon.svg` removed from tracking.
+  - **Git hygiene** — removed 6 binary/stale files from tracking: `SaveLocker dashboard prototype.zip` (6.4 MB), `design_handoff_savelocker/assets/SaveLocker_logo_original.png` (5.3 MB), `src/Server/wwwroot/index.html` + `favicon.png` (stale local build artifacts — Dockerfile builds these fresh from `web/`), `.claude/settings.local.json` (local machine settings). Added `src/Server/wwwroot/` and `.claude/settings.local.json` to `.gitignore` to prevent recurrence. Clarified: the 700 MB the user sees is local artifacts (`node_modules`, `bin/obj`, `installer/dist`) — the git repo itself is only ~11.5 MB. Docker layer sizes (e.g. `node:22-alpine` at 52 MB) are base image pulls, cached between runs; nothing to optimize.
+  - **Git push discipline** — established practice: batch commits locally, push once per session (or only for urgent fixes) since each push triggers a full Docker build + Watchtower deploy.
+  - Commits: `adb48c5` admin password auth · `bfd608d` git cleanup · `4f30d8d` favicon.
+
 - **2026-06-25 (continued):** **Agent UI polish — settings input clobber fix + header/footer border alignment.**
   - **Settings input clobber** — `SettingsView.tsx`: the 10-second `/api/state` poll was overwriting
     the user's in-progress `serverUrl` / `machineName` typing before they could click Save or Register.
@@ -508,10 +515,9 @@ UX phase functionally complete and deployed. Queue, in priority order:
    auto-pulls every 5 min. Fixed gitignore `Data/` vs `data/` case collision (Linux
    Docker build was silently excluding `src/Server/Data/`). Server live on unRAID at
    port 5080 (`5080:8080` container mapping). `git push` is now the full deploy.
-4c. **Deployment hardening** — CloudFlare Tunnel + Access (Google email allowlist)
-   per [[Decisions]]; real admin auth distinct from machine keys. *(Deferred — CF tunnel
-   has a 100 MB file size limit which may conflict with large saves; agents only need
-   LAN access anyway. User can expose the dashboard manually when ready.)*
+4c. ~~**Admin auth** — real password distinct from machine API keys~~ **DONE 2026-06-25 (session 2).**
+   `AdminPasswordFilter`, PBKDF2-SHA256, set from ConfigView. CF Tunnel still deferred
+   (100 MB file-size limit may conflict with large saves; agents only need LAN access).
 5. ~~**Per-machine save-path storage**~~ **DONE 2026-06-25** — `MachineSavePaths` table
    (additive startup SQL); `GET /api/games` injects this machine's stored path into each
    `GameDto`; new endpoints for dashboard set/clear; agent reconcile uses server path as
