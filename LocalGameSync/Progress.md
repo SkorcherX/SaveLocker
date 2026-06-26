@@ -560,8 +560,7 @@ UX phase functionally complete and deployed. Queue, in priority order:
    Docker build was silently excluding `src/Server/Data/`). Server live on unRAID at
    port 5080 (`5080:8080` container mapping). `git push` is now the full deploy.
 4c. ~~**Admin auth** — real password distinct from machine API keys~~ **DONE 2026-06-25 (session 2).**
-   `AdminPasswordFilter`, PBKDF2-SHA256, set from ConfigView. CF Tunnel still deferred
-   (100 MB file-size limit may conflict with large saves; agents only need LAN access).
+   `AdminPasswordFilter`, PBKDF2-SHA256, set from ConfigView.
 5. ~~**Per-machine save-path storage**~~ **DONE 2026-06-25** — `MachineSavePaths` table
    (additive startup SQL); `GET /api/games` injects this machine's stored path into each
    `GameDto`; new endpoints for dashboard set/clear; agent reconcile uses server path as

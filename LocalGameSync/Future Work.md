@@ -25,7 +25,7 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
 - ~~**EF Core migrations**~~ **DONE 2026-06-24.** `InitialSchema` migration + `db.Database.Migrate()` with
   pre-migration DB bootstrap shim. See [[Progress]].
 - ~~**Real admin auth** distinct from machine API keys~~ **DONE 2026-06-25 (session 2)** —
-  `AdminPasswordFilter` + PBKDF2-SHA256 password, set from ConfigView. CF Tunnel still deferred.
+  `AdminPasswordFilter` + PBKDF2-SHA256 password, set from ConfigView.
 - Background sweep to expire stale leases proactively (currently lazy on access).
 
 ## Agent UX
