@@ -70,6 +70,18 @@ using (var scope = app.Services.CreateScope())
                 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
                 VALUES ('20260624011934_InitialSchema', '9.0.9');
                 """);
+
+            // If RetainVersions was already added by the pre-migration manual workaround,
+            // stamp the migration as applied so EF doesn't attempt the ALTER TABLE again.
+            var hasRetainVersions = db.Database
+                .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Games')")
+                .ToList()
+                .Contains("RetainVersions");
+            if (hasRetainVersions)
+                db.Database.ExecuteSqlRaw("""
+                    INSERT OR IGNORE INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+                    VALUES ('20260626031438_AddGameRetainVersions', '9.0.9');
+                    """);
         }
     }
 

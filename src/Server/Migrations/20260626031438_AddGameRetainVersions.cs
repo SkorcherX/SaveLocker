@@ -10,9 +10,11 @@ namespace LocalGameSync.Server.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            // IF NOT EXISTS guards against databases where the column was added by the
-            // pre-migration manual workaround in Program.cs (SQLite 3.37+, bundled in EF9).
-            migrationBuilder.Sql("""ALTER TABLE "Games" ADD COLUMN IF NOT EXISTS "RetainVersions" INTEGER NULL;""");
+            migrationBuilder.AddColumn<int>(
+                name: "RetainVersions",
+                table: "Games",
+                type: "INTEGER",
+                nullable: true);
         }
 
         /// <inheritdoc />
