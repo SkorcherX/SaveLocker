@@ -1,6 +1,9 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
 using LocalGameSync.Server.Data;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Formats.Jpeg;
+using SixLabors.ImageSharp.Processing;
 
 namespace LocalGameSync.Server.Services;
 
@@ -149,20 +152,46 @@ public sealed class ArtService
         return doc;
     }
 
+    // Hero images are wide banners; SteamGridDB serves them at full resolution (~9.5 MB
+    // at 1920×620). Cap them at this width to keep file sizes reasonable.
+    private const int HeroMaxWidth = 920;
+
     /// <summary>Download an asset into wwwroot/art/{gameId}/{kind}{ext}; return its served URL.</summary>
     private async Task<string?> DownloadAsync(Guid gameId, string kind, string url, CancellationToken ct)
     {
-        var ext = Path.GetExtension(new Uri(url).AbsolutePath);
-        if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = ".png";
-
         var dir = Path.Combine(_artRoot, gameId.ToString("N"));
         Directory.CreateDirectory(dir);
-        var file = Path.Combine(dir, kind + ext);
 
         var bytes = await _download.GetByteArrayAsync(url, ct);
-        await File.WriteAllBytesAsync(file, bytes, ct);
+
+        string file;
+        if (kind == "hero")
+        {
+            // Downscale to HeroMaxWidth, preserving aspect ratio, and store as JPEG.
+            file = Path.Combine(dir, "hero.jpg");
+            await ResizeHeroAsync(bytes, file, ct);
+        }
+        else
+        {
+            var ext = Path.GetExtension(new Uri(url).AbsolutePath);
+            if (string.IsNullOrEmpty(ext) || ext.Length > 5) ext = ".png";
+            file = Path.Combine(dir, kind + ext);
+            await File.WriteAllBytesAsync(file, bytes, ct);
+        }
 
         // Cache-bust with the write time so the dashboard <img> refreshes after a re-fetch.
-        return $"/art/{gameId:N}/{kind}{ext}?v={DateTime.UtcNow.Ticks}";
+        var filename = Path.GetFileName(file);
+        return $"/art/{gameId:N}/{filename}?v={DateTime.UtcNow.Ticks}";
+    }
+
+    private static async Task ResizeHeroAsync(byte[] bytes, string destPath, CancellationToken ct)
+    {
+        using var image = Image.Load(bytes);
+        if (image.Width > HeroMaxWidth)
+            image.Mutate(x => x.Resize(HeroMaxWidth, 0)); // height=0 preserves aspect ratio
+
+        var encoder = new JpegEncoder { Quality = 85 };
+        await using var fs = File.Create(destPath);
+        await image.SaveAsync(fs, encoder, ct);
     }
 }
