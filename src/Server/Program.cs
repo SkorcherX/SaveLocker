@@ -89,12 +89,6 @@ using (var scope = app.Services.CreateScope())
         );
         """);
 
-    // Additive column: per-game retention limit (added after InitialSchema).
-    var gameColumns = db.Database
-        .SqlQueryRaw<string>("SELECT name FROM pragma_table_info('Games')")
-        .ToList();
-    if (!gameColumns.Contains("RetainVersions"))
-        db.Database.ExecuteSqlRaw("""ALTER TABLE "Games" ADD COLUMN "RetainVersions" INTEGER NULL;""");
 }
 
 // Serve the admin dashboard (wwwroot/index.html) at "/".
