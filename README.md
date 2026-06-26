@@ -6,9 +6,7 @@
 
 ---
 
-<!-- Screenshots: drop images into docs/screenshots/ and uncomment these lines
 ![SaveLocker Dashboard](docs/screenshots/dashboard.png)
--->
 
 ## Features
 
@@ -53,20 +51,19 @@ The server is the single source of truth. Agents only make outbound HTTP calls (
 
 ## Screenshots
 
-<!-- Uncomment and populate after adding images to docs/screenshots/
+### Agent
 
-### Dashboard
-![Dashboard — games view](docs/screenshots/dashboard.png)
-![Dashboard — game detail with version history](docs/screenshots/dashboard-detail.png)
+| Overview | Add Games |
+|---|---|
+| ![Agent overview](docs/screenshots/overview.png) | ![Agent add games](docs/screenshots/addGames.png) |
 
-### Agent UI
-![Agent — Overview](docs/screenshots/agent-overview.png)
-![Agent — Add Games](docs/screenshots/agent-add-games.png)
+### System tray
+
+![Tray context menu](docs/screenshots/tray.png)
 
 ### Installer
-![Installer wizard](docs/screenshots/installer.png)
 
--->
+![Installer wizard](docs/screenshots/installer.png)
 
 ---
 
