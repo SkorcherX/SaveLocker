@@ -8,10 +8,9 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
 > Note: `set-server` is implemented (see [[CLI Reference]]).
 
 ## Agent robustness
-- **Durable offline/retry queue.** Today the agent surfaces errors and retries on
-  the next file-change or launch/exit event — *not* a persistent queue. If the
-  server is unreachable at exit, that push is lost until the next trigger. Add a
-  pending-operations queue persisted in config/state.
+- ~~**Durable offline/retry queue.**~~ **DONE 2026-06-25 (session 3).** `OfflineQueue` +
+  `OfflineQueueDrainer`; JSON file at `%PROGRAMDATA%\SaveLocker\offline-queue.json`;
+  drains automatically every 30 s when connectivity returns. See [[Progress]].
 - **Lease auto-renew / heartbeat** for long play sessions (lease is 6h fixed).
 - **Save-in-use safety:** gate auto-push strictly on process-exit or a longer
   quiet period to avoid archiving mid-write (debounce currently 5s).

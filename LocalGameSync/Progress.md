@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-06-25 (session 2).
+Back to [[Home]]. Last updated: 2026-06-25 (session 3).
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -333,6 +333,28 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-06-25 (session 3):** **Offline / durable retry queue.**
+  - `OfflineQueue.cs` — JSON-backed queue at `%PROGRAMDATA%\SaveLocker\offline-queue.json`.
+    One entry per game (deduped by `GameId`); `force=true` is sticky if either the original
+    or a duplicate enqueue was forced. Stores retry count + last-attempt timestamp. Thread-safe
+    (internal lock); persists after every write; loads on construction (survives agent restarts).
+  - `OfflineQueueDrainer.cs` — `System.Threading.Timer` on 30 s period. On each tick, if the
+    queue is non-empty, calls `SyncEngine.PushAsync` for each queued game (via `Func<SyncEngine>`
+    so it always gets the live engine after `RebuildEngine`). Removes entry on any non-null
+    result (success, no-change, or conflict); removes if game was deleted from config or save dir
+    gone; records attempt otherwise. Skips tick if a drain is already in progress.
+  - `SyncEngine.PushAsync` — added `OfflineQueue? offlineQueue` to the constructor (last optional
+    param; existing call sites unchanged). Catches `HttpRequestException` and
+    `OperationCanceledException` (HttpClient internal timeout, not user cancel) inside the
+    upload try block; logs "queued for retry" and enqueues instead of propagating — tray gets
+    a useful message instead of a generic error balloon. Archive `finally` cleanup still runs.
+  - `TrayContext` — `OfflineQueue` constructed at field init, passed into `RebuildEngine()` so
+    it's shared across engine rebuilds. `OfflineQueueDrainer` started after `RebuildEngine()`,
+    disposed in `Dispose()`. Used `System.Threading.Timer` explicitly to resolve the WinForms
+    `Timer` ambiguity in the Agent project.
+  - **Verified end-to-end** on the real machine: pushed while server unreachable → queue file
+    appeared → server restored → drained and logged within 30 s. Commit `9baadf7`.
+
 - **2026-06-25 (session 2):** **Admin password auth, favicon, git hygiene.**
   - **Admin password auth** — replaced the dashboard's `X-Api-Key` auth with a new `AdminPasswordFilter` checking `X-Admin-Password`. Route groups split: agent routes keep `ApiKeyFilter` (machine identity); all dashboard routes move to the new admin filter. Filter passes through freely when no password is configured (open state on first run). Password stored as PBKDF2-SHA256 (100k iterations, salted, `v1:{salt}:{hash}`) in `SettingsService` under `"Admin:PasswordHash"`. New `GET /api/admin/status` (public, returns `{ passwordRequired }`) and `POST /api/admin/password` (admin-gated). `ConfigView.tsx` gains an "Admin password" card (set/change/clear with confirmation). `App.tsx` now auto-loads on mount (no key gate); 401 shows a targeted "wrong password" message. Attribution on resolve/rollback/set-latest now records `"admin"` instead of `CurrentMachine().Name`. Self-delete guard on `DELETE /machines/{id}` removed (admin can delete any machine). See [[Future Work]] — "real admin auth" item now done.
   - **Favicon refresh** — replaced old `favicon.svg` + broken `favicon.png` reference with a full modern set: `favicon.ico` (universal), `favicon-32x32.png` + `favicon-16x16.png` (modern browsers), `apple-touch-icon.png` (iOS), `android-chrome-192x192/512x512.png` + `site.webmanifest` (PWA/Android). `web/index.html` updated with proper `<link>` tags. Old `favicon.svg` removed from tracking.
@@ -528,9 +550,13 @@ UX phase functionally complete and deployed. Queue, in priority order:
    machines + games to resolve names server-side. New `AuditView.tsx` React component:
    timestamp, machine, game, action badge (color-coded by category), detail. New "Audit
    Log" nav tab in the dashboard. Verified — endpoint responds, UI renders all events.
-7. **Offline / durable retry queue** — if the agent can't reach the server, pushes are
-   lost. Need a local queue (simple JSON file or SQLite) that drains when connectivity
-   returns.
+7. ~~**Offline / durable retry queue**~~ **DONE 2026-06-25 (session 3).** `OfflineQueue.cs` +
+   `OfflineQueueDrainer.cs`. `SyncEngine.PushAsync` catches `HttpRequestException` /
+   timeout and enqueues to `%PROGRAMDATA%\SaveLocker\offline-queue.json` instead of
+   bubbling an error. `OfflineQueueDrainer` background timer (30 s) drains the queue
+   automatically when the server comes back. Deduped by `GameId`; `force=true` is sticky;
+   retry count + last-attempt timestamp persisted. **Verified end-to-end:** push queued
+   while server down → drained and logged on reconnect.
 8. **Hero image downscaling** — SteamGridDB hero images download at full-res (~9.5 MB);
    scale to ~460×215 on `ArtService` download using `System.Drawing`.
 9. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
