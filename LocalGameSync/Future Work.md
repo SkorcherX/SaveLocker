@@ -11,7 +11,10 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
 - ~~**Durable offline/retry queue.**~~ **DONE 2026-06-25 (session 3).** `OfflineQueue` +
   `OfflineQueueDrainer`; JSON file at `%PROGRAMDATA%\SaveLocker\offline-queue.json`;
   drains automatically every 30 s when connectivity returns. See [[Progress]].
-- **Lease auto-renew / heartbeat** for long play sessions (lease is 6h fixed).
+- **Lease auto-renew / heartbeat** for long play sessions (lease is 6h fixed). If a session
+  runs past 6 h the lease silently expires, leaving the game "free" and allowing another
+  machine to pull/push without a warning. Fix: `ProcessWatcher` (or a dedicated timer) renews
+  the lease periodically while the game process is still running. **Added to milestone queue.**
 - **Save-in-use safety:** gate auto-push strictly on process-exit or a longer
   quiet period to avoid archiving mid-write (debounce currently 5s).
 
@@ -52,11 +55,11 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   product name is **SaveLocker** (see [[Decisions]]). The codebase (`LocalGameSync.sln`,
   namespaces, the installer, mutex, paths) stays `LocalGameSync` until a deliberate
   **technical rename** (a separate task, sequenced here for later). See below.
-- ~~**Installer art direction.**~~ **DONE (2026-06-25).** Branded wizard images:
-  `installer/SaveLocker_WizardBg.png` (164×314 Welcome/Finish panel) and
-  `installer/SaveLocker_WizardSmall.png` (55×58 inner pages). `#2A3238` background,
-  `#129271` accent. Installer script renamed to `SaveLocker.iss`.
-  *Remaining:* code-sign the exe to avoid SmartScreen warnings (currently unsigned).
+- **Installer artwork polish** — basic branded wizard images exist (`SaveLocker_WizardBg.png`
+  164×314, `SaveLocker_WizardSmall.png` 55×58; dark brand bg + logo + tagline). User wants to
+  revisit and produce final polished artwork for the Welcome/Finish panel and inner-page header.
+  **Added to milestone queue.**
+- *Remaining:* code-sign the exe to avoid SmartScreen warnings (currently unsigned).
 - **Technical codebase rename** (`LocalGameSync` → `SaveLocker`): namespaces, solution
   file, project names, `AppId` GUID. *Partially done (2026-06-24):* all **user-visible**
   strings, config paths (`%PROGRAMDATA%\SaveLocker`), registry value name, single-instance

@@ -594,10 +594,16 @@ UX phase functionally complete and deployed. Queue, in priority order:
    - **Configuration page** — new "Save retention" card: games sorted by storage used (desc),
      editable keep-count input per game (blank = default, 0 = unlimited), Save button.
    - **Game detail** — Delete button on every non-head version (amber, confirm-gated).
-10. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
-   still say `LocalGameSync`. User-visible strings are all `SaveLocker` now (done
-   2026-06-25). Full rename is a productization-phase task (see [[Future Work]]).
-10. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for
+10. **Lease auto-renew / heartbeat** — leases are fixed at 6 h. If a play session runs
+    longer the lease silently expires, letting another machine sync without a warning.
+    Fix: renew the lease on a timer while the game process is still running. See [[Future Work]].
+11. **Installer artwork polish** — branded wizard images exist as a first pass
+    (`SaveLocker_WizardBg.png` 164×314, `SaveLocker_WizardSmall.png` 55×58); user wants
+    polished final artwork. See [[Future Work]].
+12. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
+    still say `LocalGameSync`. User-visible strings are all `SaveLocker` now (done
+    2026-06-25). Full rename is a productization-phase task (see [[Future Work]]).
+13. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for
     other users. User unfamiliar with the process; will be walked through it when ready.
 
 See [[UX Roadmap]] / [[Future Work]] for the full backlog.
