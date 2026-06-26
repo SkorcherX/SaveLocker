@@ -1,117 +1,212 @@
-# LocalGameSync
+# SaveLocker
 
-Sync save-game data for games **without native cloud save** between a gaming PC
-and a laptop, using an always-on **unRAID server** as the authoritative hub.
+**Save-game sync for games without cloud saves.** A Windows tray agent watches your save folders, pushes archives to a self-hosted server after each session, and pulls the latest save before you launch — so you can switch between machines without thinking about it.
 
-The system prevents the classic "played on both machines and overwrote my
-progress" failure with a **lease/checkout** model (like Steam Cloud's "in use")
-backed by content-hash conflict detection, and gives you an **admin web
-dashboard** to see who synced last, resolve conflicts, and roll back.
+> The codebase directory and solution are still named `LocalGameSync`; the product name is **SaveLocker**. A technical rename is a future milestone.
 
-## How it works
+---
+
+<!-- Screenshots: drop images into docs/screenshots/ and uncomment these lines
+![SaveLocker Dashboard](docs/screenshots/dashboard.png)
+-->
+
+## Features
+
+- **Automatic sync** — watches save folders, pushes on file-settle after the game exits and pulls before launch
+- **Lease / checkout model** — one machine holds an exclusive lease while a game is running; other machines are warned before they can stomp each other's progress; lease auto-renews every 3 hours so long sessions never silently expire
+- **Conflict detection** — content-hash comparison on every upload; diverged saves are flagged as conflicts rather than silently overwritten; resolve in the dashboard (pick a winner, roll back to any prior version)
+- **Offline retry queue** — pushes that fail while the server is unreachable are queued to disk and automatically drained when the connection comes back
+- **Game auto-detection** — reads the community [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest) to resolve save paths for thousands of games; also scans Steam shortcuts and installed titles
+- **Per-machine save paths** — each machine stores its own resolved path; the server suggests a canonical path that agents auto-adopt when it exists locally
+- **Web dashboard** — React SPA served by the server container; browse games, cover art, version history, per-machine activity, conflict resolution, audit log, and configuration
+- **Agent UI** — React app served locally by the agent (port 5178, opened in an embedded WebView2 window); enrol games, manage settings, view sync status
+- **Per-game retention limits** — keep *N* versions per game (global default 10, overridable per game); manual version delete
+- **Admin password auth** — dashboard protected by PBKDF2-SHA256 password; unprotected on first run
+- **Audit log** — every push, pull, lease, conflict, and admin action is recorded with machine + game + timestamp
+- **Cover art** — fetches grid / hero / logo / icon from [SteamGridDB](https://www.steamgriddb.com/) and caches them in the server
+- **Windows installer** — Inno Setup, machine-wide install to `Program Files`, optional auto-start on login, full uninstall reverts every system change
+
+---
+
+## Architecture
 
 ```
-  ┌─────────────┐         ┌──────────────────────────┐         ┌─────────────┐
-  │  Gaming PC  │         │   unRAID (Docker)         │         │   Laptop    │
-  │  Agent      │◄──────► │  Server API + Dashboard   │ ◄─────► │  Agent      │
-  │ (tray .exe) │  HTTPS  │  + SQLite + archive store │  HTTPS  │ (tray .exe) │
-  └─────────────┘         └──────────────────────────┘         └─────────────┘
-                                      ▲
-                                      │ CloudFlare Tunnel (remote laptop)
+  ┌─────────────────────────────┐
+  │  Windows machine (agent)    │
+  │  ┌───────────────────────┐  │
+  │  │  SaveLocker tray app  │  │
+  │  │  React UI (WebView2)  │  │
+  │  │  Folder watchers      │  │         ┌──────────────────────────────┐
+  │  │  Process watcher      │  │◄──────► │  Server (Docker / unRAID)    │
+  │  │  Offline queue        │  │  HTTP   │  ASP.NET Core  +  SQLite     │
+  │  └───────────────────────┘  │         │  Archive store (zip files)   │
+  └─────────────────────────────┘         │  React dashboard (wwwroot)   │
+                                          └──────────────────────────────┘
+  ┌─────────────────────────────┐                      ▲
+  │  Windows machine (agent)    │◄────────────────────►│
+  └─────────────────────────────┘
 ```
 
-- **Agent** (`src/Agent`) — Windows tray app on each machine. Detects save
-  locations from the community [Ludusavi manifest](https://github.com/mtkennerly/ludusavi-manifest),
-  watches for changes, pulls before a game launches and pushes after it exits,
-  and offers manual Force Push / Force Pull.
-- **Server** (`src/Server`) — ASP.NET Core + EF Core/SQLite, runs in Docker on
-  unRAID. Stores versioned save archives, tracks leases, detects conflicts, and
-  serves the admin dashboard.
-- **Shared** (`src/Shared`) — wire DTOs, the deterministic archive/hash helpers,
-  and the manifest loader / Windows path-token resolver.
+The server is the single source of truth. Agents only make outbound HTTP calls (no inbound ports required — works through NAT/firewalls). The agent polls for queued commands every ~20 seconds so the dashboard can trigger remote push/pull/sync/scan.
 
-### Save detection
-Standalone games store saves in unpredictable places (`%APPDATA%`, `LocalLow`,
-`Documents\My Games`, `Saved Games`, the install dir, …). Rather than re-mapping
-thousands of games, the agent reads the **Ludusavi manifest** and resolves its
-path tokens to concrete folders on the machine. Games not in the manifest are
-added manually with `--dir`.
+---
 
-### Conflict prevention
-On `upload`, the agent sends the version it last knew (`parent`). If that still
-matches the server head, the upload **fast-forwards**. If the content is
-identical, it's a **no-op**. If the head moved on (the other machine pushed
-first), the upload is recorded as a **conflict** and the head is left untouched
-for you to resolve in the dashboard. Leases stop most conflicts before they
-happen; hashing is the safety net.
+## Screenshots
 
-## Build
+<!-- Uncomment and populate after adding images to docs/screenshots/
 
-Requires the **.NET 9 SDK**.
+### Dashboard
+![Dashboard — games view](docs/screenshots/dashboard.png)
+![Dashboard — game detail with version history](docs/screenshots/dashboard-detail.png)
+
+### Agent UI
+![Agent — Overview](docs/screenshots/agent-overview.png)
+![Agent — Add Games](docs/screenshots/agent-add-games.png)
+
+### Installer
+![Installer wizard](docs/screenshots/installer.png)
+
+-->
+
+---
+
+## Getting started
+
+### 1 — Run the server
+
+The server ships as a Docker image built and pushed automatically on every commit to `main`.
+
+**Docker Compose (recommended):**
+
+```yaml
+services:
+  savelocker:
+    image: ghcr.io/skorcherx/savelocker:latest
+    container_name: savelocker-server
+    ports:
+      - "5080:8080"
+    volumes:
+      - /mnt/user/appdata/savelocker:/data
+    restart: unless-stopped
+```
 
 ```sh
-dotnet build LocalGameSync.sln
+docker compose up -d
+# Dashboard at http://<server-ip>:5080
 ```
 
-## Run the server locally
+**Environment variables:**
+
+| Variable | Default | Description |
+|---|---|---|
+| `Storage__DbPath` | `/data/savelocker.db` | SQLite database path |
+| `Storage__ArchiveRoot` | `/data/archives` | Save archive directory |
+| `Storage__RetainVersionsPerGame` | `10` | Default versions kept per game |
+| `SteamGridDB__ApiKey` | *(unset)* | Cover art — set here or in the dashboard |
+
+### 2 — Install the agent
+
+Download `SaveLocker-Agent-Setup-x.x.x.exe` from [Releases](https://github.com/SkorcherX/SaveLocker/releases), run it, and follow the wizard. No .NET runtime required — the installer is self-contained (~43 MB).
+
+On first launch the agent offers to open Settings so you can enter your server URL and register the machine.
+
+### 3 — Add games
+
+In the agent window → **Add Games**: the agent scans for Steam titles and games matching the Ludusavi manifest. Check the ones you want, set save folders for any that couldn't be auto-detected, and click **Enroll**. You can also add games from the dashboard and they'll appear on each agent at the next poll.
+
+---
+
+## Building from source
+
+**Requirements:** .NET 9 SDK, Node 20+, npm
+
+```sh
+git clone https://github.com/SkorcherX/SaveLocker.git
+cd SaveLocker
+```
+
+### Server
 
 ```sh
 cd src/Server
 dotnet run
-# Dashboard at http://localhost:5179  (health: /health)
+# API + dashboard at http://localhost:5179
 ```
 
-State (SQLite + archives) goes under `src/Server/localstate/` in Development.
-
-## Deploy the server on unRAID
-
-Build and run the container, mounting a share for persistent state:
+The React dashboard is built separately for development:
 
 ```sh
-docker build -t localgamesync -f src/Server/Dockerfile .
-docker run -d --name localgamesync \
-  -p 8080:8080 \
-  -v /mnt/user/appdata/localgamesync:/data \
-  localgamesync
+cd web
+npm install
+npm run dev   # proxies /api to :5179 — open http://localhost:5173
 ```
 
-Expose it over the internet with your **CloudFlare Tunnel** by pointing a public
-hostname at `http://localhost:8080`. Put CloudFlare Access in front for auth.
-
-| Setting | Env var | Default |
-|---|---|---|
-| SQLite path | `Storage__DbPath` | `/data/localgamesync.db` |
-| Archive root | `Storage__ArchiveRoot` | `/data/archives` |
-| Versions kept per game | `Storage__RetainVersionsPerGame` | `10` |
-
-## Agent usage (CLI)
-
-The agent runs as a tray app when launched with no arguments. The same exe also
-exposes CLI commands (the manual-override surface, and how you do first-time
-setup). `--config <path>` lets you point at a specific config file.
+### Agent
 
 ```sh
-# one-time
-LocalGameSync.Agent register --name "GamingPC"
-LocalGameSync.Agent register --name "GamingPC" --config C:\path\config.json
+# Build (stop the running agent first — it locks the DLLs)
+dotnet build src/Agent/LocalGameSync.Agent.csproj --no-incremental
 
-# add a game (auto-detect via manifest, or pass --dir)
-LocalGameSync.Agent add-game --name "Celeste" --manifest "Celeste"
-LocalGameSync.Agent add-game --name "MyGame" --dir "C:\Saves\MyGame" --proc mygame
+# Run (tray mode)
+src/Agent/bin/Debug/net9.0-windows/LocalGameSync.Agent.exe
 
-# manual sync
-LocalGameSync.Agent pull all
-LocalGameSync.Agent push all
-LocalGameSync.Agent status
-LocalGameSync.Agent resolve --manifest "Celeste"   # show detected save dir(s)
+# Run (CLI)
+src/Agent/bin/Debug/net9.0-windows/LocalGameSync.Agent.exe status
 ```
 
-Config lives at `%PROGRAMDATA%\LocalGameSync\config.json`. Set `ServerUrl` to
-your tunnel hostname so the laptop can sync from anywhere.
+The agent UI is a Vite/React app in `agent-ui/` — `npm run dev` there (port 5177) proxies `/api` to the agent's local server on port 5178. MSBuild runs `npm run build` automatically and copies `dist/` into the output folder on every build.
 
-## Tests
+### Installer
 
-- `dotnet build LocalGameSync.sln` — compile everything.
-- `.verify/run-agent-tests.ps1` — end-to-end agent ↔ server suite (detection,
-  two-machine push/pull, conflict path). Requires the server running on
-  `http://localhost:5179`.
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php).
+
+```powershell
+.\installer\build-installer.ps1
+# Output: installer/dist/SaveLocker-Agent-Setup-0.1.0.exe
+```
+
+---
+
+## CI / CD
+
+Every push to `main` triggers a GitHub Actions workflow that:
+
+1. Builds the React dashboard (`npm run build` in `web/`)
+2. Publishes the ASP.NET server (`dotnet publish`)
+3. Builds and pushes a Docker image to `ghcr.io/skorcherx/savelocker:latest`
+
+[Watchtower](https://containrrr.dev/watchtower/) on the unRAID host polls GHCR every 5 minutes and auto-restarts the container on a new image — so a `git push` is a full deploy with no manual steps.
+
+---
+
+## How conflict resolution works
+
+1. Agent on **Machine A** launches a game → acquires lease, pulls latest save
+2. Agent on **Machine B** launches the same game → lease denied, agent UI pops up with a warning banner; B plays anyway (B's push on exit will land as a conflict)
+3. Both machines push diverged saves → server records a **conflict**, leaves the prior head intact
+4. Dashboard shows the conflict — pick which save wins, or roll back to any archived version
+5. Next sync on each machine picks up the resolved head
+
+---
+
+## Project structure
+
+```
+SaveLocker/
+├── src/
+│   ├── Agent/          # Windows tray app + CLI (.NET 9, WinForms, WebView2)
+│   │   └── agent-ui/   # React agent UI (Vite, TypeScript)  ← built into Agent output
+│   ├── Server/         # ASP.NET Core server + EF Core / SQLite
+│   └── Shared/         # Wire contracts, archive helpers, manifest loader
+├── web/                # React admin dashboard (Vite, TypeScript, Tailwind CSS v4)
+├── installer/          # Inno Setup script + wizard artwork
+└── LocalGameSync/      # Obsidian vault — living project notes and decisions
+```
+
+---
+
+## Roadmap
+
+- [ ] Technical rename — solution, namespaces, exe → SaveLocker
+- [ ] Code-signing — remove SmartScreen warning for new users
+- [ ] macOS / Linux agent (server already runs cross-platform)
