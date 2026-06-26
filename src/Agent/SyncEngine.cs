@@ -15,6 +15,8 @@ public sealed class SyncEngine
     private readonly Action<string> _log;
     private readonly string _tempDir;
     private readonly OfflineQueue? _offlineQueue;
+    private readonly TimeSpan _leaseRenewInterval = TimeSpan.FromHours(3);
+    private readonly Dictionary<Guid, System.Threading.Timer> _leaseTimers = new();
 
     public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, OfflineQueue? offlineQueue = null)
     {
@@ -142,27 +144,56 @@ public sealed class SyncEngine
 
     /// <summary>
     /// Pre-launch: take the lease (warn if held elsewhere) and pull the latest
-    /// save before the game starts writing. Returns false if the lease is held
-    /// by another machine (caller decides whether to warn the user).
+    /// save before the game starts writing.
+    /// Returns (Granted: false, HolderMachineName) if another machine holds the lease.
     /// </summary>
-    public async Task<bool> OnGameLaunchAsync(TrackedGame game, CancellationToken ct = default)
+    public async Task<(bool Granted, string? HolderMachineName)> OnGameLaunchAsync(TrackedGame game, CancellationToken ct = default)
     {
         var lease = await _api.AcquireLeaseAsync(game.GameId);
         if (!lease.Granted)
         {
-            _log($"[{game.Name}] WARNING: saves are checked out by " +
-                 $"'{lease.Lease.HolderMachineName}'. Pull/launch may overwrite their progress.");
-            return false;
+            var holder = lease.Lease.HolderMachineName;
+            _log($"[{game.Name}] WARNING: saves are checked out by '{holder}'. " +
+                 "Launched without pulling — a conflict may occur on exit.");
+            return (false, holder);
         }
+        StartLeaseRenewer(game);
         await PullAsync(game, force: false, ct);
-        return true;
+        return (true, null);
     }
 
     /// <summary>Post-exit: push the final save and release the lease.</summary>
     public async Task OnGameExitAsync(TrackedGame game, CancellationToken ct = default)
     {
+        StopLeaseRenewer(game.GameId);
         await PushAsync(game, force: false, ct);
         try { await _api.ReleaseLeaseAsync(game.GameId); }
         catch (Exception ex) { _log($"[{game.Name}] lease release failed: {ex.Message}"); }
+    }
+
+    private void StartLeaseRenewer(TrackedGame game)
+    {
+        StopLeaseRenewer(game.GameId);
+        var timer = new System.Threading.Timer(
+            async _ =>
+            {
+                try
+                {
+                    var ok = await _api.RenewLeaseAsync(game.GameId);
+                    _log(ok
+                        ? $"[{game.Name}] lease renewed."
+                        : $"[{game.Name}] lease renewal failed — lease may have been force-released.");
+                }
+                catch (Exception ex) { _log($"[{game.Name}] lease renewal error: {ex.Message}"); }
+            },
+            null, _leaseRenewInterval, _leaseRenewInterval);
+        lock (_leaseTimers) _leaseTimers[game.GameId] = timer;
+    }
+
+    private void StopLeaseRenewer(Guid gameId)
+    {
+        System.Threading.Timer? timer;
+        lock (_leaseTimers) { _leaseTimers.TryGetValue(gameId, out timer); _leaseTimers.Remove(gameId); }
+        timer?.Dispose();
     }
 }

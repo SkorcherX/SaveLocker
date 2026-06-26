@@ -10,7 +10,10 @@ import { SettingsView } from './components/SettingsView'
 import logoUrl from './assets/SaveLocker_Logo_crop.png'
 
 export default function App() {
-  const [view, setView] = useState<View>('addGames')
+  const [view, setView] = useState<View>(() => {
+    const hash = window.location.hash.slice(1) as View
+    return (['overview', 'addGames', 'settings'] as View[]).includes(hash) ? hash : 'addGames'
+  })
   const [state, setState] = useState<AgentState | null>(null)
 
   const refreshState = useCallback(() => {
@@ -65,7 +68,7 @@ export default function App() {
           <Sidebar activeView={view} onNavigate={setView} />
 
           <div style={{ flex: 1, minWidth: 0, background: '#2A3238', position: 'relative', overflow: 'hidden' }}>
-            {view === 'overview' && <OverviewView state={state} />}
+            {view === 'overview' && <OverviewView state={state} onWarningDismissed={refreshState} />}
             {view === 'addGames' && <AddGamesView onEnrolled={refreshState} />}
             {view === 'settings' && <SettingsView state={state} onSaved={refreshState} />}
           </div>

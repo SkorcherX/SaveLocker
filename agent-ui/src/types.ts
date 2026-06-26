@@ -1,5 +1,10 @@
 export type View = 'overview' | 'addGames' | 'settings'
 
+export interface LeaseWarning {
+  gameName: string
+  holderMachine: string
+}
+
 export interface AgentState {
   connected: boolean
   machineName: string
@@ -9,6 +14,7 @@ export interface AgentState {
   gamesTracked: number
   savesBacked: number
   lastSyncAgo: string
+  leaseWarnings: LeaseWarning[]
 }
 
 export interface Candidate {

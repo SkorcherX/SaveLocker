@@ -20,6 +20,7 @@ internal sealed class AgentApiServer : IDisposable
     private readonly string _uiRoot;
 
     private IReadOnlyList<ScanCandidate>? _candidateCache;
+    private readonly Dictionary<string, string> _leaseWarnings = new(); // gameName → holderMachine
     private Task? _loop;
     private volatile bool _stopping;
 
@@ -45,6 +46,16 @@ internal sealed class AgentApiServer : IDisposable
         _enroll = enroll;
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
         _http.Prefixes.Add($"http://localhost:{port}/");
+    }
+
+    public void AddLeaseWarning(string gameName, string holderMachine)
+    {
+        lock (_leaseWarnings) _leaseWarnings[gameName] = holderMachine;
+    }
+
+    public void ClearLeaseWarning(string gameName)
+    {
+        lock (_leaseWarnings) _leaseWarnings.Remove(gameName);
     }
 
     public void Start()
@@ -111,6 +122,12 @@ internal sealed class AgentApiServer : IDisposable
         // GET /api/state
         if (route == "state" && method == "GET")
         {
+            object[] warnings;
+            lock (_leaseWarnings)
+                warnings = _leaseWarnings
+                    .Select(kv => (object)new { gameName = kv.Key, holderMachine = kv.Value })
+                    .ToArray();
+
             await WriteJsonAsync(res, new
             {
                 connected = !string.IsNullOrEmpty(_config.ApiKey),
@@ -121,7 +138,17 @@ internal sealed class AgentApiServer : IDisposable
                 gamesTracked = _config.Games.Count,
                 savesBacked = 0,
                 lastSyncAgo = "—",
+                leaseWarnings = warnings,
             });
+            return;
+        }
+
+        // POST /api/lease-warnings/dismiss  { gameName }
+        if (route == "lease-warnings/dismiss" && method == "POST")
+        {
+            var body = await ReadJsonAsync<DismissWarningBody>(req);
+            if (body?.GameName is not null) ClearLeaseWarning(body.GameName);
+            await WriteJsonAsync(res, new { ok = true });
             return;
         }
 
@@ -400,4 +427,5 @@ internal sealed class AgentApiServer : IDisposable
         public bool? StartWithWindows { get; set; }
     }
     private sealed class FolderBody { public string? Path { get; set; } }
+    private sealed class DismissWarningBody { public string? GameName { get; set; } }
 }

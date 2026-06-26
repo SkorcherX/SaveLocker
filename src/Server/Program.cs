@@ -142,6 +142,12 @@ agent.MapDelete("/games/{id:guid}/lease", async (Guid id, HttpContext http, Sync
     return Results.NoContent();
 });
 
+agent.MapPost("/games/{id:guid}/lease/renew", async (Guid id, HttpContext http, SyncService sync) =>
+{
+    var ok = await sync.RenewLeaseAsync(id, http.CurrentMachine().Id);
+    return ok ? Results.Ok() : Results.Conflict("Lease not held by this machine.");
+});
+
 // ---- Upload / download (agent) ----
 agent.MapPost("/games/{id:guid}/upload", async (
     Guid id, HttpContext http, SyncService sync,

@@ -263,12 +263,21 @@ internal sealed class TrayContext : ApplicationContext
     {
         lock (_running) _running.Add(gameName);
         var game = _config.FindGame(gameName);
-        if (game is not null) FireAndForget(() => _engine.OnGameLaunchAsync(game));
+        if (game is not null) FireAndForget(async () =>
+        {
+            var (granted, holder) = await _engine.OnGameLaunchAsync(game);
+            if (!granted && holder is not null)
+            {
+                _apiServer.AddLeaseWarning(game.Name, holder);
+                _ui.Post(_ => OpenWindow("overview"), null);
+            }
+        });
     }
 
     private void OnExited(string gameName)
     {
         lock (_running) _running.Remove(gameName);
+        _apiServer.ClearLeaseWarning(gameName);
         var game = _config.FindGame(gameName);
         if (game is not null) FireAndForget(() => _engine.OnGameExitAsync(game));
     }

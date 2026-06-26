@@ -30,4 +30,5 @@ export const api = {
   setGameFolder: (id: string, path: string) => post(`/api/games/${id}/folder`, { path }),
   folderPick: () => post<{ path: string | null }>('/api/folder-pick'),
   candidateFolderPick: (id: number) => post<{ path: string | null }>(`/api/candidates/${id}/folder-pick`),
+  dismissLeaseWarning: (gameName: string) => post('/api/lease-warnings/dismiss', { gameName }),
 }

@@ -290,6 +290,16 @@ public sealed class SyncService
         }
     }
 
+    public async Task<bool> RenewLeaseAsync(Guid gameId, Guid machineId)
+    {
+        var lease = await _db.Leases.FirstOrDefaultAsync(l => l.GameId == gameId);
+        if (lease is null || lease.MachineId != machineId) return false;
+        lease.ExpiresAt = DateTime.UtcNow.Add(_leaseDuration);
+        await Audit(machineId, gameId, "lease.renew", null);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     /// <summary>Admin: force-release a stuck lease regardless of holder.</summary>
     public async Task ForceReleaseLeaseAsync(Guid gameId)
     {

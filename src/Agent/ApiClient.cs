@@ -70,6 +70,12 @@ public sealed class ApiClient
     public async Task ReleaseLeaseAsync(Guid gameId) =>
         (await _http.DeleteAsync($"/api/games/{gameId}/lease")).EnsureSuccessStatusCode();
 
+    public async Task<bool> RenewLeaseAsync(Guid gameId)
+    {
+        var resp = await _http.PostAsync($"/api/games/{gameId}/lease/renew", null);
+        return resp.IsSuccessStatusCode;
+    }
+
     public async Task<UploadResult> UploadAsync(
         Guid gameId, string contentHash, Guid? parent, bool force, string archivePath, CancellationToken ct = default)
     {
