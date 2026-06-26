@@ -1,15 +1,15 @@
 import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry } from './types';
 
-let apiKey = localStorage.getItem('sl_key') || '';
+let adminPassword = localStorage.getItem('sl_password') || '';
 
-export function getApiKey() { return apiKey; }
-export function setApiKey(k: string) {
-  apiKey = k;
-  localStorage.setItem('sl_key', k);
+export function getPassword() { return adminPassword; }
+export function setPassword(p: string) {
+  adminPassword = p;
+  localStorage.setItem('sl_password', p);
 }
 
 function headers(extra: Record<string, string> = {}): Record<string, string> {
-  return { 'X-Api-Key': apiKey, ...extra };
+  return { 'X-Admin-Password': adminPassword, ...extra };
 }
 
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -23,6 +23,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
+  adminStatus: () => fetch('/api/admin/status').then(r => r.json()) as Promise<{ passwordRequired: boolean }>,
   overview: () => request<GameSummary[]>('/overview'),
   conflicts: () => request<Conflict[]>('/conflicts'),
   machines: () => request<Machine[]>('/machines'),
@@ -59,4 +60,11 @@ export const api = {
       .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
 
   audit: (limit = 200) => request<AuditEntry[]>(`/audit?limit=${limit}`),
+
+  setAdminPassword: (password: string | null) =>
+    request<{ ok: boolean; message: string }>('/admin/password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    }),
 };

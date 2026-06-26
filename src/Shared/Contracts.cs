@@ -45,10 +45,14 @@ public record CreateGameRequest(
 public record ServerSettingsDto(
     bool SteamGridDbConfigured,
     string? SteamGridDbKeyMasked,
-    bool SteamGridDbFromConfig);
+    bool SteamGridDbFromConfig,
+    bool AdminPasswordSet);
 
 /// <summary>Set (or clear, when null/empty) the SteamGridDB API key from the dashboard.</summary>
 public record SetSteamGridDbKeyRequest(string? ApiKey);
+
+/// <summary>Set (or clear, when null/empty) the admin dashboard password.</summary>
+public record SetAdminPasswordRequest(string? Password);
 
 // ----- Leases -----
 

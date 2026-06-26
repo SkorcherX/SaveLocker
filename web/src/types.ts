@@ -56,6 +56,7 @@ export interface Settings {
   steamGridDbConfigured: boolean;
   steamGridDbKeyMasked: string | null;
   steamGridDbFromConfig: boolean;
+  adminPasswordSet: boolean;
 }
 
 export interface MachineSavePath {

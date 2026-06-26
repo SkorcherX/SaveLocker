@@ -96,7 +96,7 @@ app.UseStaticFiles();
 
 app.MapGet("/health", () => Results.Ok(new { service = "SaveLocker", status = "ok" }));
 
-// ---- Public: machine registration ----
+// ---- Public: machine registration + admin status ----
 app.MapPost("/api/machines/register", async (MachineRegisterRequest req, SyncService sync) =>
 {
     if (string.IsNullOrWhiteSpace(req.Name))
@@ -104,11 +104,14 @@ app.MapPost("/api/machines/register", async (MachineRegisterRequest req, SyncSer
     return Results.Ok(await sync.RegisterMachineAsync(req.Name.Trim()));
 });
 
-// ---- Authenticated API (requires X-Api-Key) ----
-var api = app.MapGroup("/api").AddEndpointFilter<ApiKeyFilter>();
+app.MapGet("/api/admin/status", async (SettingsService settings) =>
+    Results.Ok(new { passwordRequired = await settings.HasAdminPasswordAsync() }));
+
+// ---- Agent API (requires X-Api-Key: identifies the calling machine) ----
+var agent = app.MapGroup("/api").AddEndpointFilter<ApiKeyFilter>();
 
 // Include this machine's stored save path in each game so the agent can use it in reconcile.
-api.MapGet("/games", async (HttpContext http, SyncService sync) =>
+agent.MapGet("/games", async (HttpContext http, SyncService sync) =>
 {
     var machine = http.CurrentMachine();
     var games = await sync.ListGamesAsync();
@@ -116,103 +119,18 @@ api.MapGet("/games", async (HttpContext http, SyncService sync) =>
     return Results.Ok(games.Select(g => g.ToDtoWithPath(pathMap.GetValueOrDefault(g.Id))));
 });
 
-api.MapGet("/machines", async (SyncService sync) =>
-    Results.Ok((await sync.ListMachinesAsync()).Select(m => m.ToDto())));
-
-api.MapDelete("/machines/{id:guid}", async (Guid id, HttpContext http, SyncService sync) =>
-{
-    // Don't let an admin revoke the key they're currently signed in with.
-    if (id == http.CurrentMachine().Id)
-        return Results.BadRequest(new { message = "You can't delete the machine whose API key you're signed in with." });
-    return await sync.DeleteMachineAsync(id) ? Results.NoContent() : Results.NotFound();
-});
-
-api.MapPost("/games/{id:guid}/enabled", async (Guid id, bool value, SyncService sync) =>
-    await sync.SetGameEnabledAsync(id, value) ? Results.Ok() : Results.NotFound());
-
-api.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, SyncService sync) =>
-    await sync.SetSuggestedSaveDirAsync(id, value) ? Results.Ok() : Results.NotFound());
-
-// ---- Per-machine save paths ----
-api.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
-    Results.Ok(await sync.GetGameMachinePathsAsync(id)));
-
-api.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, SyncService sync) =>
-{
-    if (string.IsNullOrWhiteSpace(value))
-        await sync.ClearMachinePathAsync(machineId, id);
-    else
-        await sync.SetMachinePathAsync(machineId, id, value.Trim());
-    return Results.Ok();
-});
-
-api.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, SyncService sync) =>
-{
-    await sync.ClearMachinePathAsync(machineId, id);
-    return Results.NoContent();
-});
-
-// Agent reports its own resolved save path (so the dashboard + future reconciles see it).
-api.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http, string? value, SyncService sync) =>
-{
-    if (!string.IsNullOrWhiteSpace(value))
-        await sync.SetMachinePathAsync(http.CurrentMachine().Id, gameId, value.Trim());
-    return Results.Ok();
-});
-
-api.MapGet("/overview", async (SyncService sync) =>
-    Results.Ok(await sync.GetOverviewAsync()));
-
-// ---- Server settings (dashboard-managed) ----
-api.MapGet("/settings", async (SettingsService settings) =>
-    Results.Ok(await settings.GetServerSettingsDtoAsync()));
-
-// Set/clear the SteamGridDB API key, then verify it so the admin gets immediate feedback.
-api.MapPost("/settings/steamgriddb-key", async (
-    SetSteamGridDbKeyRequest req, SettingsService settings, ArtService art) =>
-{
-    await settings.SetAsync(SettingsService.SteamGridDbApiKey, req.ApiKey);
-    if (string.IsNullOrWhiteSpace(req.ApiKey))
-        return Results.Ok(new { ok = true, message = "SteamGridDB API key cleared." });
-    var (ok, message) = await art.VerifyKeyAsync();
-    return Results.Ok(new { ok, message });
-});
-
-api.MapPost("/games", async (CreateGameRequest req, SyncService sync, ArtService art) =>
-{
-    var game = await sync.CreateGameAsync(req);
-    // Fetch cover art on first enrollment (best-effort; never blocks enroll on failure).
-    if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
-    return Results.Ok(game.ToDto());
-});
-
-api.MapPost("/games/{id:guid}/art/refresh", async (Guid id, ArtService art) =>
-{
-    var (ok, message) = await art.RefreshArtAsync(id);
-    return ok ? Results.Ok(new { message }) : Results.BadRequest(new { message });
-});
-
-api.MapDelete("/games/{id:guid}", async (Guid id, SyncService sync) =>
-    await sync.DeleteGameAsync(id) ? Results.NoContent() : Results.NotFound());
-
-api.MapGet("/games/{id:guid}/state", async (Guid id, SyncService sync) =>
-    await sync.GetGameStateAsync(id) is { } state ? Results.Ok(state) : Results.NotFound());
-
-api.MapGet("/games/{id:guid}/versions", async (Guid id, SyncService sync) =>
-    Results.Ok((await sync.ListVersionsAsync(id)).Select(v => v.ToDto())));
-
-// ---- Leases ----
-api.MapPost("/games/{id:guid}/lease", async (Guid id, HttpContext http, SyncService sync) =>
+// ---- Leases (agent) ----
+agent.MapPost("/games/{id:guid}/lease", async (Guid id, HttpContext http, SyncService sync) =>
     Results.Ok(await sync.AcquireLeaseAsync(id, http.CurrentMachine().Id)));
 
-api.MapDelete("/games/{id:guid}/lease", async (Guid id, HttpContext http, SyncService sync) =>
+agent.MapDelete("/games/{id:guid}/lease", async (Guid id, HttpContext http, SyncService sync) =>
 {
     await sync.ReleaseLeaseAsync(id, http.CurrentMachine().Id);
     return Results.NoContent();
 });
 
-// ---- Upload / download ----
-api.MapPost("/games/{id:guid}/upload", async (
+// ---- Upload / download (agent) ----
+agent.MapPost("/games/{id:guid}/upload", async (
     Guid id, HttpContext http, SyncService sync,
     string hash, Guid? parent, bool? force, CancellationToken ct) =>
 {
@@ -224,53 +142,138 @@ api.MapPost("/games/{id:guid}/upload", async (
     return Results.Ok(result);
 });
 
-api.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, SyncService sync) =>
+agent.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, SyncService sync) =>
     StreamVersion(http, await sync.DownloadHeadAsync(id)));
 
-api.MapGet("/versions/{versionId:guid}/download", async (Guid versionId, HttpContext http, SyncService sync) =>
+agent.MapGet("/versions/{versionId:guid}/download", async (Guid versionId, HttpContext http, SyncService sync) =>
     StreamVersion(http, await sync.DownloadVersionAsync(versionId)));
 
+// ---- Agent command channel ----
+agent.MapGet("/agent/commands", async (HttpContext http, SyncService sync) =>
+    Results.Ok((await sync.DequeueCommandsAsync(http.CurrentMachine().Id)).Select(c => c.ToDto())));
+
+agent.MapPost("/agent/commands/{id:guid}/result", async (
+    Guid id, CommandResultRequest req, HttpContext http, SyncService sync) =>
+    await sync.CompleteCommandAsync(id, http.CurrentMachine().Id, req.Status, req.Result)
+        ? Results.Ok() : Results.NotFound());
+
+agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http, string? value, SyncService sync) =>
+{
+    if (!string.IsNullOrWhiteSpace(value))
+        await sync.SetMachinePathAsync(http.CurrentMachine().Id, gameId, value.Trim());
+    return Results.Ok();
+});
+
+// ---- Admin dashboard API (requires X-Admin-Password when one is set) ----
+var admin = app.MapGroup("/api").AddEndpointFilter<AdminPasswordFilter>();
+
+admin.MapGet("/machines", async (SyncService sync) =>
+    Results.Ok((await sync.ListMachinesAsync()).Select(m => m.ToDto())));
+
+admin.MapDelete("/machines/{id:guid}", async (Guid id, SyncService sync) =>
+    await sync.DeleteMachineAsync(id) ? Results.NoContent() : Results.NotFound());
+
+admin.MapPost("/games/{id:guid}/enabled", async (Guid id, bool value, SyncService sync) =>
+    await sync.SetGameEnabledAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+admin.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, SyncService sync) =>
+    await sync.SetSuggestedSaveDirAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+// ---- Per-machine save paths (admin) ----
+admin.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
+    Results.Ok(await sync.GetGameMachinePathsAsync(id)));
+
+admin.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, SyncService sync) =>
+{
+    if (string.IsNullOrWhiteSpace(value))
+        await sync.ClearMachinePathAsync(machineId, id);
+    else
+        await sync.SetMachinePathAsync(machineId, id, value.Trim());
+    return Results.Ok();
+});
+
+admin.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, SyncService sync) =>
+{
+    await sync.ClearMachinePathAsync(machineId, id);
+    return Results.NoContent();
+});
+
+admin.MapGet("/overview", async (SyncService sync) =>
+    Results.Ok(await sync.GetOverviewAsync()));
+
+// ---- Server settings (admin) ----
+admin.MapGet("/settings", async (SettingsService settings) =>
+    Results.Ok(await settings.GetServerSettingsDtoAsync()));
+
+admin.MapPost("/settings/steamgriddb-key", async (
+    SetSteamGridDbKeyRequest req, SettingsService settings, ArtService art) =>
+{
+    await settings.SetAsync(SettingsService.SteamGridDbApiKey, req.ApiKey);
+    if (string.IsNullOrWhiteSpace(req.ApiKey))
+        return Results.Ok(new { ok = true, message = "SteamGridDB API key cleared." });
+    var (ok, message) = await art.VerifyKeyAsync();
+    return Results.Ok(new { ok, message });
+});
+
+admin.MapPost("/admin/password", async (SetAdminPasswordRequest req, SettingsService settings) =>
+{
+    await settings.SetAdminPasswordAsync(req.Password);
+    var msg = string.IsNullOrWhiteSpace(req.Password) ? "Admin password cleared." : "Admin password updated.";
+    return Results.Ok(new { ok = true, message = msg });
+});
+
+admin.MapPost("/games", async (CreateGameRequest req, SyncService sync, ArtService art) =>
+{
+    var game = await sync.CreateGameAsync(req);
+    if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
+    return Results.Ok(game.ToDto());
+});
+
+admin.MapPost("/games/{id:guid}/art/refresh", async (Guid id, ArtService art) =>
+{
+    var (ok, message) = await art.RefreshArtAsync(id);
+    return ok ? Results.Ok(new { message }) : Results.BadRequest(new { message });
+});
+
+admin.MapDelete("/games/{id:guid}", async (Guid id, SyncService sync) =>
+    await sync.DeleteGameAsync(id) ? Results.NoContent() : Results.NotFound());
+
+admin.MapGet("/games/{id:guid}/state", async (Guid id, SyncService sync) =>
+    await sync.GetGameStateAsync(id) is { } state ? Results.Ok(state) : Results.NotFound());
+
+admin.MapGet("/games/{id:guid}/versions", async (Guid id, SyncService sync) =>
+    Results.Ok((await sync.ListVersionsAsync(id)).Select(v => v.ToDto())));
+
 // ---- Admin actions ----
-api.MapGet("/conflicts", async (SyncService sync) =>
+admin.MapGet("/conflicts", async (SyncService sync) =>
     Results.Ok((await sync.ListOpenConflictsAsync()).Select(c => c.ToDto())));
 
-api.MapPost("/conflicts/{id:guid}/resolve", async (Guid id, Guid version, HttpContext http, SyncService sync) =>
-    await sync.ResolveConflictAsync(id, version, http.CurrentMachine().Name)
+admin.MapPost("/conflicts/{id:guid}/resolve", async (Guid id, Guid version, SyncService sync) =>
+    await sync.ResolveConflictAsync(id, version, "admin")
         ? Results.Ok() : Results.BadRequest("Could not resolve conflict."));
 
-api.MapPost("/games/{id:guid}/rollback", async (Guid id, Guid version, HttpContext http, SyncService sync) =>
-    await sync.RollbackAsync(id, version, http.CurrentMachine().Name)
+admin.MapPost("/games/{id:guid}/rollback", async (Guid id, Guid version, SyncService sync) =>
+    await sync.RollbackAsync(id, version, "admin")
         ? Results.Ok() : Results.BadRequest("Could not roll back."));
 
-api.MapPost("/games/{id:guid}/set-latest", async (Guid id, Guid version, HttpContext http, SyncService sync) =>
-    await sync.SetAsLatestAsync(id, version, http.CurrentMachine().Name)
+admin.MapPost("/games/{id:guid}/set-latest", async (Guid id, Guid version, SyncService sync) =>
+    await sync.SetAsLatestAsync(id, version, "admin")
         ? Results.Ok() : Results.BadRequest("Could not set latest."));
 
-api.MapDelete("/games/{id:guid}/lease/force", async (Guid id, SyncService sync) =>
+admin.MapDelete("/games/{id:guid}/lease/force", async (Guid id, SyncService sync) =>
 {
     await sync.ForceReleaseLeaseAsync(id);
     return Results.NoContent();
 });
 
-// ---- Agent command channel ----
-// Agent: claim my pending commands (marks them Dispatched).
-api.MapGet("/agent/commands", async (HttpContext http, SyncService sync) =>
-    Results.Ok((await sync.DequeueCommandsAsync(http.CurrentMachine().Id)).Select(c => c.ToDto())));
-
-// Agent: report a command's outcome.
-api.MapPost("/agent/commands/{id:guid}/result", async (
-    Guid id, CommandResultRequest req, HttpContext http, SyncService sync) =>
-    await sync.CompleteCommandAsync(id, http.CurrentMachine().Id, req.Status, req.Result)
-        ? Results.Ok() : Results.NotFound());
-
-// Dashboard: queue a command + list recent commands.
-api.MapPost("/commands", async (EnqueueCommandRequest req, SyncService sync) =>
+// ---- Command channel (admin side: queue + list) ----
+admin.MapPost("/commands", async (EnqueueCommandRequest req, SyncService sync) =>
     Results.Ok((await sync.EnqueueCommandAsync(req)).ToDto()));
 
-api.MapGet("/commands", async (SyncService sync) =>
+admin.MapGet("/commands", async (SyncService sync) =>
     Results.Ok((await sync.ListCommandsAsync()).Select(c => c.ToDto())));
 
-api.MapGet("/audit", async (SyncService sync, int limit = 200) =>
+admin.MapGet("/audit", async (SyncService sync, int limit = 200) =>
     Results.Ok(await sync.GetAuditLogAsync(Math.Clamp(limit, 1, 1000))));
 
 app.Run();

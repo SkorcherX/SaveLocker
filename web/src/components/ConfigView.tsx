@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../api';
+import { api, setPassword } from '../api';
 import type { Machine, Settings } from '../types';
 
 interface Props {
@@ -12,6 +12,8 @@ const when = (t: string | null | undefined) => t ? new Date(t).toLocaleString() 
 
 export function ConfigView({ machines, settings, onRefresh }: Props) {
   const [sgdbInput, setSgdbInput] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
 
   async function handleSaveKey() {
     const v = sgdbInput.trim();
@@ -27,6 +29,28 @@ export function ConfigView({ machines, settings, onRefresh }: Props) {
   async function handleClearKey() {
     if (!confirm('Clear the SteamGridDB API key? Artwork refresh will stop working until a key is set.')) return;
     try { await api.saveSgdbKey(null); onRefresh(); } catch (e) { alert('Could not clear key: ' + (e as Error).message); }
+  }
+
+  async function handleSetPassword() {
+    if (!newPassword) { alert('Enter a new password.'); return; }
+    if (newPassword !== confirmPassword) { alert('Passwords do not match.'); return; }
+    try {
+      const res = await api.setAdminPassword(newPassword);
+      setPassword(newPassword);
+      setNewPassword('');
+      setConfirmPassword('');
+      alert(res.message);
+      onRefresh();
+    } catch (e) { alert('Could not set password: ' + (e as Error).message); }
+  }
+
+  async function handleClearPassword() {
+    if (!confirm('Remove the admin password? The dashboard will be accessible to anyone on your network.')) return;
+    try {
+      await api.setAdminPassword(null);
+      setPassword('');
+      onRefresh();
+    } catch (e) { alert('Could not clear password: ' + (e as Error).message); }
   }
 
   async function handleDeleteMachine(machineId: string, name: string) {
@@ -101,6 +125,61 @@ export function ConfigView({ machines, settings, onRefresh }: Props) {
           </div>
           <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: -6 }}>
             Free key: <a href="https://www.steamgriddb.com" target="_blank" rel="noreferrer" style={{ color: '#129271' }}>steamgriddb.com</a> → user menu → Preferences → API.
+          </p>
+
+        </div>
+      </div>
+
+      {/* ── Admin Password ── */}
+      <div style={card}>
+        <div style={cardHeader}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Admin password</span>
+          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>dashboard access control</span>
+        </div>
+        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 13, color: '#ECEFF1' }}>Status:</span>
+            {settings.adminPasswordSet ? (
+              <span style={{ padding: '2px 7px', background: '#129271', color: '#fff', borderRadius: 4, fontSize: 10, fontWeight: 600, letterSpacing: '0.04em' }}>protected</span>
+            ) : (
+              <span style={{ padding: '2px 7px', border: '1px solid #f4a60d', color: '#f4a60d', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>open — no password set</span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              type="password"
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+              placeholder={settings.adminPasswordSet ? 'New password' : 'Set password'}
+              style={{ flex: 1, minWidth: 160, padding: '7px 10px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 5, fontSize: 12, fontFamily: "'Inter', sans-serif" }}
+            />
+            <input
+              type="password"
+              value={confirmPassword}
+              onChange={e => setConfirmPassword(e.target.value)}
+              placeholder="Confirm password"
+              onKeyDown={e => e.key === 'Enter' && handleSetPassword()}
+              style={{ flex: 1, minWidth: 160, padding: '7px 10px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 5, fontSize: 12, fontFamily: "'Inter', sans-serif" }}
+            />
+            <button
+              onClick={handleSetPassword}
+              style={{ padding: '6px 14px', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {settings.adminPasswordSet ? 'Change password' : 'Set password'}
+            </button>
+            {settings.adminPasswordSet && (
+              <button
+                onClick={handleClearPassword}
+                style={{ padding: '6px 12px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
+              >
+                Remove
+              </button>
+            )}
+          </div>
+          <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: -6 }}>
+            Protects the dashboard from casual access on your local network. Enter your password in the nav bar to connect.
           </p>
 
         </div>

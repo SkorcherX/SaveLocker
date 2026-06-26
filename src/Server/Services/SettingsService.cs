@@ -15,6 +15,9 @@ public sealed class SettingsService
     /// <summary>Settings key for the SteamGridDB API key (matches the config path).</summary>
     public const string SteamGridDbApiKey = "SteamGridDb:ApiKey";
 
+    /// <summary>Settings key for the admin dashboard password hash.</summary>
+    public const string AdminPasswordHash = "Admin:PasswordHash";
+
     private readonly AppDbContext _db;
     private readonly IConfiguration _cfg;
 
@@ -50,6 +53,17 @@ public sealed class SettingsService
         await _db.SaveChangesAsync(ct);
     }
 
+    public async Task<bool> HasAdminPasswordAsync(CancellationToken ct = default) =>
+        !string.IsNullOrEmpty(await GetEffectiveAsync(AdminPasswordHash, ct));
+
+    public async Task SetAdminPasswordAsync(string? password, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(password))
+            await SetAsync(AdminPasswordHash, null, ct);
+        else
+            await SetAsync(AdminPasswordHash, Tokens.HashPassword(password), ct);
+    }
+
     /// <summary>The dashboard-facing settings snapshot (never includes the raw key).</summary>
     public async Task<ServerSettingsDto> GetServerSettingsDtoAsync(CancellationToken ct = default)
     {
@@ -58,7 +72,8 @@ public sealed class SettingsService
         return new ServerSettingsDto(
             SteamGridDbConfigured: !string.IsNullOrWhiteSpace(key),
             SteamGridDbKeyMasked: Mask(key),
-            SteamGridDbFromConfig: !inDb && !string.IsNullOrWhiteSpace(key));
+            SteamGridDbFromConfig: !inDb && !string.IsNullOrWhiteSpace(key),
+            AdminPasswordSet: await HasAdminPasswordAsync(ct));
     }
 
     /// <summary>Show only the last 4 characters so the dashboard can confirm which key is set.</summary>

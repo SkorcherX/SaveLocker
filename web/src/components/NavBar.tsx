@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getApiKey, setApiKey as persistKey } from '../api';
+import { getPassword, setPassword as persistPassword } from '../api';
 import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
 type View = 'games' | 'config' | 'audit';
@@ -14,10 +14,10 @@ interface Props {
 }
 
 export function NavBar({ view, onViewChange, onConnect, onAddGame, onRefresh, isGamesView }: Props) {
-  const [keyInput, setKeyInput] = useState(getApiKey());
+  const [keyInput, setKeyInput] = useState(getPassword());
 
   function handleConnect() {
-    persistKey(keyInput.trim());
+    persistPassword(keyInput.trim());
     onConnect();
   }
 
@@ -65,7 +65,7 @@ export function NavBar({ view, onViewChange, onConnect, onAddGame, onRefresh, is
         {/* API Key composite input */}
         <div style={{ display: 'flex', alignItems: 'center', background: '#2A3238', border: '1px solid #494949', borderRadius: 5, overflow: 'hidden' }}>
           <span style={{ padding: '5px 9px', fontSize: 10, color: '#64748b', fontFamily: "'JetBrains Mono', monospace", borderRight: '1px solid #494949', userSelect: 'none' }}>
-            API KEY
+            PASSWORD
           </span>
           <input
             type="password"

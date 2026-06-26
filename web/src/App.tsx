@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { api, getApiKey } from './api';
+import { api, getPassword } from './api';
 import type { GameSummary, Machine, Command, Conflict, Settings } from './types';
 import { NavBar } from './components/NavBar';
 import { GamesView } from './components/GamesView';
@@ -31,10 +31,6 @@ export default function App() {
   const loadingRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!getApiKey()) {
-      setData(null);
-      return;
-    }
     if (loadingRef.current) return;
     loadingRef.current = true;
     setLoading(true);
@@ -45,17 +41,18 @@ export default function App() {
       ]);
       setData({ games, machines, commands, conflicts, settings });
     } catch (e) {
-      setError('Failed to load: ' + (e as Error).message + ' (check the API key).');
+      const msg = (e as Error).message;
+      setError(msg.startsWith('401') ? 'Wrong password — enter it in the nav bar and click Connect.' : 'Failed to load: ' + msg);
     } finally {
       setLoading(false);
       loadingRef.current = false;
     }
   }, []);
 
-  useEffect(() => { if (getApiKey()) load(); }, [load]);
+  useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    const id = setInterval(() => { if (getApiKey()) load(); }, 15000);
+    const id = setInterval(load, 15000);
     return () => clearInterval(id);
   }, [load]);
 
@@ -91,9 +88,9 @@ export default function App() {
         <div style={{ padding: '10px 24px', color: '#f4a60d', fontSize: 13 }}>{error}</div>
       )}
 
-      {!getApiKey() && !data && (
+      {!getPassword() && !data && !loading && !error && (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#556070', fontSize: 14 }}>
-          Enter an API key and click Connect.
+          If a password is required, enter it in the nav bar and click Connect.
         </div>
       )}
 
