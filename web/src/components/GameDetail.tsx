@@ -4,7 +4,7 @@ import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath 
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
 const when = (t: string | null | undefined) => t ? new Date(t).toLocaleString() : '—';
-const fmtBytes = (n: number) => n.toLocaleString() + ' bytes';
+const fmtMb = (n: number) => (n / (1024 * 1024)).toFixed(2) + ' MB';
 
 interface Props {
   summary: GameSummary;
@@ -159,11 +159,19 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                 latest&nbsp;<span style={{ color: '#fdce63', fontWeight: 500 }}>{shortId(head.id)}</span>&nbsp;from&nbsp;
                 <span style={{ color: '#ECEFF1' }}>{head.machineName}</span>&nbsp;at&nbsp;
                 <span style={{ color: '#ECEFF1' }}>{when(head.createdAt)}</span>&nbsp;·&nbsp;
-                <span style={{ color: '#ECEFF1' }}>{fmtBytes(head.size)}</span>
+                <span style={{ color: '#ECEFF1' }}>{fmtMb(head.size)}</span>
               </p>
             ) : (
               <p style={{ fontSize: 11.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }}>no saves yet</p>
             )}
+
+            {/* Total storage for this game */}
+            <p style={{ fontSize: 11, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }}>
+              total stored:&nbsp;
+              <span style={{ color: '#8b9aaa', fontWeight: 500 }}>{fmtMb(summary.totalStorageBytes)}</span>
+              &nbsp;across&nbsp;
+              <span style={{ color: '#8b9aaa' }}>{versions.length} version{versions.length !== 1 ? 's' : ''}</span>
+            </p>
 
             {/* Suggested save dir fallback */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#2A3238', padding: '7px 10px', borderRadius: 5, border: '1px solid #494949' }}>
@@ -358,7 +366,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                       </td>
                       <td style={tdStyle}>{v.machineName}</td>
                       <td style={tdMono}>{when(v.createdAt)}</td>
-                      <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#8b9aaa' }}>{fmtBytes(v.size)}</td>
+                      <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#8b9aaa' }}>{fmtMb(v.size)}</td>
                     </tr>
                   ))
             }

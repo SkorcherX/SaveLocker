@@ -119,7 +119,8 @@ public record GameStateDto(
     GameDto Game,
     SaveVersionDto? Head,
     LeaseDto? Lease,
-    bool HasOpenConflict);
+    bool HasOpenConflict,
+    long TotalStorageBytes = 0);
 
 // ----- Agent command channel (dashboard → agent) -----
 

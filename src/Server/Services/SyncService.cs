@@ -207,16 +207,23 @@ public sealed class SyncService
     public async Task<List<GameStateDto>> GetOverviewAsync()
     {
         var games = await _db.Games.OrderBy(g => g.Name).ToListAsync();
+
+        // Batch-query storage totals to avoid N+1 (one GROUP BY instead of one SUM per game).
+        var storageTotals = await _db.SaveVersions
+            .GroupBy(v => v.GameId)
+            .Select(g => new { GameId = g.Key, Total = g.Sum(v => v.Size) })
+            .ToDictionaryAsync(x => x.GameId, x => x.Total);
+
         var result = new List<GameStateDto>(games.Count);
         foreach (var g in games)
         {
-            var state = await GetGameStateAsync(g.Id);
+            var state = await GetGameStateAsync(g.Id, storageTotals.GetValueOrDefault(g.Id));
             if (state is not null) result.Add(state);
         }
         return result;
     }
 
-    public async Task<GameStateDto?> GetGameStateAsync(Guid gameId)
+    public async Task<GameStateDto?> GetGameStateAsync(Guid gameId, long? precomputedStorage = null)
     {
         var game = await _db.Games.FindAsync(gameId);
         if (game is null) return null;
@@ -230,7 +237,10 @@ public sealed class SyncService
         var hasConflict = await _db.Conflicts
             .AnyAsync(c => c.GameId == gameId && c.Status == ConflictStatus.Open);
 
-        return new GameStateDto(game.ToDto(), head?.ToDto(), lease.ToDto(gameId), hasConflict);
+        var totalStorage = precomputedStorage
+            ?? await _db.SaveVersions.Where(v => v.GameId == gameId).SumAsync(v => v.Size);
+
+        return new GameStateDto(game.ToDto(), head?.ToDto(), lease.ToDto(gameId), hasConflict, totalStorage);
     }
 
     // ----- Leases -----

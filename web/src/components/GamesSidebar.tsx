@@ -6,7 +6,11 @@ interface Props {
   onSelect: (id: string) => void;
 }
 
+const fmtMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+
 export function GamesSidebar({ games, selectedId, onSelect }: Props) {
+  const grandTotal = games.reduce((sum, s) => sum + s.totalStorageBytes, 0);
+
   return (
     <aside style={{
       width: 220,
@@ -18,8 +22,9 @@ export function GamesSidebar({ games, selectedId, onSelect }: Props) {
       overflowY: 'auto',
       minHeight: 0,
     }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #494949' }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid #494949', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 10.5, fontWeight: 600, color: '#8b9aaa', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Games</span>
+        <span style={{ fontSize: 9.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }} title="Total save data stored on server">{fmtMb(grandTotal)}</span>
       </div>
 
       {games.length === 0 && (
@@ -27,7 +32,7 @@ export function GamesSidebar({ games, selectedId, onSelect }: Props) {
       )}
 
       {games.map(s => {
-        const { game, head, hasOpenConflict, lease } = s;
+        const { game, head, hasOpenConflict, lease, totalStorageBytes } = s;
         const isSelected = game.id === selectedId;
 
         return (
@@ -71,6 +76,11 @@ export function GamesSidebar({ games, selectedId, onSelect }: Props) {
                 {head && (
                   <span style={{ fontSize: 9, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }}>
                     {head.id.replace(/-/g, '').slice(0, 6)}
+                  </span>
+                )}
+                {totalStorageBytes > 0 && (
+                  <span style={{ fontSize: 9, color: '#494949', fontFamily: "'JetBrains Mono', monospace" }}>
+                    {fmtMb(totalStorageBytes)}
                   </span>
                 )}
               </div>

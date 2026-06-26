@@ -3,6 +3,7 @@ export interface GameSummary {
   head: Version | null;
   lease: Lease | null;
   hasOpenConflict: boolean;
+  totalStorageBytes: number;
 }
 
 export interface Game {
