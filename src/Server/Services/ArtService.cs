@@ -38,7 +38,7 @@ public sealed class ArtService
         ("icon", "icons/game/{0}?limit=1"),
     };
 
-    public ArtService(AppDbContext db, SettingsService settings, IHttpClientFactory factory, IWebHostEnvironment env)
+    public ArtService(AppDbContext db, SettingsService settings, IHttpClientFactory factory, IWebHostEnvironment env, IConfiguration config)
     {
         _db = db;
         _settings = settings;
@@ -46,7 +46,10 @@ public sealed class ArtService
         // Asset images live on a separate CDN host that rejects the API bearer token,
         // so download them with a clean client carrying no Authorization header.
         _download = factory.CreateClient();
-        _artRoot = Path.Combine(env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot"), "art");
+        // In production Storage:ArtRoot points to /data/art (the persistent volume mount).
+        // In dev, fall back to wwwroot/art so local runs still work without configuration.
+        _artRoot = config["Storage:ArtRoot"]
+            ?? Path.Combine(env.WebRootPath ?? Path.Combine(env.ContentRootPath, "wwwroot"), "art");
     }
 
     private Task<string?> ResolveKeyAsync(CancellationToken ct) =>

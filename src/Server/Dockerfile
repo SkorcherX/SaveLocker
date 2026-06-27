@@ -33,6 +33,7 @@ VOLUME ["/data"]
 ENV ASPNETCORE_URLS=http://+:8080
 ENV Storage__DbPath=/data/localgamesync.db
 ENV Storage__ArchiveRoot=/data/archives
+ENV Storage__ArtRoot=/data/art
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "LocalGameSync.Server.dll"]

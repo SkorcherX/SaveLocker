@@ -107,6 +107,19 @@ using (var scope = app.Services.CreateScope())
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
+// In production, art lives on the persistent volume (Storage:ArtRoot = /data/art).
+// Serve it under /art so existing URLs (/art/{gameId}/{kind}.jpg) keep working.
+var artRootPath = app.Configuration["Storage:ArtRoot"];
+if (!string.IsNullOrWhiteSpace(artRootPath))
+{
+    Directory.CreateDirectory(artRootPath);
+    app.UseStaticFiles(new StaticFileOptions
+    {
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(artRootPath),
+        RequestPath = "/art"
+    });
+}
+
 app.MapGet("/health", () => Results.Ok(new { service = "SaveLocker", status = "ok" }));
 
 // ---- Public: machine registration + admin status ----
