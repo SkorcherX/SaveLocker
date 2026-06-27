@@ -9,7 +9,8 @@ interface Props {
   onRefresh: () => void;
 }
 
-const when = (t: string | null | undefined) => t ? new Date(t).toLocaleString() : '—';
+const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
+const when = (t: string | null | undefined) => t ? new Date(asUtc(t)).toLocaleString() : '—';
 
 export function ConfigView({ games, machines, settings, onRefresh }: Props) {
   const [sgdbInput, setSgdbInput] = useState('');

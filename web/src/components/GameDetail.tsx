@@ -3,7 +3,8 @@ import { api } from '../api';
 import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath } from '../types';
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
-const when = (t: string | null | undefined) => t ? new Date(t).toLocaleString() : '—';
+const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
+const when = (t: string | null | undefined) => t ? new Date(asUtc(t)).toLocaleString() : '—';
 const fmtMb = (n: number) => (n / (1024 * 1024)).toFixed(2) + ' MB';
 
 interface Props {

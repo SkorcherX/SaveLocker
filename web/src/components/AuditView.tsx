@@ -43,7 +43,8 @@ function ActionBadge({ action }: { action: string }) {
 }
 
 function formatTs(iso: string) {
-  const d = new Date(iso + 'Z');
+  const normalized = /[Z+]/.test(iso.slice(-6)) ? iso : iso + 'Z';
+  const d = new Date(normalized);
   return d.toLocaleString(undefined, {
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit', second: '2-digit',

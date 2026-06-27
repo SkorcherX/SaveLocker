@@ -4,13 +4,17 @@ services:
     container_name: savelocker-server
     ports:
       - "5080:8080"
+    environment:
+      - TZ=America/Los_Angeles
     volumes:
       - /mnt/user/appdata/savelocker:/data
     restart: unless-stopped
 
   watchtower:
-    image: containrrr/watchtower
+    image: containrrr/watchtower:latest
     container_name: watchtower-savelocker
+    environment:
+      - DOCKER_API_VERSION=1.41
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /root/.docker/config.json:/config.json

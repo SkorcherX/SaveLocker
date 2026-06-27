@@ -19,6 +19,10 @@ public sealed class AgentConfig
     /// <summary>Set once the first-run welcome prompt has been shown/dismissed so we don't nag.</summary>
     public bool FirstRunCompleted { get; set; }
     public List<TrackedGame> Games { get; set; } = new();
+    /// <summary>Cumulative count of save versions successfully pushed to the server.</summary>
+    public int TotalSavesPushed { get; set; }
+    /// <summary>UTC timestamp of the most recent push or pull across all games.</summary>
+    public DateTime? LastSyncTime { get; set; }
 
     [JsonIgnore] public string ConfigPath { get; private set; } = DefaultConfigPath;
 

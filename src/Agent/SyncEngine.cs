@@ -55,11 +55,14 @@ public sealed class SyncEngine
                 case UploadStatus.Created:
                     game.LastKnownVersionId = result.Version!.Id;
                     game.LastSyncedHash = hash;
+                    _config.TotalSavesPushed++;
+                    _config.LastSyncTime = DateTime.UtcNow;
                     _log($"[{game.Name}] pushed new version.");
                     break;
                 case UploadStatus.NoChange:
                     game.LastKnownVersionId = result.Version?.Id ?? game.LastKnownVersionId;
                     game.LastSyncedHash = hash;
+                    _config.LastSyncTime = DateTime.UtcNow;
                     _log($"[{game.Name}] server already had this content.");
                     break;
                 case UploadStatus.Conflict:
@@ -129,6 +132,7 @@ public sealed class SyncEngine
             SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir);
             game.LastKnownVersionId = versionId;
             game.LastSyncedHash = headHash;
+            _config.LastSyncTime = DateTime.UtcNow;
             _config.Save();
             _log($"[{game.Name}] restored latest save from server.");
             return true;

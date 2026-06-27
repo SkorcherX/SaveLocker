@@ -131,6 +131,10 @@ internal sealed class AgentApiServer : IDisposable
                     .Select(kv => (object)new { gameName = kv.Key, holderMachine = kv.Value })
                     .ToArray();
 
+            var lastSyncAgo = _config.LastSyncTime.HasValue
+                ? FormatAgo(DateTime.UtcNow - _config.LastSyncTime.Value)
+                : "—";
+
             await WriteJsonAsync(res, new
             {
                 connected = !string.IsNullOrEmpty(_config.ApiKey),
@@ -139,8 +143,8 @@ internal sealed class AgentApiServer : IDisposable
                 apiKey = _config.ApiKey ?? "",
                 startWithWindows = AutoStart.IsEnabled(),
                 gamesTracked = _config.Games.Count,
-                savesBacked = 0,
-                lastSyncAgo = "—",
+                savesBacked = _config.TotalSavesPushed,
+                lastSyncAgo,
                 leaseWarnings = warnings,
             });
             return;
@@ -394,6 +398,16 @@ internal sealed class AgentApiServer : IDisposable
         var bytes = await File.ReadAllBytesAsync(filePath);
         res.ContentLength64 = bytes.Length;
         await res.OutputStream.WriteAsync(bytes);
+    }
+
+    // ─── Helpers ────────────────────────────────────────────────────────────────
+
+    private static string FormatAgo(TimeSpan ago)
+    {
+        if (ago.TotalSeconds < 60) return "just now";
+        if (ago.TotalMinutes < 60) return $"{(int)ago.TotalMinutes}m ago";
+        if (ago.TotalHours < 24) return $"{(int)ago.TotalHours}h ago";
+        return $"{(int)ago.TotalDays}d ago";
     }
 
     // ─── JSON utilities ─────────────────────────────────────────────────────────
