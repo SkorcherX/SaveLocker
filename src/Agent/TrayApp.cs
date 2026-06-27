@@ -75,7 +75,8 @@ internal sealed class TrayContext : ApplicationContext
                 var scanner = new GameScanner(_detection);
                 return await scanner.ScanAsync();
             },
-            enroll: EnrollAsync);
+            enroll: EnrollAsync,
+            onRegistered: RebuildEngine);
         _apiServer.Start();
 
         _commandPoller = new CommandPoller(

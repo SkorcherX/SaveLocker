@@ -167,6 +167,18 @@ agent.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, Sync
 agent.MapGet("/versions/{versionId:guid}/download", async (Guid versionId, HttpContext http, SyncService sync) =>
     StreamVersion(http, await sync.DownloadVersionAsync(versionId)));
 
+// ---- Game creation (agent enrollment) ----
+// Agents create games during enrollment using their API key.
+// The admin POST /api/games route (below) handles dashboard-side game creation.
+agent.MapPost("/agent/games", async (HttpContext http, CreateGameRequest req, SyncService sync, ArtService art) =>
+{
+    if (string.IsNullOrWhiteSpace(req.Name))
+        return Results.BadRequest("Game name is required.");
+    var game = await sync.CreateGameAsync(req);
+    if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
+    return Results.Ok(game.ToDto());
+});
+
 // ---- Agent command channel ----
 agent.MapGet("/agent/commands", async (HttpContext http, SyncService sync) =>
     Results.Ok((await sync.DequeueCommandsAsync(http.CurrentMachine().Id)).Select(c => c.ToDto())));

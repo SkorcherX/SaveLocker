@@ -17,6 +17,7 @@ internal sealed class AgentApiServer : IDisposable
     private readonly SynchronizationContext _ui;
     private readonly Func<Task<IReadOnlyList<ScanCandidate>>> _doScan;
     private readonly Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> _enroll;
+    private readonly Action? _onRegistered;
     private readonly string _uiRoot;
 
     private IReadOnlyList<ScanCandidate>? _candidateCache;
@@ -37,13 +38,15 @@ internal sealed class AgentApiServer : IDisposable
         AgentConfig config,
         SynchronizationContext ui,
         Func<Task<IReadOnlyList<ScanCandidate>>> doScan,
-        Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> enroll)
+        Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> enroll,
+        Action? onRegistered = null)
     {
         Port = port;
         _config = config;
         _ui = ui;
         _doScan = doScan;
         _enroll = enroll;
+        _onRegistered = onRegistered;
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
         _http.Prefixes.Add($"http://localhost:{port}/");
     }
@@ -220,6 +223,7 @@ internal sealed class AgentApiServer : IDisposable
                 _config.ApiKey = reg.ApiKey;
                 _config.MachineId = reg.MachineId;
                 _config.Save();
+                _onRegistered?.Invoke();
                 await WriteJsonAsync(res, new { apiKey = reg.ApiKey });
             }
             catch (Exception ex)

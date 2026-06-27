@@ -47,7 +47,7 @@ public sealed class ApiClient
 
     public async Task<GameDto> CreateGameAsync(CreateGameRequest req)
     {
-        var resp = await _http.PostAsJsonAsync("/api/games", req);
+        var resp = await _http.PostAsJsonAsync("/api/agent/games", req);
         resp.EnsureSuccessStatusCode();
         return (await resp.Content.ReadFromJsonAsync<GameDto>())!;
     }
