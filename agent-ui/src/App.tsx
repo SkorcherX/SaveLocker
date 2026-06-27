@@ -28,25 +28,13 @@ export default function App() {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      height: '100vh',
       display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
+      flexDirection: 'column',
       background: '#0d1114',
-      padding: 30,
       fontFamily: "'Inter', system-ui, -apple-system, sans-serif",
+      overflow: 'hidden',
     }}>
-      {/* App window */}
-      <div style={{
-        width: 900,
-        height: 600,
-        display: 'flex',
-        flexDirection: 'column',
-        borderRadius: 9,
-        overflow: 'hidden',
-        boxShadow: '0 28px 70px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05)',
-        flexShrink: 0,
-      }}>
         {/* Shared header row — one element, guaranteed alignment */}
         <div style={{ display: 'flex', borderBottom: '1px solid #494949', flexShrink: 0 }}>
           <div style={{
@@ -86,7 +74,6 @@ export default function App() {
           </div>
           <div style={{ flex: 1, background: '#2A3238' }} />
         </div>
-      </div>
     </div>
   )
 }
