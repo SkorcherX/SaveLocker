@@ -70,6 +70,7 @@ using (var scope = app.Services.CreateScope())
                 INSERT INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
                 VALUES ('20260624011934_InitialSchema', '9.0.9');
                 """);
+            historyExists = true;
 
             // If RetainVersions was already added by the pre-migration manual workaround,
             // stamp the migration as applied so EF doesn't attempt the ALTER TABLE again.
@@ -85,22 +86,28 @@ using (var scope = app.Services.CreateScope())
         }
     }
 
+    // MachineSavePaths used to be created out-of-band via CREATE TABLE IF NOT EXISTS
+    // (it predates being an EF entity). On any DB where that table already exists,
+    // stamp the AddMachineSavePaths migration as applied so Migrate() doesn't try to
+    // recreate it (which would throw "table already exists"). Only meaningful once a
+    // history table is present — a fresh DB has neither and gets the table from Migrate().
+    if (historyExists)
+    {
+        var machineSavePathsExists = db.Database
+            .SqlQuery<int>($"SELECT COUNT(*) AS \"Value\" FROM sqlite_master WHERE type='table' AND name='MachineSavePaths'")
+            .Single() > 0;
+        if (machineSavePathsExists)
+            db.Database.ExecuteSqlRaw("""
+                INSERT OR IGNORE INTO "__EFMigrationsHistory" ("MigrationId", "ProductVersion")
+                VALUES ('20260706022305_AddMachineSavePaths', '9.0.9');
+                """);
+    }
+
     db.Database.Migrate();
 
     // WAL mode: allows concurrent readers alongside the single writer, which prevents
     // "database is locked" 500s when the dashboard fires several parallel API calls.
     db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
-
-    // Additive table: per-machine save paths (not part of the InitialSchema migration).
-    db.Database.ExecuteSqlRaw("""
-        CREATE TABLE IF NOT EXISTS "MachineSavePaths" (
-            "MachineId" TEXT NOT NULL,
-            "GameId"    TEXT NOT NULL,
-            "SavePath"  TEXT NOT NULL,
-            PRIMARY KEY ("MachineId", "GameId")
-        );
-        """);
-
 }
 
 // Serve the admin dashboard (wwwroot/index.html) at "/".

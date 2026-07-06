@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<AgentCommand> AgentCommands => Set<AgentCommand>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
+    public DbSet<MachineSavePath> MachineSavePaths => Set<MachineSavePath>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -29,5 +30,7 @@ public class AppDbContext : DbContext
         b.Entity<AgentCommand>().HasIndex(c => new { c.MachineId, c.Status });
 
         b.Entity<AppSetting>().HasKey(s => s.Key);
+
+        b.Entity<MachineSavePath>().HasKey(p => new { p.MachineId, p.GameId });
     }
 }

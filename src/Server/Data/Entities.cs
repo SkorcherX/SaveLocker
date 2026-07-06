@@ -26,7 +26,8 @@ public class Game
     /// <summary>
     /// Save folder suggested when the game is defined (e.g. in the dashboard).
     /// Propagated to agents, which use it if it exists on that machine, otherwise
-    /// the user maps a local folder. Per-machine paths are not stored server-side.
+    /// the user maps a local folder. The resolved per-machine folder is stored
+    /// server-side as a <see cref="MachineSavePath"/>.
     /// </summary>
     public string? SuggestedSaveDir { get; set; }
 
@@ -125,6 +126,18 @@ public class AgentCommand
 
     /// <summary>Human-readable outcome the agent reports (e.g. "pushed 1 game").</summary>
     public string? Result { get; set; }
+}
+
+/// <summary>
+/// A machine's stored save-folder path for a specific game. Keyed on
+/// (MachineId, GameId); one row per machine that has mapped a local folder.
+/// Injected into the agent's game list for reconcile and surfaced in the dashboard.
+/// </summary>
+public class MachineSavePath
+{
+    public Guid MachineId { get; set; }
+    public Guid GameId { get; set; }
+    public string SavePath { get; set; } = "";
 }
 
 /// <summary>A persisted server setting (key/value), e.g. the SteamGridDB API key.
