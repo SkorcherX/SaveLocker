@@ -80,4 +80,4 @@ Config: `%PROGRAMDATA%\SaveLocker\config.json`. Logs: `%PROGRAMDATA%\SaveLocker\
 > output attaches (the exe is a WinExe / GUI subsystem).
 
 ## Tests
-`.verify/run-agent-tests.ps1` (server must be running on :5179). See [[Progress]].
+`tests/run-agent-tests.ps1` (server must be running on :5179). Scratch state (generated configs, save dirs) is written to `.verify/` (git-ignored). See [[Progress]].

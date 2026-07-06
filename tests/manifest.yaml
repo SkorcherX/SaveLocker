@@ -1,0 +1,8 @@
+LGS Test Game:
+  files:
+    <winAppData>/LGSTestGame:
+      tags:
+        - save
+    <winDocuments>/My Games/LGSTestGame/*.sav:
+      tags:
+        - save

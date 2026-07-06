@@ -17,7 +17,7 @@ Back to [[Home]]. Last updated: 2026-06-25 (session 4).
 - **Server API — 19 checks:** register, auth (401), lease grant + denial,
   upload fast-forward / conflict / no-change, head NOT overwritten on conflict,
   list/resolve conflict, rollback.
-- **Agent integration — 10 checks** (`.verify/run-agent-tests.ps1`): manifest
+- **Agent integration — 10 checks** (`tests/run-agent-tests.ps1`): manifest
   detection against a real `%APPDATA%` folder; two-machine push→pull with
   byte-identical restore; up-to-date no-op; full conflict path; status reflects it.
 - **Dashboard data path:** overview shows conflict (head from PC); resolving
@@ -250,6 +250,7 @@ Milestone #2: enter the SteamGridDB key from the console instead of editing
   Left the DB clean (key still only in config). Build 0 warnings. *Live UI eyeball: pending.*
 - **Note:** the SteamGridDB config key in `appsettings.Development.json` is under
   `"SteamGridDB"` (capital DB) but resolves fine — `IConfiguration` keys are case-insensitive.
+  The file is now tracked with a blank `ApiKey` placeholder; set a real key locally for dev art fetches.
 
 ## Dashboard reorg — Configuration page (2026-06-22)
 User: the admin tools (Machines/API keys + Server settings) shouldn't be in the home
@@ -477,7 +478,7 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   - **Vite proxy:** `/api` and `/art` → `:5179`. Dev server on `:5173`.
   - **Verified live** against the real DB (Octopath Traveler 0, real cover art via `/art`
     proxy, three machines visible, Recent Remote Commands + Versions tables populated).
-  - Legacy `src/Server/wwwroot/index.html` untouched.
+  - Legacy `src/Server/wwwroot/index.html` — retired; file was untracked and is no longer present.
   - Configuration page logo removed (user request — 2026-06-24 same session).
   - **Phase 3 (Docker fold) remains:** `npm run build → dist/ → wwwroot/` + Dockerfile
     multi-stage node build. Lands with deployment-hardening milestone.
