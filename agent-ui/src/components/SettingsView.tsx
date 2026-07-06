@@ -35,6 +35,7 @@ const SECTION_HEADER: React.CSSProperties = {
 export function SettingsView({ state, onSaved }: Props) {
   const [serverUrl, setServerUrl] = useState('')
   const [machineName, setMachineName] = useState('')
+  const [adminPassword, setAdminPassword] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [startWithWindows, setStartWithWindows] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -80,8 +81,9 @@ export function SettingsView({ state, onSaved }: Props) {
     setStatus('Registering…')
     try {
       await api.saveConfig({ serverUrl, machineName })
-      const result = await api.register()
+      const result = await api.register(adminPassword || undefined)
       setApiKey(result.apiKey)
+      setAdminPassword('')
       dirtyFields.current.clear()
       onSaved()
       setStatus('Registered successfully.')
@@ -158,6 +160,16 @@ export function SettingsView({ state, onSaved }: Props) {
             <label style={LABEL}>Machine Name</label>
             <input
               type="text" value={machineName} onChange={e => { dirtyFields.current.add('machineName'); setMachineName(e.target.value) }}
+              style={{ ...INPUT, width: 240, fontSize: 13 }}
+            />
+          </div>
+
+          <div>
+            <label style={LABEL}>Admin Password</label>
+            <input
+              type="password" value={adminPassword} onChange={e => setAdminPassword(e.target.value)}
+              placeholder="only needed to re-register this name"
+              autoComplete="off"
               style={{ ...INPUT, width: 240, fontSize: 13 }}
             />
           </div>

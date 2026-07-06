@@ -53,6 +53,10 @@ public sealed class SyncService
         return new MachineRegisterResponse(machine.Id, apiKey);
     }
 
+    /// <summary>True when a machine with this exact name is already registered.</summary>
+    public async Task<bool> MachineExistsAsync(string name) =>
+        await _db.Machines.AnyAsync(m => m.Name == name);
+
     public async Task<Machine?> AuthenticateAsync(string apiKey)
     {
         var hash = Tokens.Hash(apiKey);

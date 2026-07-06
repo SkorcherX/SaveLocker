@@ -46,7 +46,8 @@ static class Program
                 case "register":
                 {
                     var name = opts.GetValueOrDefault("name") ?? config.MachineName;
-                    var reg = await Api().RegisterAsync(name);
+                    var adminPassword = opts.GetValueOrDefault("admin-password");
+                    var reg = await Api().RegisterAsync(name, adminPassword);
                     config.MachineName = name;
                     config.ApiKey = reg.ApiKey;
                     config.MachineId = reg.MachineId;

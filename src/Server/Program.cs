@@ -130,11 +130,33 @@ if (!string.IsNullOrWhiteSpace(artRootPath))
 app.MapGet("/health", () => Results.Ok(new { service = "SaveLocker", status = "ok" }));
 
 // ---- Public: machine registration + admin status ----
-app.MapPost("/api/machines/register", async (MachineRegisterRequest req, SyncService sync) =>
+// First-time registration is open so a new agent can enroll on a trusted LAN.
+// Re-registering an EXISTING machine name rotates that machine's API key — which
+// would let anyone able to reach the server hijack its identity (the real agent
+// gets locked out). So once an admin password is set, re-registration must carry
+// it in the X-Admin-Password header. With no password configured the endpoint
+// stays fully open (first-run behaviour, matching AdminPasswordFilter).
+app.MapPost("/api/machines/register", async (
+    MachineRegisterRequest req, HttpContext http, SyncService sync, SettingsService settings) =>
 {
     if (string.IsNullOrWhiteSpace(req.Name))
         return Results.BadRequest("Machine name is required.");
-    return Results.Ok(await sync.RegisterMachineAsync(req.Name.Trim()));
+    var name = req.Name.Trim();
+
+    if (await sync.MachineExistsAsync(name))
+    {
+        var storedHash = await settings.GetEffectiveAsync(SettingsService.AdminPasswordHash);
+        if (!string.IsNullOrEmpty(storedHash))
+        {
+            var provided = http.Request.Headers["X-Admin-Password"].FirstOrDefault();
+            if (string.IsNullOrEmpty(provided) || !Tokens.VerifyPassword(provided, storedHash))
+                return Results.Json(
+                    new { error = "This machine name is already registered. Re-registering rotates its key and requires the admin password." },
+                    statusCode: StatusCodes.Status401Unauthorized);
+        }
+    }
+
+    return Results.Ok(await sync.RegisterMachineAsync(name));
 });
 
 app.MapGet("/api/admin/status", async (SettingsService settings) =>

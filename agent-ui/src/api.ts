@@ -24,7 +24,8 @@ export const api = {
   enroll: (ids: number[]) => post<{ enrolled: number; skipped: number }>('/api/enroll', { ids }),
   saveConfig: (body: { serverUrl?: string; machineName?: string; startWithWindows?: boolean }) =>
     post('/api/config', body),
-  register: () => post<{ apiKey: string }>('/api/register'),
+  register: (adminPassword?: string) =>
+    post<{ apiKey: string }>('/api/register', adminPassword ? { adminPassword } : undefined),
   games: () => req<TrackedGame[]>('/api/games'),
   removeGame: (id: string) => post(`/api/games/${id}/remove`),
   setGameFolder: (id: string, path: string) => post(`/api/games/${id}/folder`, { path }),

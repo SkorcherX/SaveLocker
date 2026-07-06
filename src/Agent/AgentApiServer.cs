@@ -222,8 +222,9 @@ internal sealed class AgentApiServer : IDisposable
         {
             try
             {
+                var body = await ReadJsonAsync<RegisterRequest>(req);
                 var api = new ApiClient(_config.ServerUrl, null);
-                var reg = await api.RegisterAsync(_config.MachineName);
+                var reg = await api.RegisterAsync(_config.MachineName, body?.AdminPassword);
                 _config.ApiKey = reg.ApiKey;
                 _config.MachineId = reg.MachineId;
                 _config.Save();
@@ -444,6 +445,7 @@ internal sealed class AgentApiServer : IDisposable
         public string? MachineName { get; set; }
         public bool? StartWithWindows { get; set; }
     }
+    private sealed class RegisterRequest { public string? AdminPassword { get; set; } }
     private sealed class FolderBody { public string? Path { get; set; } }
     private sealed class DismissWarningBody { public string? GameName { get; set; } }
 }

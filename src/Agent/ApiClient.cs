@@ -16,12 +16,36 @@ public sealed class ApiClient
             _http.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
     }
 
-    public async Task<MachineRegisterResponse> RegisterAsync(string name)
+    public async Task<MachineRegisterResponse> RegisterAsync(string name, string? adminPassword = null)
     {
-        var resp = await _http.PostAsJsonAsync("/api/machines/register", new MachineRegisterRequest(name));
-        resp.EnsureSuccessStatusCode();
+        using var msg = new HttpRequestMessage(HttpMethod.Post, "/api/machines/register")
+        {
+            Content = JsonContent.Create(new MachineRegisterRequest(name))
+        };
+        // Re-registering an existing machine name requires the admin password when the
+        // server has one set. First-time registration ignores this header.
+        if (!string.IsNullOrEmpty(adminPassword))
+            msg.Headers.Add("X-Admin-Password", adminPassword);
+
+        var resp = await _http.SendAsync(msg);
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ReadErrorAsync(resp));
         return (await resp.Content.ReadFromJsonAsync<MachineRegisterResponse>())!;
     }
+
+    /// <summary>Pull a human-readable message out of a failed response's { error } body.</summary>
+    private static async Task<string> ReadErrorAsync(HttpResponseMessage resp)
+    {
+        try
+        {
+            var body = await resp.Content.ReadFromJsonAsync<ErrorBody>();
+            if (!string.IsNullOrWhiteSpace(body?.Error)) return body!.Error!;
+        }
+        catch { /* non-JSON or empty body — fall through to a generic message */ }
+        return $"Server returned {(int)resp.StatusCode} {resp.ReasonPhrase}.";
+    }
+
+    private sealed class ErrorBody { public string? Error { get; set; } }
 
     public async Task<List<GameDto>> ListGamesAsync() =>
         await _http.GetFromJsonAsync<List<GameDto>>("/api/games") ?? new();
