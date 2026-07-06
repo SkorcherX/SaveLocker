@@ -6,4 +6,8 @@
 .git/
 .vs/
 *.user
-LocalGameSync/.obsidian/
+LocalGameSync/
+docs/
+agent-ui/
+installer/
+web/node_modules/
