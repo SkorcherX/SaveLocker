@@ -30,6 +30,7 @@ attaches (the `.exe` is a GUI-subsystem app and won't print to a terminal).
 | `search` | positional `<term>` | List Ludusavi manifest game names containing the term. |
 | `resolve` | `--manifest <name>` or positional `<name>` | Show the save dir(s) the manifest resolves to on this machine. Local-only. |
 | `refresh-manifest` | | Re-download the Ludusavi manifest into the local cache. |
+| `log` | `[--n <count>]` | Print the last *n* lines of the agent log file (default 50). Exits with a message if no log exists yet. |
 
 ## Examples
 ```sh

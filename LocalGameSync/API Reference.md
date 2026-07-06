@@ -1,13 +1,20 @@
 # API Reference
 
-Back to [[Home]]. Server endpoints (`src/Server/Program.cs`). All `/api/*` except
-register require header `X-Api-Key: <machine key>`.
+Back to [[Home]]. Server endpoints (`src/Server/Program.cs`).
 
-## Public
+**Two auth tiers:**
+- **Agent routes** (`X-Api-Key: <machine key>`) — identify the calling machine.
+- **Admin routes** (`X-Admin-Password: <password>`) — dashboard / human operations.
+  When no admin password is set the header is ignored and all admin routes are open.
+  Check `GET /api/admin/status` to know if a password is required.
+
+## Public (no auth)
 - `POST /api/machines/register` `{ name }` → `{ machineId, apiKey }`
   (re-registering an existing name rotates its key).
 - `GET /health` → `{ service, status:"ok" }`.
-- `GET /` → admin dashboard (static `wwwroot/index.html`).
+- `GET /api/admin/status` → `{ passwordRequired }` — lets the UI decide whether to
+  prompt for a password before any admin call.
+- `GET /` → React admin dashboard (served from `wwwroot/` by ASP.NET static files).
 
 ## Games & state
 - `GET /api/games` → `GameDto[]`
@@ -18,6 +25,7 @@ register require header `X-Api-Key: <machine key>`.
   **400** if you target the machine whose key authenticated the request (no self-delete).
 - `POST /api/games` `{ name, manifestKey?, customPathsJson?, suggestedSaveDir? }` → `GameDto`
   (dedupes by name, **case-insensitive + trimmed** so both machines map to one game).
+  Dashboard / admin use. Agents use `POST /api/agent/games` (agent-auth) during enrollment.
 - `POST /api/games/{id}/enabled?value={bool}` → 200 / 404 (admin: enable/disable a
   game; disabled games are skipped by agents).
 - `POST /api/games/{id}/save-dir?value={path}` → 200 / 404. Set/clear the game's
@@ -26,9 +34,10 @@ register require header `X-Api-Key: <machine key>`.
   `GameDto.suggestedSaveDir` carries it. (Per-machine paths are not stored server-side.)
 - `POST /api/games/{id}/art/refresh` → `{ message }` 200, or 400 `{ message }` if no
   SteamGridDB key is configured / no match found. (Re)fetches cover/hero/logo/icon from
-  SteamGridDB and caches them under `wwwroot/art/{gameId}/`. Art also fetches
-  automatically on first enrollment (`POST /api/games`, best-effort). `GameDto`'s
-  `gridUrl`/`heroUrl`/`logoUrl`/`iconUrl` are the served relative URLs (cache-busted).
+  SteamGridDB and caches them under `/data/art/{gameId}/` (`Storage:ArtRoot`; served at
+  `/art/{gameId}/…`). Art also fetches automatically on first enrollment (best-effort).
+  `GameDto`'s `gridUrl`/`heroUrl`/`logoUrl`/`iconUrl` are the served relative URLs
+  (cache-busted).
   Requires a SteamGridDB key — set it in the dashboard (Server settings) or via config
   `SteamGridDb:ApiKey` (env `SteamGridDb__ApiKey`); the DB value wins.
 - `DELETE /api/games/{id}` → 204 (admin: remove a game + its versions, archives,
@@ -47,9 +56,11 @@ register require header `X-Api-Key: <machine key>`.
 - `GET /api/games/{id}/versions` → `SaveVersionDto[]`.
 
 ## Leases
-- `POST /api/games/{id}/lease` → `LeaseAcquireResponse { granted, lease }`.
-- `DELETE /api/games/{id}/lease` → 204 (release own lease).
-- `DELETE /api/games/{id}/lease/force` → 204 (admin force-release).
+- `POST /api/games/{id}/lease` → `LeaseAcquireResponse { granted, lease }`. *(agent)*
+- `POST /api/games/{id}/lease/renew` → 200 / 409 (renews the lease held by the
+  calling machine; `SyncEngine` calls this on a 3 h timer during long play sessions). *(agent)*
+- `DELETE /api/games/{id}/lease` → 204 (release own lease). *(agent)*
+- `DELETE /api/games/{id}/lease/force` → 204 (admin force-release). *(admin)*
 
 ## Sync
 - `POST /api/games/{id}/upload?hash={h}&parent={versionId?}&force={bool?}`
@@ -65,17 +76,35 @@ register require header `X-Api-Key: <machine key>`.
 - `POST /api/games/{id}/set-latest?version={versionId}` → 200 / 400. Same head-pointer
   move as rollback (audited `set_latest`); backs the dashboard **"Set as Latest"**
   action + initial-sync wizard. See "Latest" nomenclature in [[Decisions]].
+- `POST /api/games/{id}/retain?value={n?}` → 200 / 404. Set the per-game version
+  retention limit (null = use global default from `Storage:RetainVersionsPerGame`).
+- `DELETE /api/games/{id}/versions/{versionId}` → 200 / 404 / 400. Delete a specific
+  version (refuses if it is the head or referenced by an open conflict).
+- `GET /api/games/{id}/paths` → `[{ machineId, machineName, path }]` — per-machine
+  save path overrides for this game.
+- `POST /api/games/{id}/paths/{machineId}?value={path}` → 200. Set (or clear if blank)
+  the save path override for a specific machine.
+- `DELETE /api/games/{id}/paths/{machineId}` → 204. Clear the save path override.
+- `GET /api/audit?limit={n}` → `AuditLogDto[]` (default 200, max 1000). Full audit log.
+- `POST /api/admin/password` `{ password }` → `{ ok, message }`. Set or clear the admin
+  password (blank = disable password requirement).
 
 ## Agent command channel (Workstream 5)
 Polling model: the agent makes outbound requests (server stays passive; works through
 tunnels/firewalls). The agent identifies itself by its `X-Api-Key`.
+- `POST /api/agent/games` `{ name, manifestKey?, … }` → `GameDto` — agent enrollment
+  (same body as `POST /api/games`; uses agent-auth so the dashboard admin password
+  is not required). Commit `47f6a3b`.
 - `GET /api/agent/commands` → `AgentCommandDto[]` — the calling machine's **pending**
   commands; claiming them flips each to `Dispatched` so a later poll won't re-run them.
 - `POST /api/agent/commands/{id}/result` `{ status, result }` → 200 / 404 (agent reports
   outcome; 404 if the command isn't this machine's).
+- `POST /api/agent/path/{gameId}?value={path}` → 200. Agent reports the local save path
+  it resolved for a game (stored in `MachineSavePaths`; used for per-machine path display
+  in the dashboard).
 - `POST /api/commands` `{ machineId, gameId?, type, force }` → `AgentCommandDto` (dashboard
-  queues a command; `type` = `Pull|Push|Sync|Scan`, `gameId` null = all the machine's games).
-- `GET /api/commands` → recent `AgentCommandDto[]` (dashboard activity log).
+  queues a command; `type` = `Pull|Push|Sync|Scan`, `gameId` null = all the machine's games). *(admin)*
+- `GET /api/commands` → recent `AgentCommandDto[]` (dashboard activity log). *(admin)*
 
 Besides commands, the agent also **reconciles the game list** each poll: it adopts server
 games it isn't tracking yet (auto-mapping the save dir from the manifest when possible) and

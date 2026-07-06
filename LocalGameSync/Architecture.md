@@ -26,15 +26,17 @@ Hub-and-spoke (not peer-to-peer). See [[Decisions]] for why unRAID is the keysto
   and trims at the first wildcard to a concrete directory.
 
 ### Server (`src/Server`)
-- `Program.cs` — minimal-API endpoints + DI + static dashboard. Schema via
-  `EnsureCreated()` on startup (migrations deferred — see [[Future Work]]).
+- `Program.cs` — minimal-API endpoints + DI. Schema via `db.Database.Migrate()` on
+  startup; a bootstrap shim pre-stamps `InitialSchema` on existing DBs so `Migrate()`
+  skips it. Two auth filter groups: `ApiKeyFilter` (agent routes, `X-Api-Key`) and
+  `AdminPasswordFilter` (dashboard routes, `X-Admin-Password` when a password is set).
 - `Data/Entities.cs`, `Data/AppDbContext.cs` — EF Core model. ⚠️ See [[Gotchas]]
   about the `Data/` vs `data/` folder collision.
 - `Services/SyncService.cs` — all orchestration logic (registration, leasing,
   conflict-aware upload, download, resolve, rollback, **version pruning**).
 - `Services/ArchiveStore.cs` — archive files on disk: `{root}/{gameId}/{versionId}.zip`.
-- `ApiKeyFilter.cs` — `X-Api-Key` auth, resolves the calling machine.
-- `wwwroot/index.html` — single-file admin dashboard (vanilla JS + fetch).
+- Dashboard — React `web/` SPA; Docker `web` build stage copies `dist/` into
+  `src/Server/wwwroot/` so ASP.NET serves it as static files.
 
 ### Agent (`src/Agent`)
 - `Program.cs` — entry point: no args → tray (`TrayApp.cs`); args → CLI commands.
@@ -53,8 +55,13 @@ On upload the agent sends the version it last knew (`parent`):
 Leases prevent most conflicts up front; hashing/lineage is the safety net.
 
 ## Data model (SQLite)
-`Machine`, `Game` (holds `HeadVersionId`), `SaveVersion` (parent chain +
-`ContentHash`), `Lease` (one per game, unique index), `ConflictFlag`, `AuditLog`.
+EF-managed: `Machine`, `Game` (holds `HeadVersionId`), `SaveVersion` (parent chain +
+`ContentHash`), `Lease` (one per game, unique index), `ConflictFlag`, `AuditLog`,
+`AgentCommand`, `AppSetting` (key/value store for server settings).
+
+Outside EF: `MachineSavePaths` — created by raw `CREATE TABLE IF NOT EXISTS` at
+startup; queried via raw SQL in `SyncService`. No EF entity or migration snapshot
+(see [[Future Work]] for the planned fold into EF).
 
 > **"Latest" = the head.** `Game.HeadVersionId` is the authoritative version agents
 > pull; the dashboard labels it **Latest** and the admin action to set it is

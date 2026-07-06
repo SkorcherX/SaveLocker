@@ -49,7 +49,7 @@ See [[Game Discovery and Art]] for the technical design.
 
 ## Workstream 3 — Artwork (SteamGridDB)
 **Status (2026-06-22): DONE & verified with real art.**
-`ArtService` (search → fetch grid/hero/logo/icon → cache under `wwwroot/art/{gameId}/`),
+`ArtService` (search → fetch grid/hero/logo/icon → cache under `/data/art/{gameId}/`, `Storage:ArtRoot`),
 `Game` art-URL fields (+additive migration), `POST /api/games/{id}/art/refresh`,
 fetch-on-enroll, dashboard cover thumbnail + "Refresh art". Verified end-to-end with a
 real `SteamGridDb:ApiKey`: Octopath got grid/hero/logo/icon cached + the cover serves.
@@ -102,7 +102,9 @@ Original plan:
 Workstreams 1 and 2 give the biggest UX win (no CLI, pick-to-add).
 
 ## Decisions (locked — see [[Decisions]])
-- **Auth:** CloudFlare Access + Google auth (email allowlist). No in-app login now.
+- **Auth:** Admin-password auth shipped (`AdminPasswordFilter`, PBKDF2-SHA256, set from
+  ConfigView — 2026-06-25). CloudFlare Access + Google deferred; Cloudflare Tunnel also
+  deferred (removed from roadmap 2026-06-25, commit `c0c41d1`). See [[Decisions]].
 - **Enrollment:** game defined once on the server (dashboard); agent maps its local
   save dir. Scanner only *suggests* candidates.
 - **Latest:** the authoritative version agents pull is labeled **Latest** (the head

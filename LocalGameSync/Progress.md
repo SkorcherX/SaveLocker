@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-06-25 (session 4).
+Back to [[Home]]. Last updated: 2026-06-27.
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -355,6 +355,26 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
     `DELETE /games/{id}/versions/{versionId}` endpoint. `GameDetail` versions table: new Delete
     column with amber confirm-gated button on every non-head row. `api.deleteVersion`.
   - Commits: `57cd313` hero downscaling · `6e146f3` storage display · `8b65b54` retention + delete.
+
+- **2026-06-27:** **Bug fixes — enrollment 401, stats/timezone, agent window, art volume.**
+  - **Enrollment 401 fix** (`47f6a3b`) — `POST /api/agent/games` was being matched by `AdminPasswordFilter`
+    before `ApiKeyFilter` when an admin password was set, returning 401 to the agent on game creation.
+    Fixed by routing agent enrollment through the `agent` group (`ApiKeyFilter`) instead of the `admin` group.
+  - **Stats + server timezone fix** (`d381f74`) — "Saves Backed Up" and "Last Sync" stats were
+    incorrect; server timestamp comparisons failed due to timezone mismatch. Both corrected.
+  - **Agent window black bars fix** (`73e9100`) — removed a centering wrapper div that caused black bars
+    in the WebView2 agent window when the content didn't fill the full frame.
+  - **Art volume persistence** (`8eae726`) — game art was stored under `src/Server/wwwroot/art/` (erased
+    on container update). Moved to `/data/art/` (`Storage:ArtRoot`; the persistent Docker volume), served
+    via `app.UseStaticFiles(new StaticFileOptions { ... })`. Art now survives image updates.
+
+- **2026-06-26:** **Lease heartbeat, installer artwork polish.**
+  - **Lease heartbeat** (`ee27a57`) — `SyncEngine` starts a `System.Threading.Timer` (3 h period) that
+    calls `POST /api/games/{id}/lease/renew` while the game process is running, preventing silent lease
+    expiry during sessions longer than 6 h. New dashboard lease-conflict warning UI. See [[Future Work]].
+  - **Installer artwork polish** (`21b0bb9`) — `WizardBg` (164×314) and `WizardSmall` (55×58)
+    regenerated: `#1E252A` dark background, logo centred, green separator, bold "SaveLocker" +
+    muted "Game Save Sync" labels, `WizardImageBackColor=$2A251E` DPI fallback. See [[Future Work]].
 
 - **2026-06-25 (session 3):** **Offline / durable retry queue.**
   - `OfflineQueue.cs` — JSON-backed queue at `%PROGRAMDATA%\SaveLocker\offline-queue.json`.
