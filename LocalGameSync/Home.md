@@ -24,6 +24,7 @@ conflict detection, plus an **admin dashboard** for resolution and rollback.
 - [[Game Discovery and Art]] — Steam scanning + SteamGridDB design
 - [[Future Work]] — what's deliberately not built yet
 - [[Gotchas]] — traps that have already bitten us
+- [[Hygiene Review 2026-07-06]] — repo audit findings + model-assigned action list
 
 ## At a glance
 - **Stack:** .NET 9. Agent = C#/WinForms tray + CLI. Server = ASP.NET Core +
