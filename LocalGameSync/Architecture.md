@@ -57,11 +57,13 @@ Leases prevent most conflicts up front; hashing/lineage is the safety net.
 ## Data model (SQLite)
 EF-managed: `Machine`, `Game` (holds `HeadVersionId`), `SaveVersion` (parent chain +
 `ContentHash`), `Lease` (one per game, unique index), `ConflictFlag`, `AuditLog`,
-`AgentCommand`, `AppSetting` (key/value store for server settings).
+`AgentCommand`, `AppSetting` (key/value store for server settings), `MachineSavePath`
+(composite key `(MachineId, GameId)` → a machine's stored save folder for a game).
 
-Outside EF: `MachineSavePaths` — created by raw `CREATE TABLE IF NOT EXISTS` at
-startup; queried via raw SQL in `SyncService`. No EF entity or migration snapshot
-(see [[Future Work]] for the planned fold into EF).
+`MachineSavePath` was folded into EF (entity + `DbSet` + `AddMachineSavePaths`
+migration); on existing deployments the migration is stamped as applied at startup
+when the table already exists — mirroring the RetainVersions bootstrap-stamp — so the
+old raw `CREATE TABLE` table is adopted rather than recreated.
 
 > **"Latest" = the head.** `Game.HeadVersionId` is the authoritative version agents
 > pull; the dashboard labels it **Latest** and the admin action to set it is

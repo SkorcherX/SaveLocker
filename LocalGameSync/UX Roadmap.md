@@ -22,8 +22,9 @@ auto-start on login (`AutoStart.cs` HKCU Run-key + "Start with Windows" checkbox
   **Open Dashboard**, **Settings**, Exit.
 - **Connect dialog:** enter server URL + machine name → calls `register` →
   shows the API key with a **Copy** button (to paste into the dashboard once).
-- **Settings window:** server URL, machine name, re-register, view key, enrolled
-  games list (add/remove). Replaces hand-editing `config.json`.
+- **Settings window:** server URL, machine name, admin password (only needed to
+  re-register an existing name once the server has one set), re-register, view key,
+  enrolled games list (add/remove). Replaces hand-editing `config.json`.
 - **First-run:** if unregistered, prompt to set server + register.
 - Reuses existing `SyncEngine`, `ApiClient`, `register`/`set-server`/`whoami`
   logic — this is a GUI over what the CLI already does.

@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-06-27.
+Back to [[Home]]. Last updated: 2026-07-06.
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -334,6 +334,27 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-07-06:** **Repo hygiene pass** (full plan + findings in [[Hygiene Review 2026-07-06]]).
+  - **#1–3 (cleanup + docs)** — removed spent design-handoff prototypes & untracked Obsidian
+    session files (`2597cf1`); brought the `.verify` tests + dev config into the repo as `tests/`
+    (`14e3320`); docs refresh against the last ~6 commits (`98d8f34`).
+  - **#4a — `MachineSavePaths` folded into EF** (`71f83ec`) — was a raw `CREATE TABLE IF NOT EXISTS`
+    table queried via raw SQL. Now a `MachineSavePath` entity + `DbSet` + `AddMachineSavePaths`
+    migration; raw SQL in `SyncService` replaced with EF LINQ. Existing DBs are adopted, not
+    recreated: on startup the migration is stamped as applied when the table already exists
+    (mirrors the RetainVersions bootstrap-stamp). Verified against fresh / already-migrated /
+    pre-migration DB copies + live CRUD.
+  - **#4b — machine-key rotation guard** (`bf67cc3`) — `POST /api/machines/register` re-registering
+    an *existing* name rotates its API key, which let any caller hijack a machine. Now requires
+    `X-Admin-Password` when a name already exists **and** an admin password is set; first-time
+    registration (and any registration with no password configured) stays open, so enrollment is
+    unaffected. Agent side: optional admin-password field in Settings, `--admin-password` CLI flag,
+    `ApiClient` sends the header and surfaces the server error. Verified via HTTP across all 7
+    register scenarios (incl. new-machine enrollment still open with a password set — the `47f6a3b`
+    regression guard).
+  - Remaining hygiene backlog (#5a–5f): SQLite backup, Swagger/generated TS clients, lease sweep +
+    HEALTHCHECK, toolchain/CI alignment, per-game globs, bigger swings. See the review note.
+
 - **2026-06-25 (session 4):** **Hero downscaling, storage display, per-game retention, version delete.**
   - **Hero image downscaling** — `ArtService`: added `ResizeHeroAsync` using `SixLabors.ImageSharp 3.1.7`
     (downgraded from 4.0.0 which required a paid license). Hero images resized to max 920 px wide,
@@ -583,7 +604,8 @@ UX phase functionally complete and deployed. Queue, in priority order:
 4c. ~~**Admin auth** — real password distinct from machine API keys~~ **DONE 2026-06-25 (session 2).**
    `AdminPasswordFilter`, PBKDF2-SHA256, set from ConfigView.
 5. ~~**Per-machine save-path storage**~~ **DONE 2026-06-25** — `MachineSavePaths` table
-   (additive startup SQL); `GET /api/games` injects this machine's stored path into each
+   (originally additive startup SQL; folded into EF as `MachineSavePath` on 2026-07-06, `71f83ec`);
+   `GET /api/games` injects this machine's stored path into each
    `GameDto`; new endpoints for dashboard set/clear; agent reconcile uses server path as
    highest priority and reports locally-detected paths back to the server (two-way sync).
    Dashboard "Save paths per machine" table replaces the old single-path row. **Verified

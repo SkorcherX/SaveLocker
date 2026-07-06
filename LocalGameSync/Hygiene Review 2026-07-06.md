@@ -74,10 +74,13 @@ Every declared requirement is used. No unused NuGet or npm packages:
 - **`MachineSavePaths` lives outside EF** — created by raw `CREATE TABLE IF NOT EXISTS`
   at startup (`Program.cs`), queried via raw SQL in `SyncService`; no entity, no
   migration. Works, but future migrations/model snapshots won't know it exists.
+  → **Resolved in `71f83ec` (task 4a):** now a `MachineSavePath` entity + migration.
 - **`POST /api/machines/register` is unauthenticated and rotates keys by name** —
   anyone who can reach the server can re-register an existing machine name and hijack
   its identity (the real agent gets locked out). Acceptable on trusted LAN; harden
   before any tunnel exposure.
+  → **Resolved in `bf67cc3` (task 4b):** re-registration requires `X-Admin-Password`
+  once an admin password is set; first-time registration stays open.
 - Raw SQL in `SyncService` uses `FormattableString` interpolation → parameterized by
   EF; safe.
 
@@ -87,9 +90,9 @@ Every declared requirement is used. No unused NuGet or npm packages:
 |---|---|---|---|
 | 1 | **Repo cleanup commit** — `git rm -r` both design-handoff folders; gitignore + `git rm --cached` `.obsidian/workspace*.json` / `graph.json`; delete unused template assets (`web/src/assets/react.svg`, `vite.svg`, `hero.png`, `web/public/icons.svg`); rewrite `web/README.md` (5 lines about the dashboard); extend `.dockerignore` (`LocalGameSync/`, `docs/`, `agent-ui/`, `installer/`, `web/node_modules/`). | **Sonnet 4.6** — mechanical file ops, zero design judgment. | ✅ `2597cf1` |
 | 2 | **Bring tests + dev config into the repo** *(needs the Windows machine — files aren't in the clone)* — move `.verify/run-agent-tests.ps1` (+ siblings) to a tracked `tests/` folder, keep `.verify/` ignored for scratch output; commit a sanitized `appsettings.Development.json` (localstate paths, no keys); decide legacy `wwwroot/index.html` fate (archive under `docs/legacy-console/` or retire in docs); update [[Build and Run]] / [[Progress]] references. | **Sonnet 4.6** — file moves + doc touch-ups. | ✅ `14e3320` |
-| 3 | **Docs refresh pass** — fix everything in finding C: [[Architecture]] (Migrate(), React dashboard, full table list), [[API Reference]] (two-tier auth, `/api/agent/games`, 9 missing endpoints, `/data/art`), [[Future Work]] + [[Progress]] (heartbeat done, 06-26/27 session entry, confirm installer-artwork status), [[UX Roadmap]] (stale auth decision), [[CLI Reference]] (`log`). | **Sonnet 4.6** — the findings enumerate exactly what to write; cross-check against `Program.cs` while editing. | ☐ |
-| 4a | **Fold `MachineSavePaths` into EF** — entity + `DbSet` + migration, mirroring the RetainVersions bootstrap-stamp pattern so existing DBs (ThunderHorse/Wideboy) migrate cleanly; replace raw SQL in `SyncService`. | **Opus 4.8** — touches live production DBs; a wrong migration bricks the server on deploy. | ☐ |
-| 4b | **Guard machine-key rotation** — re-registering an *existing* machine name requires the admin password (or explicit dashboard toggle); first-time registration stays open. | **Opus 4.8** — auth-flow change; must not break agent enrollment (see the `47f6a3b` 401 regression). | ☐ |
+| 3 | **Docs refresh pass** — fix everything in finding C: [[Architecture]] (Migrate(), React dashboard, full table list), [[API Reference]] (two-tier auth, `/api/agent/games`, 9 missing endpoints, `/data/art`), [[Future Work]] + [[Progress]] (heartbeat done, 06-26/27 session entry, confirm installer-artwork status), [[UX Roadmap]] (stale auth decision), [[CLI Reference]] (`log`). | **Sonnet 4.6** — the findings enumerate exactly what to write; cross-check against `Program.cs` while editing. | ✅ `98d8f34` |
+| 4a | **Fold `MachineSavePaths` into EF** — entity + `DbSet` + migration, mirroring the RetainVersions bootstrap-stamp pattern so existing DBs (ThunderHorse/Wideboy) migrate cleanly; replace raw SQL in `SyncService`. | **Opus 4.8** — touches live production DBs; a wrong migration bricks the server on deploy. | ✅ `71f83ec` |
+| 4b | **Guard machine-key rotation** — re-registering an *existing* machine name requires the admin password (or explicit dashboard toggle); first-time registration stays open. | **Opus 4.8** — auth-flow change; must not break agent enrollment (see the `47f6a3b` 401 regression). | ✅ `bf67cc3` |
 | 5a | **Server-side SQLite backup** — nightly `VACUUM INTO /data/backups/` + retention; the DB *is* the version graph, archives are useless without it. | **Opus 4.8** — data-safety feature; needs care around WAL + live writes. | ☐ |
 | 5b | **Swagger/OpenAPI + generated TS clients** (`openapi-typescript`) for both UIs — kills API-doc drift (finding C) at the source. Already recommended in [[Console Redesign]]. | **Opus 4.8** — refactors both UIs' `api.ts`/`types.ts` against a generated contract. | ☐ |
 | 5c | **Background lease sweep** (expire stale leases proactively) + Docker `HEALTHCHECK` in Dockerfile/compose. | **Sonnet 4.6** — small, well-scoped additions. | ☐ |

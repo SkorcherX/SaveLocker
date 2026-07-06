@@ -28,6 +28,12 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   pre-migration DB bootstrap shim. See [[Progress]].
 - ~~**Real admin auth** distinct from machine API keys~~ **DONE 2026-06-25 (session 2)** —
   `AdminPasswordFilter` + PBKDF2-SHA256 password, set from ConfigView.
+- ~~**Guard machine-key rotation** — re-registering an existing name hijacks it~~
+  **DONE 2026-07-06 (`bf67cc3`)** — `POST /api/machines/register` requires `X-Admin-Password`
+  to re-register an existing name once a password is set; first-time registration stays open.
+  See [[Progress]] / [[API Reference]].
+- ~~**Fold `MachineSavePaths` into EF**~~ **DONE 2026-07-06 (`71f83ec`)** — entity + migration,
+  stamped on existing DBs. See [[Architecture]].
 - Background sweep to expire stale leases proactively (currently lazy on access).
 
 ## Agent UX

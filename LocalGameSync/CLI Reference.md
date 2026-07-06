@@ -18,7 +18,7 @@ attaches (the `.exe` is a GUI-subsystem app and won't print to a terminal).
 | Command | Options | What it does |
 |---|---|---|
 | *(none)* | | Launch the system-tray app. |
-| `register` | `--name <machineName>` | Register this machine with the server. **Prints the API key** and saves it to config. Re-registering the same name **rotates** the key. |
+| `register` | `--name <machineName>` `--admin-password <pw>` | Register this machine with the server. **Prints the API key** and saves it to config. Re-registering the same name **rotates** the key; once the server has an admin password set, re-registration requires `--admin-password` (first-time registration does not). |
 | `whoami` | | Print the stored machine name, id, server URL, **API key**, and config path. Local-only (no server call). |
 | `set-server` | `--url <url>` or positional `<url>` | Set the server URL in config (e.g. the CloudFlare Tunnel hostname). |
 | `add-game` | `--name <name>` `[--manifest <key>]` `[--dir <path>]` `[--proc <a,b>]` | Enroll a game: creates the server `Game` (matched case-insensitively) and a local tracked entry. If `--dir` is omitted, the save dir is auto-detected from the Ludusavi manifest (`--manifest` or `--name`). `--proc` = process names (no `.exe`) that mean the game is running. |

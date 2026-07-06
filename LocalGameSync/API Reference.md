@@ -9,8 +9,12 @@ Back to [[Home]]. Server endpoints (`src/Server/Program.cs`).
   Check `GET /api/admin/status` to know if a password is required.
 
 ## Public (no auth)
-- `POST /api/machines/register` `{ name }` → `{ machineId, apiKey }`
-  (re-registering an existing name rotates its key).
+- `POST /api/machines/register` `{ name }` → `{ machineId, apiKey }`. First-time
+  registration of a new name is open. Re-registering an **existing** name rotates its
+  key (so a re-installed agent can recover its identity) — but because that also lets a
+  caller hijack the machine, it requires `X-Admin-Password` once an admin password is
+  set (**401** otherwise). With no password configured it stays open. Agents supply it
+  via the Settings "Admin Password" field or `agent register --admin-password`.
 - `GET /health` → `{ service, status:"ok" }`.
 - `GET /api/admin/status` → `{ passwordRequired }` — lets the UI decide whether to
   prompt for a password before any admin call.
@@ -31,7 +35,8 @@ Back to [[Home]]. Server endpoints (`src/Server/Program.cs`).
 - `POST /api/games/{id}/save-dir?value={path}` → 200 / 404. Set/clear the game's
   **suggested save folder**. Propagated to agents, which use it **only if that path
   exists on that machine**, else fall back to manifest detection or a manual map.
-  `GameDto.suggestedSaveDir` carries it. (Per-machine paths are not stored server-side.)
+  `GameDto.suggestedSaveDir` carries it. The **resolved** per-machine folder is stored
+  server-side as a `MachineSavePath` (see the `/paths` endpoints below).
 - `POST /api/games/{id}/art/refresh` → `{ message }` 200, or 400 `{ message }` if no
   SteamGridDB key is configured / no match found. (Re)fetches cover/hero/logo/icon from
   SteamGridDB and caches them under `/data/art/{gameId}/` (`Storage:ArtRoot`; served at
