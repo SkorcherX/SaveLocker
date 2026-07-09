@@ -334,6 +334,25 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-07-08:** **Hygiene #5c + #5d** (see [[Hygiene Review 2026-07-06]]).
+  - **#5c — Background lease sweep + Docker HEALTHCHECK** (`82d0f71`) — `LeaseSweeperService`
+    (`BackgroundService`) runs every hour via `IServiceScopeFactory` and calls
+    `SyncService.SweepExpiredLeasesAsync()`, which deletes all rows where `ExpiresAt < UtcNow`.
+    Previously, a stale lease from a crashed agent lingered until the next per-game query touched
+    it, so another machine could be blocked for the full 6 h window even after the lease expired.
+    Mirrors the `BackupScheduler` pattern (scoped factory so `SyncService` stays scoped).
+    Dockerfile: `curl` installed in the runtime stage; `HEALTHCHECK` added (interval 30 s,
+    timeout 10 s, start-period 60 s, retries 3) against `/health`. `docker-compose.unraid.yml`:
+    matching `healthcheck` section added so Compose/Portainer surface container health natively.
+  - **#5d — Toolchain alignment + PR CI** (`ecf35b5`) — agent-ui brought in line with web:
+    vite 6 → 8, TypeScript ~5.8 → ~6.0, `@vitejs/plugin-react` 4 → 6, react/types bumped
+    to match web; `oxlint` added with a `lint` script; `.npmrc` (`legacy-peer-deps`) added.
+    tsconfig files updated for TS 6: `target es2023`, `verbatimModuleSyntax`, `erasableSyntaxOnly`,
+    `module esnext / nodenext`. New `.github/workflows/ci.yml`: three parallel jobs
+    (`build-dotnet` — Server only, Agent excluded as net9.0-windows; `build-web`; `build-agent-ui`)
+    fire on every PR and on every push to `main`. Previously PRs had no CI gate and agent-ui
+    was never built in CI. Verified: `npm run build` passes, `npm run lint` runs cleanly.
+
 - **2026-07-08:** **Hygiene #5a + #5b** (see [[Hygiene Review 2026-07-06]]).
   - **#5a — nightly server-side SQLite backups** (`0015cda`) — the DB *is* the version graph,
     so on-disk archives are useless without it. `BackupService` snapshots the live DB with
@@ -380,8 +399,8 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
     `ApiClient` sends the header and surfaces the server error. Verified via HTTP across all 7
     register scenarios (incl. new-machine enrollment still open with a password set — the `47f6a3b`
     regression guard).
-  - Remaining hygiene backlog after #5a/#5b (done 2026-07-08): #5c lease sweep + HEALTHCHECK,
-    #5d toolchain/CI alignment, #5e per-game globs + upload limit, #5f bigger swings. See the review note.
+  - Remaining hygiene backlog after #5a–#5d (done 2026-07-08): #5e per-game globs + upload
+    limit, #5f bigger swings. See the review note.
 
 - **2026-06-25 (session 4):** **Hero downscaling, storage display, per-game retention, version delete.**
   - **Hero image downscaling** — `ArtService`: added `ResizeHeroAsync` using `SixLabors.ImageSharp 3.1.7`
