@@ -1,7 +1,8 @@
 # Stage 1: build the React dashboard
 FROM node:22-alpine AS web-build
 WORKDIR /web
-COPY web/package.json web/package-lock.json ./
+# .npmrc (legacy-peer-deps) must land before `npm ci` for it to take effect.
+COPY web/package.json web/package-lock.json web/.npmrc ./
 RUN npm ci
 COPY web/ ./
 RUN npm run build
