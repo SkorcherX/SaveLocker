@@ -8,6 +8,12 @@ services:
       - TZ=America/Los_Angeles
     volumes:
       - /mnt/user/appdata/savelocker:/data
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     restart: unless-stopped
 
   watchtower:

@@ -315,6 +315,21 @@ public sealed class SyncService
         }
     }
 
+    /// <summary>
+    /// Proactively remove all expired leases. Called hourly by <see cref="LeaseSweeperService"/>
+    /// so stale leases don't linger until the next per-game query touches them.
+    /// </summary>
+    public async Task<int> SweepExpiredLeasesAsync()
+    {
+        var expired = await _db.Leases
+            .Where(l => l.ExpiresAt < DateTime.UtcNow)
+            .ToListAsync();
+        if (expired.Count == 0) return 0;
+        _db.Leases.RemoveRange(expired);
+        await _db.SaveChangesAsync();
+        return expired.Count;
+    }
+
     // ----- Upload (conflict-aware) -----
 
     /// <summary>

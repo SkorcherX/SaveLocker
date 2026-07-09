@@ -29,6 +29,9 @@ FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 COPY --from=build /app ./
 
+# curl is needed for the HEALTHCHECK below; keep the layer small.
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Persisted state (DB + archives) lives on a mounted unRAID share.
 VOLUME ["/data"]
 ENV ASPNETCORE_URLS=http://+:8080
@@ -36,5 +39,8 @@ ENV Storage__DbPath=/data/localgamesync.db
 ENV Storage__ArchiveRoot=/data/archives
 ENV Storage__ArtRoot=/data/art
 EXPOSE 8080
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -sf http://localhost:8080/health || exit 1
 
 ENTRYPOINT ["dotnet", "LocalGameSync.Server.dll"]
