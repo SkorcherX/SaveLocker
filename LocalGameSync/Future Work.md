@@ -42,6 +42,12 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   server emits `/openapi/v1.json` + Swagger UI at `/swagger`; the web dashboard's `types.ts` is
   generated from it (`openapi-typescript`), so it can't drift from the C# DTOs. agent-ui stays
   hand-typed (its local `HttpListener` backend isn't OpenAPI-introspectable). See [[API Reference]].
+- **Agent local API → generated agent-ui contract** *(deferred from #5b, larger swing)* — the
+  agent UI talks to `AgentApiServer.cs`, a raw `HttpListener` returning anonymous objects, so its
+  3 types (`AgentState`/`Candidate`/`TrackedGame`) stay hand-written. Rewriting that server as an
+  ASP.NET Core minimal API would make it OpenAPI-introspectable and let agent-ui generate its types
+  too — but it touches WPF/WebView2/STA folder-picker + `HttpListener` lifetime, so it's a separate
+  task, not a quick win.
 - Background sweep to expire stale leases proactively (currently lazy on access). *(hygiene #5c, pending)*
 
 ## Agent UX
