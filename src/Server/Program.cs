@@ -20,6 +20,22 @@ if (configuredDbPath is null && !File.Exists(dbPath))
 Directory.CreateDirectory(Path.GetDirectoryName(dbPath)!);
 
 builder.Services.AddDbContext<AppDbContext>(opt => opt.UseSqlite($"Data Source={dbPath}"));
+
+// Nightly SQLite snapshots (VACUUM INTO). The DB is the version graph; archives are
+// useless without it, so keep a self-contained on-box backup with simple retention.
+var backupRoot = builder.Configuration["Storage:BackupRoot"]
+    ?? Path.Combine(Path.GetDirectoryName(dbPath)!, "backups");
+builder.Services.AddSingleton(new BackupOptions
+{
+    DbPath = dbPath,
+    BackupRoot = backupRoot,
+    RetentionCount = builder.Configuration.GetValue<int?>("Backup:RetentionCount") ?? 7,
+    HourOfDay = builder.Configuration.GetValue<int?>("Backup:HourOfDay") ?? 3,
+    Enabled = builder.Configuration.GetValue<bool?>("Backup:Enabled") ?? true,
+});
+builder.Services.AddSingleton<BackupService>();
+builder.Services.AddHostedService<BackupScheduler>();
+
 builder.Services.AddSingleton<ArchiveStore>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SettingsService>();
@@ -357,6 +373,13 @@ admin.MapGet("/commands", async (SyncService sync) =>
 
 admin.MapGet("/audit", async (SyncService sync, int limit = 200) =>
     Results.Ok(await sync.GetAuditLogAsync(Math.Clamp(limit, 1, 1000))));
+
+// ---- Server backups (admin) ----
+admin.MapGet("/admin/backups", (BackupService backup) =>
+    Results.Ok(backup.ListBackups()));
+
+admin.MapPost("/admin/backup", async (BackupService backup, CancellationToken ct) =>
+    Results.Ok(await backup.BackupAsync(ct)));
 
 app.Run();
 

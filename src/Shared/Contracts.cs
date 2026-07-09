@@ -167,6 +167,14 @@ public record AgentCommandDto(
 
 public record CommandResultRequest(CommandStatus Status, string? Result);
 
+// ----- Server backups (admin) -----
+
+/// <summary>One on-box SQLite snapshot file. <paramref name="CreatedAt"/> is UTC.</summary>
+public record BackupInfo(string FileName, long SizeBytes, DateTime CreatedAt);
+
+/// <summary>Outcome of a manual/scheduled backup run and the resulting retained count.</summary>
+public record BackupResult(bool Ok, string? Message, BackupInfo? Backup, int TotalBackups);
+
 // ----- Audit log -----
 
 public record AuditEntryDto(
