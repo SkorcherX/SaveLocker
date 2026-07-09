@@ -34,7 +34,15 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   See [[Progress]] / [[API Reference]].
 - ~~**Fold `MachineSavePaths` into EF**~~ **DONE 2026-07-06 (`71f83ec`)** — entity + migration,
   stamped on existing DBs. See [[Architecture]].
-- Background sweep to expire stale leases proactively (currently lazy on access).
+- ~~**Server-side SQLite backup**~~ **DONE 2026-07-08 (`0015cda`, hygiene #5a)** — `BackupService`
+  snapshots the live DB via `VACUUM INTO` (WAL-safe), newest-N retention (default 7);
+  `BackupScheduler` runs nightly at `Backup:HourOfDay` + a startup catch-up; `POST /api/admin/backup`
+  + `GET /api/admin/backups`. Backups land on `/data/backups`. See [[Progress]] / [[API Reference]].
+- ~~**OpenAPI contract + generated dashboard types**~~ **DONE 2026-07-08 (`1782367`, hygiene #5b)** —
+  server emits `/openapi/v1.json` + Swagger UI at `/swagger`; the web dashboard's `types.ts` is
+  generated from it (`openapi-typescript`), so it can't drift from the C# DTOs. agent-ui stays
+  hand-typed (its local `HttpListener` backend isn't OpenAPI-introspectable). See [[API Reference]].
+- Background sweep to expire stale leases proactively (currently lazy on access). *(hygiene #5c, pending)*
 
 ## Agent UX
 - ~~Settings UI in the tray~~ — **DONE** (WS1 → replaced by React/WebView2 agent UI).

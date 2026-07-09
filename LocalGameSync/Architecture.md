@@ -35,8 +35,15 @@ Hub-and-spoke (not peer-to-peer). See [[Decisions]] for why unRAID is the keysto
 - `Services/SyncService.cs` — all orchestration logic (registration, leasing,
   conflict-aware upload, download, resolve, rollback, **version pruning**).
 - `Services/ArchiveStore.cs` — archive files on disk: `{root}/{gameId}/{versionId}.zip`.
+- `Services/BackupService.cs` — nightly SQLite snapshots (`BackupScheduler` +
+  `VACUUM INTO`, WAL-safe) with retention; the DB is the version graph, so it has its own
+  on-box backup (`/data/backups`). See [[Progress]] / [[API Reference]].
+- **OpenAPI** — `AddOpenApi()`/`MapOpenApi()` serve `/openapi/v1.json`; Swagger UI at
+  `/swagger`. Endpoint `.Produces<T>()` metadata drives the schemas. The web dashboard's
+  types are generated from this document (see [[API Reference]]).
 - Dashboard — React `web/` SPA; Docker `web` build stage copies `dist/` into
-  `src/Server/wwwroot/` so ASP.NET serves it as static files.
+  `src/Server/wwwroot/` so ASP.NET serves it as static files. Its `types.ts` is generated
+  from the server's OpenAPI doc (`web/src/api-types.ts`), so it can't drift from the DTOs.
 
 ### Agent (`src/Agent`)
 - `Program.cs` — entry point: no args → tray (`TrayApp.cs`); args → CLI commands.

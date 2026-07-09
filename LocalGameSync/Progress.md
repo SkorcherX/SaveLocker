@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-07-06.
+Back to [[Home]]. Last updated: 2026-07-08.
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -334,6 +334,34 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-07-08:** **Hygiene #5a + #5b** (see [[Hygiene Review 2026-07-06]]).
+  - **#5a — nightly server-side SQLite backups** (`0015cda`) — the DB *is* the version graph,
+    so on-disk archives are useless without it. `BackupService` snapshots the live DB with
+    `VACUUM INTO` (consistent under WAL + live writes; folds the WAL into a compact single-file
+    copy, written to a `.tmp` name then renamed), plus simple newest-N retention (default 7).
+    `BackupScheduler` (`BackgroundService`) fires nightly at `Backup:HourOfDay` (default 03:00
+    local) and takes a startup catch-up when the newest snapshot is missing or >24 h old (an age
+    guard stops frequent Watchtower redeploys from spamming snapshots). Admin endpoints
+    `POST /api/admin/backup` (manual) + `GET /api/admin/backups`. Config: `Storage:BackupRoot`
+    (defaults to `<dbdir>/backups` → `/data/backups`, so backups sit on the persistent unRAID
+    volume) + a `Backup` section (`RetentionCount`/`HourOfDay`/`Enabled`). Verified against the
+    dev DB with a live 4 MB WAL: manual + startup snapshots are `integrity_check`-ok with all
+    rows/migrations intact, and retention prunes to the newest N.
+  - **#5b — OpenAPI contract + generated dashboard types** (`1782367`) — kills server↔web
+    API-doc drift (finding C) at the source. Server: `Microsoft.AspNetCore.OpenApi` emits
+    `/openapi/v1.json` and a Swagger UI explorer at `/swagger`; DTO-returning endpoints are
+    annotated `.Produces<T>()` so every wire DTO + the four string enums land in the document
+    (snapshot committed at `src/Server/openapi.json`). web: `openapi-typescript` generates
+    `src/api-types.ts` (`npm run gen:api`); `src/types.ts` is now thin aliases over it, so the
+    dashboard's types can't drift from the C# DTOs — no component changes were needed.
+    **Not** build-time generated: `GetDocument.Insider` runs everything up to `app.Run()`, which
+    for this app includes the startup EF migration/WAL block — unwanted at image-build time — so
+    the snapshot is refreshed from the running server instead (steps in `web/README.md`). agent-ui
+    stays hand-typed: its backend is the agent's local `HttpListener` (`AgentApiServer`), which
+    isn't OpenAPI-introspectable (scoped with the user; converting it is a separate, larger task).
+    Verified: full solution build + Release publish clean (no build-time doc side-effect);
+    `/openapi/v1.json` (38 paths, all schemas) and `/swagger` serve; `npm run build` passes.
+
 - **2026-07-06:** **Repo hygiene pass** (full plan + findings in [[Hygiene Review 2026-07-06]]).
   - **#1–3 (cleanup + docs)** — removed spent design-handoff prototypes & untracked Obsidian
     session files (`2597cf1`); brought the `.verify` tests + dev config into the repo as `tests/`
@@ -352,8 +380,8 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
     `ApiClient` sends the header and surfaces the server error. Verified via HTTP across all 7
     register scenarios (incl. new-machine enrollment still open with a password set — the `47f6a3b`
     regression guard).
-  - Remaining hygiene backlog (#5a–5f): SQLite backup, Swagger/generated TS clients, lease sweep +
-    HEALTHCHECK, toolchain/CI alignment, per-game globs, bigger swings. See the review note.
+  - Remaining hygiene backlog after #5a/#5b (done 2026-07-08): #5c lease sweep + HEALTHCHECK,
+    #5d toolchain/CI alignment, #5e per-game globs + upload limit, #5f bigger swings. See the review note.
 
 - **2026-06-25 (session 4):** **Hero downscaling, storage display, per-game retention, version delete.**
   - **Hero image downscaling** — `ArtService`: added `ResizeHeroAsync` using `SixLabors.ImageSharp 3.1.7`

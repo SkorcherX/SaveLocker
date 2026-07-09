@@ -2,6 +2,12 @@
 
 Back to [[Home]]. Server endpoints (`src/Server/Program.cs`).
 
+> **Live contract:** the server emits an OpenAPI document at `/openapi/v1.json` and an
+> interactive Swagger UI at `/swagger`. The web dashboard's TypeScript types are generated
+> from that document (`openapi-typescript` → `web/src/api-types.ts`), so they can't drift
+> from the C# DTOs. This page is the human-readable narrative; the generated doc is the
+> machine-checked source of truth. Regenerate per `web/README.md` after changing the API.
+
 **Two auth tiers:**
 - **Agent routes** (`X-Api-Key: <machine key>`) — identify the calling machine.
 - **Admin routes** (`X-Admin-Password: <password>`) — dashboard / human operations.
@@ -93,6 +99,11 @@ Back to [[Home]]. Server endpoints (`src/Server/Program.cs`).
 - `GET /api/audit?limit={n}` → `AuditLogDto[]` (default 200, max 1000). Full audit log.
 - `POST /api/admin/password` `{ password }` → `{ ok, message }`. Set or clear the admin
   password (blank = disable password requirement).
+- `POST /api/admin/backup` → `BackupResult { ok, message, backup, totalBackups }`. Take an
+  immediate SQLite snapshot (`VACUUM INTO`) and prune to the retention count. A scheduled
+  snapshot also runs nightly (`Backup:HourOfDay`, default 03:00) + a startup catch-up.
+- `GET /api/admin/backups` → `BackupInfo[]` `{ fileName, sizeBytes, createdAt }`, newest
+  first. Snapshots live under `Storage:BackupRoot` (default `/data/backups`).
 
 ## Agent command channel (Workstream 5)
 Polling model: the agent makes outbound requests (server stays passive; works through
@@ -115,4 +126,5 @@ Besides commands, the agent also **reconciles the game list** each poll: it adop
 games it isn't tracking yet (auto-mapping the save dir from the manifest when possible) and
 drops local games deleted on the server. This is how a dashboard-created game reaches agents.
 
-DTO shapes live in `src/Shared/Contracts.cs`. Enums serialize as strings.
+DTO shapes live in `src/Shared/Contracts.cs` (the source the OpenAPI schemas are built
+from). Enums serialize as strings.
