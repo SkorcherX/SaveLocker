@@ -1,79 +1,21 @@
-export interface GameSummary {
-  game: Game;
-  head: Version | null;
-  lease: Lease | null;
-  hasOpenConflict: boolean;
-  totalStorageBytes: number;
-}
+// Wire types for the dashboard. These are thin aliases over the contract generated
+// from the server's OpenAPI document (see api-types.ts) so they can never drift from
+// the C# DTOs. Regenerate with `npm run gen:api` after changing the server API.
+//
+// NonNullable<> strips the `| null` that .NET's OpenAPI attaches to a DTO's base schema
+// when the type also appears in a nullable position elsewhere; nullability at each use
+// site is expressed by the containing schema (e.g. GameStateDto.head is itself nullable).
+import type { components } from './api-types';
 
-export interface Game {
-  id: string;
-  name: string;
-  enabled: boolean;
-  gridUrl: string | null;
-  suggestedSaveDir: string | null;
-  retainVersions: number | null;
-}
+type Schemas = components['schemas'];
 
-export interface Version {
-  id: string;
-  gameId: string;
-  machineId: string;
-  machineName: string;
-  createdAt: string;
-  size: number;
-}
-
-export interface Lease {
-  holderMachineName: string | null;
-}
-
-export interface Machine {
-  id: string;
-  name: string;
-  createdAt: string;
-  lastSeen: string | null;
-}
-
-export interface Command {
-  id: string;
-  gameId: string;
-  machineId: string;
-  machineName: string;
-  type: string;
-  force: boolean;
-  status: string;
-  result: string | null;
-  createdAt: string;
-}
-
-export interface Conflict {
-  id: string;
-  gameId: string;
-  versionAId: string;
-  versionBId: string;
-}
-
-export interface Settings {
-  steamGridDbConfigured: boolean;
-  steamGridDbKeyMasked: string | null;
-  steamGridDbFromConfig: boolean;
-  adminPasswordSet: boolean;
-}
-
-export interface MachineSavePath {
-  machineId: string;
-  machineName: string;
-  savePath: string;
-}
-
-export interface AuditEntry {
-  id: string;
-  timestamp: string;
-  machineId: string | null;
-  machineName: string | null;
-  gameId: string | null;
-  gameName: string | null;
-  action: string;
-  detail: string | null;
-}
+export type GameSummary = Schemas['GameStateDto'];
+export type Game = Schemas['GameDto'];
+export type Version = NonNullable<Schemas['SaveVersionDto']>;
+export type Lease = NonNullable<Schemas['LeaseDto']>;
+export type Machine = Schemas['MachineDto'];
+export type Command = Schemas['AgentCommandDto'];
+export type Conflict = NonNullable<Schemas['ConflictDto']>;
+export type Settings = Schemas['ServerSettingsDto'];
+export type MachineSavePath = Schemas['MachineSavePathDto'];
+export type AuditEntry = Schemas['AuditEntryDto'];

@@ -48,6 +48,16 @@ builder.Services.AddHttpClient("steamgriddb", c =>
     c.BaseAddress = new Uri("https://www.steamgriddb.com/api/v2/");
     c.Timeout = TimeSpan.FromSeconds(20);
 });
+
+// OpenAPI document (/openapi/v1.json) — the single source of truth for the REST
+// contract. The web dashboard's TS types are generated from it (openapi-typescript),
+// so hand-written types can no longer drift from the server. Endpoint response
+// schemas come from the .Produces<T>() annotations on the routes below.
+builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
+{
+    doc.Info = new() { Title = "SaveLocker API", Version = "v1" };
+    return Task.CompletedTask;
+}));
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 
@@ -126,6 +136,10 @@ using (var scope = app.Services.CreateScope())
     db.Database.ExecuteSqlRaw("PRAGMA journal_mode=WAL;");
 }
 
+// OpenAPI JSON at /openapi/v1.json + a Swagger UI explorer at /swagger.
+app.MapOpenApi();
+app.UseSwaggerUI(o => o.SwaggerEndpoint("/openapi/v1.json", "SaveLocker API v1"));
+
 // Serve the admin dashboard (wwwroot/index.html) at "/".
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -173,7 +187,7 @@ app.MapPost("/api/machines/register", async (
     }
 
     return Results.Ok(await sync.RegisterMachineAsync(name));
-});
+}).Produces<MachineRegisterResponse>();
 
 app.MapGet("/api/admin/status", async (SettingsService settings) =>
     Results.Ok(new { passwordRequired = await settings.HasAdminPasswordAsync() }));
@@ -188,11 +202,12 @@ agent.MapGet("/games", async (HttpContext http, SyncService sync) =>
     var games = await sync.ListGamesAsync();
     var pathMap = await sync.GetMachinePathMapAsync(machine.Id);
     return Results.Ok(games.Select(g => g.ToDtoWithPath(pathMap.GetValueOrDefault(g.Id))));
-});
+}).Produces<List<GameDto>>();
 
 // ---- Leases (agent) ----
 agent.MapPost("/games/{id:guid}/lease", async (Guid id, HttpContext http, SyncService sync) =>
-    Results.Ok(await sync.AcquireLeaseAsync(id, http.CurrentMachine().Id)));
+    Results.Ok(await sync.AcquireLeaseAsync(id, http.CurrentMachine().Id)))
+    .Produces<LeaseAcquireResponse>();
 
 agent.MapDelete("/games/{id:guid}/lease", async (Guid id, HttpContext http, SyncService sync) =>
 {
@@ -217,7 +232,7 @@ agent.MapPost("/games/{id:guid}/upload", async (
     var machine = http.CurrentMachine();
     var result = await sync.UploadAsync(id, machine.Id, parent, hash, http.Request.Body, force ?? false, ct);
     return Results.Ok(result);
-});
+}).Produces<UploadResult>();
 
 agent.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, SyncService sync) =>
     StreamVersion(http, await sync.DownloadHeadAsync(id)));
@@ -235,11 +250,12 @@ agent.MapPost("/agent/games", async (HttpContext http, CreateGameRequest req, Sy
     var game = await sync.CreateGameAsync(req);
     if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
     return Results.Ok(game.ToDto());
-});
+}).Produces<GameDto>();
 
 // ---- Agent command channel ----
 agent.MapGet("/agent/commands", async (HttpContext http, SyncService sync) =>
-    Results.Ok((await sync.DequeueCommandsAsync(http.CurrentMachine().Id)).Select(c => c.ToDto())));
+    Results.Ok((await sync.DequeueCommandsAsync(http.CurrentMachine().Id)).Select(c => c.ToDto())))
+    .Produces<List<AgentCommandDto>>();
 
 agent.MapPost("/agent/commands/{id:guid}/result", async (
     Guid id, CommandResultRequest req, HttpContext http, SyncService sync) =>
@@ -257,7 +273,8 @@ agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http,
 var admin = app.MapGroup("/api").AddEndpointFilter<AdminPasswordFilter>();
 
 admin.MapGet("/machines", async (SyncService sync) =>
-    Results.Ok((await sync.ListMachinesAsync()).Select(m => m.ToDto())));
+    Results.Ok((await sync.ListMachinesAsync()).Select(m => m.ToDto())))
+    .Produces<List<MachineDto>>();
 
 admin.MapDelete("/machines/{id:guid}", async (Guid id, SyncService sync) =>
     await sync.DeleteMachineAsync(id) ? Results.NoContent() : Results.NotFound());
@@ -279,7 +296,8 @@ admin.MapDelete("/games/{id:guid}/versions/{versionId:guid}", async (Guid id, Gu
 
 // ---- Per-machine save paths (admin) ----
 admin.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
-    Results.Ok(await sync.GetGameMachinePathsAsync(id)));
+    Results.Ok(await sync.GetGameMachinePathsAsync(id)))
+    .Produces<List<MachineSavePathDto>>();
 
 admin.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, SyncService sync) =>
 {
@@ -297,11 +315,13 @@ admin.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid 
 });
 
 admin.MapGet("/overview", async (SyncService sync) =>
-    Results.Ok(await sync.GetOverviewAsync()));
+    Results.Ok(await sync.GetOverviewAsync()))
+    .Produces<List<GameStateDto>>();
 
 // ---- Server settings (admin) ----
 admin.MapGet("/settings", async (SettingsService settings) =>
-    Results.Ok(await settings.GetServerSettingsDtoAsync()));
+    Results.Ok(await settings.GetServerSettingsDtoAsync()))
+    .Produces<ServerSettingsDto>();
 
 admin.MapPost("/settings/steamgriddb-key", async (
     SetSteamGridDbKeyRequest req, SettingsService settings, ArtService art) =>
@@ -325,7 +345,7 @@ admin.MapPost("/games", async (CreateGameRequest req, SyncService sync, ArtServi
     var game = await sync.CreateGameAsync(req);
     if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
     return Results.Ok(game.ToDto());
-});
+}).Produces<GameDto>();
 
 admin.MapPost("/games/{id:guid}/art/refresh", async (Guid id, ArtService art) =>
 {
@@ -337,14 +357,17 @@ admin.MapDelete("/games/{id:guid}", async (Guid id, SyncService sync) =>
     await sync.DeleteGameAsync(id) ? Results.NoContent() : Results.NotFound());
 
 admin.MapGet("/games/{id:guid}/state", async (Guid id, SyncService sync) =>
-    await sync.GetGameStateAsync(id) is { } state ? Results.Ok(state) : Results.NotFound());
+    await sync.GetGameStateAsync(id) is { } state ? Results.Ok(state) : Results.NotFound())
+    .Produces<GameStateDto>();
 
 admin.MapGet("/games/{id:guid}/versions", async (Guid id, SyncService sync) =>
-    Results.Ok((await sync.ListVersionsAsync(id)).Select(v => v.ToDto())));
+    Results.Ok((await sync.ListVersionsAsync(id)).Select(v => v.ToDto())))
+    .Produces<List<SaveVersionDto>>();
 
 // ---- Admin actions ----
 admin.MapGet("/conflicts", async (SyncService sync) =>
-    Results.Ok((await sync.ListOpenConflictsAsync()).Select(c => c.ToDto())));
+    Results.Ok((await sync.ListOpenConflictsAsync()).Select(c => c.ToDto())))
+    .Produces<List<ConflictDto>>();
 
 admin.MapPost("/conflicts/{id:guid}/resolve", async (Guid id, Guid version, SyncService sync) =>
     await sync.ResolveConflictAsync(id, version, "admin")
@@ -366,20 +389,25 @@ admin.MapDelete("/games/{id:guid}/lease/force", async (Guid id, SyncService sync
 
 // ---- Command channel (admin side: queue + list) ----
 admin.MapPost("/commands", async (EnqueueCommandRequest req, SyncService sync) =>
-    Results.Ok((await sync.EnqueueCommandAsync(req)).ToDto()));
+    Results.Ok((await sync.EnqueueCommandAsync(req)).ToDto()))
+    .Produces<AgentCommandDto>();
 
 admin.MapGet("/commands", async (SyncService sync) =>
-    Results.Ok((await sync.ListCommandsAsync()).Select(c => c.ToDto())));
+    Results.Ok((await sync.ListCommandsAsync()).Select(c => c.ToDto())))
+    .Produces<List<AgentCommandDto>>();
 
 admin.MapGet("/audit", async (SyncService sync, int limit = 200) =>
-    Results.Ok(await sync.GetAuditLogAsync(Math.Clamp(limit, 1, 1000))));
+    Results.Ok(await sync.GetAuditLogAsync(Math.Clamp(limit, 1, 1000))))
+    .Produces<List<AuditEntryDto>>();
 
 // ---- Server backups (admin) ----
 admin.MapGet("/admin/backups", (BackupService backup) =>
-    Results.Ok(backup.ListBackups()));
+    Results.Ok(backup.ListBackups()))
+    .Produces<List<BackupInfo>>();
 
 admin.MapPost("/admin/backup", async (BackupService backup, CancellationToken ct) =>
-    Results.Ok(await backup.BackupAsync(ct)));
+    Results.Ok(await backup.BackupAsync(ct)))
+    .Produces<BackupResult>();
 
 app.Run();
 
