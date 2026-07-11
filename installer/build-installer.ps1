@@ -38,7 +38,8 @@ if (-not $iscc) {
 if (-not $iscc) { throw 'ISCC.exe not found. Install Inno Setup 6 (winget install JRSoftware.InnoSetup).' }
 
 $publishExe = Join-Path $repo 'src\Agent\bin\Release\net9.0-windows\win-x64\publish\SaveLocker.Agent.exe'
-$appVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($publishExe).FileVersion
+$rawVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($publishExe).FileVersion
+$appVersion = [System.Version]::Parse($rawVersion).ToString(3)  # major.minor.patch only
 Write-Host "Agent version: $appVersion" -ForegroundColor Cyan
 
 & $iscc "/DAppVersion=$appVersion" (Join-Path $PSScriptRoot 'SaveLocker.iss')
