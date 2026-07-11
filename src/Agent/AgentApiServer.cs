@@ -145,6 +145,7 @@ internal sealed class AgentApiServer : IDisposable
                 serverUrl = _config.ServerUrl,
                 apiKey = _config.ApiKey ?? "",
                 startWithWindows = AutoStart.IsEnabled(),
+                currentVersion = UpdateChecker.CurrentVersion.ToString(3),
                 gamesTracked = _config.Games.Count,
                 savesBacked = _config.TotalSavesPushed,
                 lastSyncAgo,

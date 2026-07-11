@@ -10,6 +10,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3296.44" />
+    <!-- MinVer derives the version from the nearest git tag (e.g. v0.1.0).
+         PrivateAssets=all keeps it out of transitive dependencies. -->
+    <PackageReference Include="MinVer" Version="5.0.0" PrivateAssets="all" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -19,7 +22,8 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>Assets\SaveLocker.ico</ApplicationIcon>
-    <Version>0.1.0</Version>
+    <!-- Version is now driven by git tags (MinVer). Tag format: v0.1.0 -->
+    <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
   </PropertyGroup>
 
   <!-- Build the React agent UI before compiling C# -->

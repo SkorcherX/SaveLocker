@@ -45,7 +45,7 @@ export default function App() {
             <img src={logoUrl} alt="SaveLocker" style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 5, flexShrink: 0 }} />
             <div>
               <div style={{ color: '#ECEFF1', fontSize: 13, fontWeight: 700, letterSpacing: '-0.015em', lineHeight: 1.2 }}>SaveLocker</div>
-              <div style={{ color: '#9CA3AF', fontSize: 10, letterSpacing: '0.07em', textTransform: 'uppercase', lineHeight: 1.5 }}>Agent v1.0</div>
+              <div style={{ color: '#9CA3AF', fontSize: 10, letterSpacing: '0.07em', textTransform: 'uppercase', lineHeight: 1.5 }}>Agent v{state?.currentVersion ?? '…'}</div>
             </div>
           </div>
           <StatusHeader connected={state?.connected ?? false} serverUrl={state?.serverUrl ?? ''} />

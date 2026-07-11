@@ -1,0 +1,38 @@
+name: Build and release agent installer
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  build-installer:
+    runs-on: windows-latest
+    permissions:
+      contents: write   # needed to create the GitHub Release
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # MinVer needs full history to walk back to the nearest tag
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: agent-ui/package-lock.json
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y
+
+      - name: Build installer
+        run: .\installer\build-installer.ps1
+
+      - name: Create GitHub Release and upload installer
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/dist/SaveLocker-Agent-Setup-*.exe
+          generate_release_notes: true

@@ -7,6 +7,7 @@ export interface LeaseWarning {
 
 export interface AgentState {
   connected: boolean
+  currentVersion: string
   machineName: string
   serverUrl: string
   apiKey: string
