@@ -80,7 +80,7 @@ Dashboard: `http://unraid-ip:5080`.
 | Archive root | `Storage__ArchiveRoot` | `/data/archives` |
 | Art root | `Storage__ArtRoot` | `/data/art` |
 | Backup root | `Storage__BackupRoot` | `/data/backups` |
-| Installer root | `Storage__AgentInstallerRoot` | `data/agent-installer/` |
+| Installer root | `Storage__AgentInstallerRoot` | `/data/agent-installer` |
 | Versions kept/game | `Storage__RetainVersionsPerGame` | `10` |
 
 > **Existing Docker deployments** may have `/data/localgamesync.db` from before the rename. Either rename the file on the unRAID share or set `Storage__DbPath=/data/localgamesync.db`.

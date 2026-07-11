@@ -4,13 +4,11 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** 0.1.0-alpha (MinVer, untagged). First release pending — push `git tag v0.1.0 && git push origin v0.1.0`.
+**Current version:** v0.1.1 (tagged, GitHub Release published). Three open bugs in the auto-update pipeline — see `Backlog.md` and `tasks/001_v0.1.1_bugs.md`.
 
 ---
 
-## Status (2026-07-11) — Functionally complete
-
-All workstreams shipped and user-verified:
+## Status (2026-07-11) — v0.1.1 shipped, 3 post-release bugs queued
 
 | Area | State |
 |------|-------|
@@ -18,13 +16,20 @@ All workstreams shipped and user-verified:
 | Game scanning (Steam VDF + Ludusavi) | ✅ done |
 | Server (REST API, EF/SQLite, leases, conflicts) | ✅ done |
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
-| Agent auto-update (MinVer, release CI, server-hosted installer) | ✅ done |
-| CI/CD (push → Docker → GHCR → Watchtower; tag → GitHub Release) | ✅ done |
+| Agent auto-update (release CI, server-hosted installer) | ⚠️ 3 bugs — see below |
+| CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
+
+**Open bugs (block v0.1.2):**
+1. **Agent UI shows "AGENT V0.0.0"** — MinVer fails in CI, stamps `AssemblyVersion=0.0.0.0`. Passing `--property:Version=0.1.1` sets `FileVersion` but MinVer still overrides `AssemblyVersion` independently. Fix: also pass `--property:AssemblyVersion=$AppVersion` in `build-installer.ps1`.
+2. **No auto-relaunch after silent update** — `skipifsilent` removed from `SaveLocker.iss [Run]` (committed, unverified). Needs a real update test.
+3. **Uploaded installer lost on every Docker update** — `AgentInstallerService` defaults storage to `AppContext.BaseDirectory/data/agent-installer` (inside container), not the persistent `/data` volume. Fix: add `"AgentInstallerRoot": "/data/agent-installer"` to `appsettings.json` `Storage` block.
+
+See `tasks/001_v0.1.1_bugs.md` for the full investigation brief.
 
 ---
 
 ## Active backlog (priority order)
-1. Push `v0.1.0` tag — triggers release CI, produces first installer on GitHub Releases
+1. Fix the 3 auto-update bugs above (see `tasks/001_v0.1.1_bugs.md`)
 2. Code-sign the exe (SmartScreen warns for unsigned installers)
 3. Per-game glob filters (include/exclude file patterns before archiving)
 4. Save-in-use safety (5 s debounce may be too short for some games)
@@ -59,6 +64,8 @@ See `Backlog.md` for the full list.
 - Dev storage uses `localstate/` not `data/` (Windows case-collision: `Data/` = source folder)
 - `dotnet` may not be on PATH in an open shell after winget install — open a new shell
 - OneDrive save paths block `Directory.Move` — RestoreArchive uses file-by-file copy to `_tempDir`
+- PowerShell array splatting to native exes splits strings containing `:` character-by-character — always use `if/else` + `"--property:Key=Value"` long-form
+- MinVer requires git access; silently fails to `0.0.0.0` on GitHub Actions Windows runners. CI must pass `--property:Version=$v --property:AssemblyVersion=$v` explicitly from `github.ref_name`
 - See `Gotchas.md` for the full list with fixes
 
 ---
@@ -74,4 +81,5 @@ See `Backlog.md` for the full list.
 | Dev build & run | `Build and Run.md` |
 | Agent CLI | `CLI Reference.md` |
 | Active backlog | `Backlog.md` |
+| v0.1.1 bug tasks | `tasks/001_v0.1.1_bugs.md` |
 | Session history | `logs/sessions.md` |

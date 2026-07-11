@@ -2,8 +2,13 @@
 
 Active items only. Completed work is in `logs/sessions.md`.
 
-## Immediate
-- **Push v0.1.0 tag** — `git tag v0.1.0 && git push origin v0.1.0` triggers `release.yml`, produces the first properly-versioned installer on GitHub Releases. Then upload the installer via the dashboard Configuration → Agent Updates card.
+## Immediate — v0.1.1 bugs (block next release)
+
+See `tasks/001_v0.1.1_bugs.md` for full investigation details and exact file locations.
+
+- **Bug: Agent UI shows "AGENT V0.0.0"** — `build-installer.ps1` passes `--property:Version=$v` but MinVer overrides `AssemblyVersion` separately (still `0.0.0.0` when git is inaccessible in CI). Fix: add `--property:AssemblyVersion=$AppVersion` to the same `dotnet publish` call. Then retag to verify.
+- **Bug: No auto-relaunch after silent update** — `skipifsilent` flag removed from `SaveLocker.iss [Run]` section (committed). Needs a real end-to-end update test against a new installed build to confirm.
+- **Bug: Uploaded installer lost on Docker update** — `AgentInstallerService` defaults to `AppContext.BaseDirectory/data/agent-installer` (inside container, wiped on update). Fix: add `"AgentInstallerRoot": "/data/agent-installer"` to the `Storage` block in `src/Server/appsettings.json`.
 
 ## High priority
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
