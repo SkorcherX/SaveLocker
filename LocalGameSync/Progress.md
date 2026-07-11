@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-07-10.
+Back to [[Home]]. Last updated: 2026-07-11.
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -334,6 +334,14 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-07-11:** **MinVer versioning + release CI + server-hosted installer + console UI** (`0a8f2fc`, `c9c6fee`).
+  - **Versioning (Task A)** — Removed hardcoded `<Version>0.1.0</Version>` from `SaveLocker.Agent.csproj`. Added `MinVer` package (v5.0.0, `PrivateAssets="all"`); version is now derived from the nearest git tag (e.g. `v0.1.0`). `MinVerMinimumMajorMinor=0.1` floors untagged dev builds at `0.1.x-alpha`. `build-installer.ps1` was already reading `FileVersion` from the compiled exe, so it required no changes.
+  - **Release CI (Task B)** — New `.github/workflows/release.yml`: triggers on `v*` tag pushes; builds on `windows-latest` with full git history (`fetch-depth: 0`); installs Inno Setup via Chocolatey; runs `build-installer.ps1`; uploads the exe to a GitHub Release via `softprops/action-gh-release@v2` with auto-generated notes. Server Docker CI (`docker-publish.yml`) is unchanged.
+  - **Server installer hosting (Task C)** — New `AgentInstallerService` stores the installer binary in `data/agent-installer/` with a sidecar `installer-info.json`. `GET /api/agent/latest` now checks the filesystem first (returning an absolute download URL) before falling back to `appsettings.json` config. New public endpoint `GET /api/agent/installer/download` streams the binary. New admin endpoints `GET/POST/DELETE /api/admin/agent-installer` expose install management. `AgentInstallerStatus` record added to `Contracts.cs`.
+  - **Console admin UI (Task D)** — "Agent Updates" card added to the Configuration page. Shows hosted version/size/date, a direct download link, a Delete button, and an upload form (file picker with version auto-parsed from filename, manual override field, Upload button). ConfigView manages its own installer state independently of the main polling loop.
+  - **Live version in agent UI (Task E)** — `currentVersion` added to `/api/state` response (`AgentApiServer`). `AgentState` type updated. Hardcoded `"Agent v1.0"` label in `App.tsx` replaced with `Agent v{state?.currentVersion ?? '…'}`.
+  - **To establish the version baseline:** `git tag v0.1.0 && git push origin v0.1.0` — this triggers the release workflow and produces the first properly-versioned installer on GitHub Releases. See [[Agent Auto-Update]].
+
 - **2026-07-10:** **Security patch + agent versioning + auto-update** (`0bf04a1`, `809716b`).
   - **`SixLabors.ImageSharp` 3.1.7 → 3.1.12** — patches GHSA-rxmq-m78w-7wmc (moderate,
     GIF decoder infinite-loop DoS). 3.1.11 is the first fixed release in the 3.x line;
@@ -719,10 +727,11 @@ UX phase functionally complete and deployed. Queue, in priority order:
 12. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
     still say `LocalGameSync`. User-visible strings are all `SaveLocker` now (done
     2026-06-25). Full rename is a productization-phase task (see [[Future Work]]).
-13. ~~**Agent versioning + auto-update**~~ **DONE 2026-07-10** — `<Version>0.1.0</Version>`
-    in Agent.csproj; `GET /api/agent/latest` on the server; `UpdateChecker` service;
-    tray startup + 24 h periodic checks; balloon + confirm dialog; Skip/Remind Later.
-    See [[Agent Auto-Update]].
+13. ~~**Agent versioning + auto-update**~~ **DONE 2026-07-10/11** — MinVer git-tag versioning;
+    GitHub release CI workflow; server-hosted installer with console admin UI; live version
+    string in agent UI; `GET /api/agent/latest` + `UpdateChecker`; tray startup + 24 h checks;
+    balloon + confirm dialog; Skip/Remind Later. See [[Agent Auto-Update]].
+    **Next action:** `git tag v0.1.0 && git push origin v0.1.0` to cut the first release.
 14. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for
     other users. User unfamiliar with the process; will be walked through it when ready.
 
@@ -731,6 +740,6 @@ See [[UX Roadmap]] / [[Future Work]] for the full backlog.
 ## How to resume
 - Run server: `cd src/Server && dotnet run` → API on http://localhost:5179.
 - Run dashboard dev server: `cd web && npm run dev` → http://localhost:5173 (proxies `/api` to :5179). LAN-accessible at `http://192.168.68.58:5173` (host bound to `0.0.0.0`).
-- Build installer: `.\installer\build-installer.ps1` → `installer/dist/SaveLocker-Agent-Setup-{version}.exe`. Version is read from the published exe's `FileVersion` (set by `<Version>` in the csproj).
+- Build installer: `.\installer\build-installer.ps1` → `installer/dist/SaveLocker-Agent-Setup-{version}.exe`. Version is derived by MinVer from the nearest git tag; push a `v*` tag to trigger the release CI workflow instead of building locally for a real release.
 - Build agent (dev): `dotnet build src/Agent/SaveLocker.Agent.csproj` (use `--no-incremental`; **stop the running agent/server first** — they lock the DLLs).
 - Re-read [[Gotchas]] before touching builds/paths. [[CLI Reference]] for commands.

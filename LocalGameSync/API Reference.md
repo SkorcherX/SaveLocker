@@ -105,6 +105,15 @@ Back to [[Home]]. Server endpoints (`src/Server/Program.cs`).
 - `GET /api/admin/backups` → `BackupInfo[]` `{ fileName, sizeBytes, createdAt }`, newest
   first. Snapshots live under `Storage:BackupRoot` (default `/data/backups`).
 
+## Agent installer management (admin)
+Manages the installer binary hosted on the server so agents can self-update without a separate CDN. See [[Agent Auto-Update]] for the full workflow.
+- `GET /api/admin/agent-installer` → `AgentInstallerStatus { version, fileName, uploadedAt, sizeBytes }`, or 204 if none is hosted.
+- `POST /api/admin/agent-installer?version={v}` — multipart `file` field (`.exe`). Stores the installer + writes a sidecar JSON; replaces any previous installer. Returns `AgentInstallerStatus`.
+- `DELETE /api/admin/agent-installer` → 204. Removes the hosted installer; agents stop being offered updates.
+
+## Agent installer download (public)
+- `GET /api/agent/installer/download` — streams the hosted installer binary. No auth required. Returns 404 if none is hosted. This is the URL returned by `GET /api/agent/latest` when an installer is on disk.
+
 ## Agent command channel (Workstream 5)
 Polling model: the agent makes outbound requests (server stays passive; works through
 tunnels/firewalls). The agent identifies itself by its `X-Api-Key`.

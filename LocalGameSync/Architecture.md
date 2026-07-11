@@ -38,6 +38,10 @@ Hub-and-spoke (not peer-to-peer). See [[Decisions]] for why unRAID is the keysto
 - `Services/BackupService.cs` — nightly SQLite snapshots (`BackupScheduler` +
   `VACUUM INTO`, WAL-safe) with retention; the DB is the version graph, so it has its own
   on-box backup (`/data/backups`). See [[Progress]] / [[API Reference]].
+- `Services/AgentInstallerService.cs` — stores the agent installer binary on disk
+  (`Storage:AgentInstallerRoot`, default `data/agent-installer/`) with a sidecar JSON
+  (`installer-info.json`). `GET /api/agent/latest` checks here first; admin endpoints
+  let the dashboard upload/delete the installer. See [[Agent Auto-Update]].
 - **OpenAPI** — `AddOpenApi()`/`MapOpenApi()` serve `/openapi/v1.json`; Swagger UI at
   `/swagger`. Endpoint `.Produces<T>()` metadata drives the schemas. The web dashboard's
   types are generated from this document (see [[API Reference]]).

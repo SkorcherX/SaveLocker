@@ -33,6 +33,8 @@ conflict detection, plus an **admin dashboard** for resolution and rollback.
 - **Solution:** `LocalGameSync.sln` → `src/Shared`, `src/Server`, `src/Agent`
 - **Status:** PoC complete + the **UX phase functionally done** — tray UX, game
   scanning, dashboard admin, agent command channel, save-folder mapping, and
-  SteamGridDB cover art all built & verified. Agent versioning + auto-update shipped
-  2026-07-10 (see [[Agent Auto-Update]]). Remaining: code-signing, per-game glob
-  filters, console redesign polish. See [[Progress]] (milestone queue) and [[UX Roadmap]].
+  SteamGridDB cover art all built & verified. Agent versioning + auto-update fully
+  shipped 2026-07-10/11: MinVer git-tag versioning, release CI, server-hosted installer,
+  console installer management UI, live version in agent UI (see [[Agent Auto-Update]]).
+  Remaining: code-signing, per-game glob filters, console redesign polish.
+  See [[Progress]] (milestone queue) and [[UX Roadmap]].
