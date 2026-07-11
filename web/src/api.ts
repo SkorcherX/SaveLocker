@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry, AgentInstallerStatus } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -71,4 +71,25 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
     }),
+
+  installerStatus: (): Promise<AgentInstallerStatus | null> =>
+    fetch('/api/admin/agent-installer', { headers: headers() }).then(async res => {
+      if (res.status === 204) return null;
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.json() as Promise<AgentInstallerStatus>;
+    }),
+
+  uploadInstaller: (formData: FormData, version: string): Promise<AgentInstallerStatus> =>
+    fetch(`/api/admin/agent-installer?version=${encodeURIComponent(version)}`, {
+      method: 'POST',
+      headers: headers(), // no Content-Type — let browser set multipart boundary
+      body: formData,
+    }).then(async res => {
+      if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+      return res.json() as Promise<AgentInstallerStatus>;
+    }),
+
+  deleteInstaller: (): Promise<void> =>
+    fetch('/api/admin/agent-installer', { method: 'DELETE', headers: headers() })
+      .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
 };

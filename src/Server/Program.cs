@@ -38,6 +38,7 @@ builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.AddHostedService<LeaseSweeperService>();
 
 builder.Services.AddSingleton<ArchiveStore>();
+builder.Services.AddSingleton<AgentInstallerService>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ArtService>();
@@ -270,14 +271,32 @@ agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http,
     return Results.Ok();
 });
 
-agent.MapGet("/agent/latest", (IConfiguration cfg) =>
+agent.MapGet("/agent/latest", (IConfiguration cfg, AgentInstallerService installer, HttpContext ctx) =>
 {
+    // Locally hosted installer takes precedence over the config-based URL.
+    var info = installer.GetInfo();
+    if (info is not null)
+    {
+        var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+        return Results.Ok(new AgentVersionInfo(info.Version, $"{baseUrl}/api/agent/installer/download"));
+    }
+
+    // Fall back to the static config (backward-compat with the original design).
     var ver = cfg["AgentUpdate:LatestVersion"];
     var url = cfg["AgentUpdate:DownloadUrl"];
     return string.IsNullOrWhiteSpace(ver)
         ? Results.NoContent()
         : Results.Ok(new AgentVersionInfo(ver, url ?? ""));
 }).Produces<AgentVersionInfo>();
+
+// Serves the hosted installer to agents. Public so the admin can also download it directly.
+app.MapGet("/api/agent/installer/download", (AgentInstallerService installer) =>
+{
+    var path = installer.GetInstallerPath();
+    if (path is null) return Results.NotFound();
+    var stream = File.OpenRead(path);
+    return Results.Stream(stream, "application/octet-stream", Path.GetFileName(path));
+});
 
 // ---- Admin dashboard API (requires X-Admin-Password when one is set) ----
 var admin = app.MapGroup("/api").AddEndpointFilter<AdminPasswordFilter>();
@@ -418,6 +437,36 @@ admin.MapGet("/admin/backups", (BackupService backup) =>
 admin.MapPost("/admin/backup", async (BackupService backup, CancellationToken ct) =>
     Results.Ok(await backup.BackupAsync(ct)))
     .Produces<BackupResult>();
+
+// ---- Agent installer management (admin) ----
+admin.MapGet("/admin/agent-installer", (AgentInstallerService installer) =>
+{
+    var info = installer.GetInfo();
+    return info is null ? Results.NoContent() : Results.Ok(info);
+}).Produces<AgentInstallerStatus>();
+
+admin.MapPost("/admin/agent-installer", async (
+    HttpRequest req, AgentInstallerService installer, CancellationToken ct) =>
+{
+    var version = req.Query["version"].FirstOrDefault()?.Trim();
+    if (string.IsNullOrWhiteSpace(version))
+        return Results.BadRequest("version query parameter is required.");
+
+    var form = await req.ReadFormAsync(ct);
+    var file = form.Files.GetFile("file");
+    if (file is null)
+        return Results.BadRequest("file field is required.");
+
+    await using var stream = file.OpenReadStream();
+    var info = await installer.SaveAsync(stream, version, file.FileName, ct);
+    return Results.Ok(info);
+}).Produces<AgentInstallerStatus>();
+
+admin.MapDelete("/admin/agent-installer", (AgentInstallerService installer) =>
+{
+    installer.Delete();
+    return Results.NoContent();
+});
 
 app.Run();
 

@@ -19,3 +19,11 @@ export type Conflict = NonNullable<Schemas['ConflictDto']>;
 export type Settings = Schemas['ServerSettingsDto'];
 export type MachineSavePath = Schemas['MachineSavePathDto'];
 export type AuditEntry = Schemas['AuditEntryDto'];
+
+// Hand-written — not in the generated api-types; run `npm run gen:api` after server update.
+export interface AgentInstallerStatus {
+  version: string;
+  fileName: string;
+  uploadedAt: string;
+  sizeBytes: number;
+}

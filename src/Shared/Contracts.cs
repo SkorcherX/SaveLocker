@@ -49,6 +49,13 @@ public record ServerSettingsDto(
     bool SteamGridDbFromConfig,
     bool AdminPasswordSet);
 
+/// <summary>Status of the agent installer binary hosted on this server.</summary>
+public record AgentInstallerStatus(
+    string Version,
+    string FileName,
+    DateTime UploadedAt,
+    long SizeBytes);
+
 /// <summary>Set (or clear, when null/empty) the SteamGridDB API key from the dashboard.</summary>
 public record SetSteamGridDbKeyRequest(string? ApiKey);
 

@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api, setPassword } from '../api';
-import type { GameSummary, Machine, Settings } from '../types';
+import type { GameSummary, Machine, Settings, AgentInstallerStatus } from '../types';
 
 interface Props {
   games: GameSummary[];
@@ -16,6 +16,50 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
   const [sgdbInput, setSgdbInput] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+
+  // ── Agent installer state ──
+  const [installer, setInstaller] = useState<AgentInstallerStatus | null>(null);
+  const [installerLoading, setInstallerLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [versionOverride, setVersionOverride] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  async function loadInstaller() {
+    setInstallerLoading(true);
+    try { setInstaller(await api.installerStatus()); }
+    catch { /* non-fatal */ }
+    finally { setInstallerLoading(false); }
+  }
+
+  useEffect(() => { loadInstaller(); }, []);
+
+  function parseVersionFromName(name: string): string {
+    const m = name.match(/Setup-(.+?)\.exe$/i);
+    return m ? m[1] : '';
+  }
+
+  async function handleUpload() {
+    const file = fileInputRef.current?.files?.[0];
+    if (!file) { alert('Choose an installer file first.'); return; }
+    const ver = versionOverride.trim() || parseVersionFromName(file.name);
+    if (!ver) { alert('Could not parse version from filename. Enter it in the Version field.'); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      await api.uploadInstaller(fd, ver);
+      setVersionOverride('');
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      await loadInstaller();
+    } catch (e) { alert('Upload failed: ' + (e as Error).message); }
+    finally { setUploading(false); }
+  }
+
+  async function handleDeleteInstaller() {
+    if (!confirm('Remove the hosted installer? Agents will no longer be offered an update until a new installer is uploaded.')) return;
+    try { await api.deleteInstaller(); await loadInstaller(); }
+    catch (e) { alert('Delete failed: ' + (e as Error).message); }
+  }
   // Per-game retention inputs: gameId -> string (empty = use default)
   const [retentionInputs, setRetentionInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(games.map(s => [s.game.id, s.game.retainVersions?.toString() ?? '']))
@@ -196,6 +240,80 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
           </div>
           <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: -6 }}>
             Protects the dashboard from casual access on your local network. Enter your password in the nav bar to connect.
+          </p>
+
+        </div>
+      </div>
+
+      {/* ── Agent Updates ── */}
+      <div style={card}>
+        <div style={cardHeader}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Agent updates</span>
+          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>installer management</span>
+        </div>
+        <div style={{ padding: '16px 18px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+          {/* Current installer status */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, color: '#ECEFF1' }}>Hosted installer:</span>
+            {installerLoading ? (
+              <span style={{ fontSize: 12, color: '#556070' }}>Loading…</span>
+            ) : installer ? (
+              <>
+                <span style={{ padding: '2px 7px', background: '#129271', color: '#fff', borderRadius: 4, fontSize: 10, fontWeight: 600, letterSpacing: '0.04em' }}>v{installer.version}</span>
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#9CA3AF' }}>{installer.fileName}</span>
+                <span style={{ fontSize: 11, color: '#556070' }}>·</span>
+                <span style={{ fontSize: 11, color: '#556070' }}>{(installer.sizeBytes / (1024 * 1024)).toFixed(1)} MB</span>
+                <span style={{ fontSize: 11, color: '#556070' }}>· uploaded {new Date(asUtc(installer.uploadedAt)).toLocaleDateString()}</span>
+                <a
+                  href="/api/agent/installer/download"
+                  style={{ fontSize: 11, color: '#129271', textDecoration: 'none' }}
+                  target="_blank" rel="noreferrer"
+                >
+                  Download ↓
+                </a>
+                <button
+                  onClick={handleDeleteInstaller}
+                  style={{ padding: '2px 10px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                >
+                  Delete
+                </button>
+              </>
+            ) : (
+              <span style={{ padding: '2px 7px', border: '1px solid #556070', color: '#556070', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>none — agents won't be offered updates</span>
+            )}
+          </div>
+
+          {/* Upload form */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".exe"
+              onChange={e => {
+                const name = e.target.files?.[0]?.name ?? '';
+                const parsed = parseVersionFromName(name);
+                if (parsed) setVersionOverride(parsed);
+              }}
+              style={{ flex: 1, minWidth: 200, padding: '5px 0', color: '#9CA3AF', fontSize: 12, background: 'transparent', border: 'none' }}
+            />
+            <input
+              type="text"
+              value={versionOverride}
+              onChange={e => setVersionOverride(e.target.value)}
+              placeholder="Version (e.g. 0.2.0)"
+              style={{ width: 140, padding: '7px 10px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 5, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
+            />
+            <button
+              onClick={handleUpload}
+              disabled={uploading}
+              style={{ padding: '6px 14px', background: uploading ? '#2A3238' : '#129271', color: uploading ? '#556070' : '#fff', border: 'none', borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: uploading ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {uploading ? 'Uploading…' : 'Upload installer'}
+            </button>
+          </div>
+          <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: -6 }}>
+            Upload a <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>SaveLocker-Agent-Setup-x.y.z.exe</code> built from the release workflow. Version is auto-parsed from the filename. Once uploaded, connected agents will be offered the update at their next check-in.
           </p>
 
         </div>
