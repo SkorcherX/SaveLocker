@@ -75,7 +75,7 @@ Root: HKCU; Subkey: "{#RunKey}"; ValueType: string; ValueName: "{#RunValue}"; \
 ; runasoriginaluser: start the tray agent de-elevated as the real user, not in the
 ; installer's admin context (a background tray app must not run elevated).
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; \
-    Flags: nowait postinstall skipifsilent runasoriginaluser
+    Flags: nowait postinstall runasoriginaluser
 
 [Code]
 // On uninstall: always remove the Run entry (covers the case where the in-app toggle
