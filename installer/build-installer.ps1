@@ -36,8 +36,11 @@ Write-Host '== Publishing agent (self-contained, single file) ==' -ForegroundCol
 $dotnet = Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'
 # When an explicit version is provided (CI), stamp it directly into the assembly so the
 # running agent reports the correct version string regardless of MinVer's git access.
-$versionArgs = if ($AppVersion) { @("-p:Version=$AppVersion") } else { @() }
-& $dotnet publish $agentProj -p:PublishProfile=win-x64 @versionArgs --nologo
+if ($AppVersion) {
+    & $dotnet publish $agentProj -p:PublishProfile=win-x64 "--property:Version=$AppVersion" --nologo
+} else {
+    & $dotnet publish $agentProj -p:PublishProfile=win-x64 --nologo
+}
 if ($LASTEXITCODE -ne 0) { throw "publish failed ($LASTEXITCODE)" }
 
 Write-Host '== Compiling installer (Inno Setup) ==' -ForegroundColor Cyan
