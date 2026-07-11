@@ -2,6 +2,7 @@
 using SaveLocker.Server.Data;
 using SaveLocker.Server.Services;
 using SaveLocker.Shared;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
