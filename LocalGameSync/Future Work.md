@@ -48,7 +48,8 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   ASP.NET Core minimal API would make it OpenAPI-introspectable and let agent-ui generate its types
   too — but it touches WPF/WebView2/STA folder-picker + `HttpListener` lifetime, so it's a separate
   task, not a quick win.
-- Background sweep to expire stale leases proactively (currently lazy on access). *(hygiene #5c, pending)*
+- ~~**Background sweep for stale leases**~~ **DONE 2026-07-08 (`82d0f71`, hygiene #5c)** —
+  `LeaseSweeperService` (`BackgroundService`) runs hourly via `IServiceScopeFactory`. See [[Progress]].
 
 ## Agent UX
 - ~~Settings UI in the tray~~ — **DONE** (WS1 → replaced by React/WebView2 agent UI).
@@ -62,7 +63,11 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
 - ~~**Agent installer**~~ — **DONE**: Inno Setup `installer/SaveLocker.iss` + self-contained
   publish + single-instance mutex; wizard branded with `SaveLocker_WizardBg.png` /
   `SaveLocker_WizardSmall.png`; uninstall reverts Run key and asks about config.
-  Verified on Wideboy (2026-06-25). *Pending:* code-sign the exe to avoid SmartScreen; auto-update.
+  Verified on Wideboy (2026-06-25). *Pending:* code-sign the exe to avoid SmartScreen.
+- ~~**Agent versioning + auto-update**~~ — **DONE 2026-07-10.** `<Version>` in csproj;
+  `GET /api/agent/latest` (server, admin-configured); `UpdateChecker` service; tray startup +
+  24 h periodic checks + manual tray item; balloon → confirm/skip/remind dialog; installer
+  launched with `/SILENT /FORCECLOSEAPPLICATIONS`. See [[Agent Auto-Update]] / [[Progress]].
 
 ## Detection
 - Registry-based saves (manifest `registry:` section) — only `files:` handled.
@@ -79,14 +84,12 @@ Back to [[Home]]. Things deliberately not built yet, roughly by value.
   logo centred, green separator, bold title + muted tagline. `WizardImageBackColor` DPI
   fallback added. See [[Progress]].
 - *Remaining:* code-sign the exe to avoid SmartScreen warnings (currently unsigned).
-- **Technical codebase rename** (`LocalGameSync` → `SaveLocker`): namespaces, solution
-  file, project names, `AppId` GUID. *Partially done (2026-06-24):* all **user-visible**
-  strings, config paths (`%PROGRAMDATA%\SaveLocker`), registry value name, single-instance
-  mutex, and installer identifiers are already renamed. What remains is the internal code
-  identifiers: `namespace LocalGameSync.*`, `LocalGameSync.sln`, project file names,
-  `AppId` GUID. A find-replace + refactor task; low risk. Sequence this **late in
-  productization** so it doesn't churn early — the console redesign can target the new
-  names (see [[Console Redesign]]).
+- ~~**Technical codebase rename** (`LocalGameSync` → `SaveLocker`)~~ **DONE 2026-07-10.**
+  Namespaces, solution file (`SaveLocker.sln`), project files (`SaveLocker.Agent/Server/Shared.csproj`),
+  DB filenames (`savelocker.db`), installer `AppExe`, and all internal identifiers renamed.
+  *Note:* existing server deployments with `/data/localgamesync.db` need to rename the file
+  to `/data/savelocker.db` (or override `Db:DbPath` in environment). AppId GUID in the
+  installer is unchanged (changing it breaks Windows upgrade detection).
 - **Console redesign** — see [[Console Redesign]] for the full strategy (React + Tailwind
   + shadcn/ui, prototyped in Claude artifacts, then ported to a parallel frontend project,
   folded into the Docker build during deployment hardening). That's where SaveLocker's

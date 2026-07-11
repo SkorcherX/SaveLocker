@@ -1,6 +1,6 @@
 # Progress
 
-Back to [[Home]]. Last updated: 2026-07-08.
+Back to [[Home]]. Last updated: 2026-07-10.
 
 ## Status: all 5 phases complete and verified ✅
 
@@ -334,6 +334,32 @@ SaveLocker logo rendered at 34×34px in the sidebar with `border-radius: 5px`.
   "Technical codebase rename").
 
 ## Session log
+- **2026-07-10:** **Security patch + agent versioning + auto-update** (`0bf04a1`, `809716b`).
+  - **`SixLabors.ImageSharp` 3.1.7 → 3.1.12** — patches GHSA-rxmq-m78w-7wmc (moderate,
+    GIF decoder infinite-loop DoS). 3.1.11 is the first fixed release in the 3.x line;
+    3.1.12 is the latest patch. No API surface changes; build verified clean.
+  - **Agent versioning** — `<Version>0.1.0</Version>` added to `SaveLocker.Agent.csproj`;
+    the SDK now stamps `AssemblyVersion`, `FileVersion`, and `AssemblyInformationalVersion`
+    from a single source. `build-installer.ps1` reads `FileVersion` from the published exe
+    and passes `/DAppVersion=` to ISCC; `SaveLocker.iss` switched from a hardcoded `#define`
+    to an `#ifndef AppVersion` guard (standalone ISCC builds default to `"dev"`).
+  - **Agent auto-update** — full design in [[Agent Auto-Update]]. Key parts:
+    - **Server:** `GET /api/agent/latest` (agent-auth) reads `AgentUpdate:{LatestVersion,DownloadUrl}`
+      from `appsettings.json`; returns `AgentVersionInfo` or 204 when unconfigured (safe default).
+      `AgentVersionInfo` record added to `Shared/Contracts.cs`.
+    - **`UpdateChecker.cs` (new)** — queries the server, compares with `System.Version`,
+      respects `AgentConfig.SkipVersion`, streams the installer to `%TEMP%\SaveLockerSetup-{version}.exe`,
+      and launches with `/SILENT /FORCECLOSEAPPLICATIONS /NORESTART`. Never touches UI.
+    - **`TrayApp.cs`** — startup check fires 5 s after launch; `System.Threading.Timer` re-checks
+      every 24 h; 24 h cooldown enforced via `AgentConfig.LastUpdateCheck`. New "Check for Updates"
+      tray menu item (relabelled to "Update to v{X.Y.Z}…" + bold when an update is pending). Balloon
+      tip on update found; balloon click → confirm dialog with **Update Now / Skip This Version /
+      Remind Me Later**. Skipping saves `AgentConfig.SkipVersion`.
+    - **`AgentApiServer.cs`** — `GET /api/agent-version` exposes `{currentVersion, latestVersion,
+      updateAvailable}` for the React settings page (no extra server round-trip).
+    - **`AgentConfig.cs`** — gains `SkipVersion` and `LastUpdateCheck` fields.
+  - **Vault** — [[Agent Auto-Update]] design note added.
+
 - **2026-07-08:** **Hygiene #5c + #5d** (see [[Hygiene Review 2026-07-06]]).
   - **#5c — Background lease sweep + Docker HEALTHCHECK** (`82d0f71`) — `LeaseSweeperService`
     (`BackgroundService`) runs every hour via `IServiceScopeFactory` and calls
@@ -693,7 +719,11 @@ UX phase functionally complete and deployed. Queue, in priority order:
 12. **Technical codebase rename** — namespaces, `.sln`, `.csproj` filenames, exe name
     still say `LocalGameSync`. User-visible strings are all `SaveLocker` now (done
     2026-06-25). Full rename is a productization-phase task (see [[Future Work]]).
-13. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for
+13. ~~**Agent versioning + auto-update**~~ **DONE 2026-07-10** — `<Version>0.1.0</Version>`
+    in Agent.csproj; `GET /api/agent/latest` on the server; `UpdateChecker` service;
+    tray startup + 24 h periodic checks; balloon + confirm dialog; Skip/Remind Later.
+    See [[Agent Auto-Update]].
+14. **Code-signing** — installer + exe unsigned; SmartScreen warns on first run for
     other users. User unfamiliar with the process; will be walked through it when ready.
 
 See [[UX Roadmap]] / [[Future Work]] for the full backlog.
@@ -701,6 +731,6 @@ See [[UX Roadmap]] / [[Future Work]] for the full backlog.
 ## How to resume
 - Run server: `cd src/Server && dotnet run` → API on http://localhost:5179.
 - Run dashboard dev server: `cd web && npm run dev` → http://localhost:5173 (proxies `/api` to :5179). LAN-accessible at `http://192.168.68.58:5173` (host bound to `0.0.0.0`).
-- Build installer: `.\installer\build-installer.ps1` → `installer/dist/SaveLocker-Agent-Setup-0.1.0.exe`.
-- Build agent (dev): `dotnet build src/Agent/LocalGameSync.Agent.csproj` (use `--no-incremental`; **stop the running agent/server first** — they lock the DLLs).
+- Build installer: `.\installer\build-installer.ps1` → `installer/dist/SaveLocker-Agent-Setup-{version}.exe`. Version is read from the published exe's `FileVersion` (set by `<Version>` in the csproj).
+- Build agent (dev): `dotnet build src/Agent/SaveLocker.Agent.csproj` (use `--no-incremental`; **stop the running agent/server first** — they lock the DLLs).
 - Re-read [[Gotchas]] before touching builds/paths. [[CLI Reference]] for commands.
