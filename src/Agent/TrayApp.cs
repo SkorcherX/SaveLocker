@@ -1,9 +1,9 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Drawing;
 using System.Windows.Forms;
-using LocalGameSync.Shared;
+using SaveLocker.Shared;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 public static class TrayApp
 {
@@ -38,6 +38,13 @@ internal sealed class TrayContext : ApplicationContext
     private AgentWindow? _window;
     private ProcessWatcher _processWatcher;
     private SyncEngine _engine = null!;
+
+    private UpdateChecker? _updateChecker;
+    private readonly System.Threading.Timer _updateTimer;
+    // Last check result cached for the local API server to read.
+    internal UpdateResult? LastUpdateResult;
+    // Label of the "Check for Updates" menu item so we can mutate it after a check.
+    private ToolStripMenuItem? _updateMenuItem;
 
     public TrayContext(AgentConfig config)
     {
@@ -76,7 +83,8 @@ internal sealed class TrayContext : ApplicationContext
                 return await scanner.ScanAsync();
             },
             enroll: EnrollAsync,
-            onRegistered: RebuildEngine);
+            onRegistered: RebuildEngine,
+            getUpdateResult: () => LastUpdateResult);
         _apiServer.Start();
 
         _commandPoller = new CommandPoller(
@@ -87,6 +95,14 @@ internal sealed class TrayContext : ApplicationContext
             Notify,
             onGamesChanged: () => _ui.Post(_ => { RebuildMenu(); StartFolderWatchers(); }, null));
         _commandPoller.Start();
+
+        // 24 h periodic update check. First tick fires after 5 s so the tray is fully
+        // visible before the balloon appears; subsequent ticks every 24 h.
+        _updateTimer = new System.Threading.Timer(
+            _ => FireAndForget(() => CheckForUpdateAsync(silent: true)),
+            null,
+            dueTime: TimeSpan.FromSeconds(5),
+            period: TimeSpan.FromHours(24));
 
         _ui.Post(_ => MaybeShowFirstRun(), null);
     }
@@ -140,6 +156,16 @@ internal sealed class TrayContext : ApplicationContext
 
         menu.Items.Add("Sync All (pull then push)", null, (_, _) => FireAndForget(SyncAll));
         menu.Items.Add("Open Dashboard", null, (_, _) => OpenDashboard());
+        menu.Items.Add(new ToolStripSeparator());
+
+        _updateMenuItem = LastUpdateResult is UpdateResult.Available avail
+            ? new ToolStripMenuItem($"Update to v{avail.Version}…", null,
+                (_, _) => FireAndForget(() => PromptAndUpdateAsync(avail.Version, avail.DownloadUrl)))
+              { Font = new Font(SystemFonts.MenuFont!, FontStyle.Bold) }
+            : new ToolStripMenuItem("Check for Updates",  null,
+                (_, _) => FireAndForget(() => CheckForUpdateAsync(silent: false)));
+        menu.Items.Add(_updateMenuItem);
+
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
 
@@ -253,6 +279,107 @@ internal sealed class TrayContext : ApplicationContext
         catch (Exception ex) { Notify("Could not open dashboard: " + ex.Message); }
     }
 
+    // ─── Update check ───────────────────────────────────────────────────────────
+
+    private async Task CheckForUpdateAsync(bool silent)
+    {
+        // Enforce 24 h cooldown for background checks; user-initiated checks always run.
+        if (silent && _config.LastUpdateCheck.HasValue &&
+            (DateTime.UtcNow - _config.LastUpdateCheck.Value).TotalHours < 24)
+            return;
+
+        _updateChecker ??= new UpdateChecker(_config);
+        var result = await _updateChecker.CheckAsync();
+
+        _config.LastUpdateCheck = DateTime.UtcNow;
+        _config.Save();
+
+        LastUpdateResult = result;
+        _ui.Post(_ => RebuildMenu(), null);
+
+        if (result is UpdateResult.Available a)
+        {
+            Notify($"SaveLocker v{a.Version} is available. Click to update.");
+            _ui.Post(_ =>
+            {
+                _icon.BalloonTipClicked += OnBalloonUpdateClicked;
+                _icon.BalloonTipClosed  += OnBalloonClosed;
+            }, null);
+        }
+        else if (!silent && result is UpdateResult.UpToDate)
+        {
+            Notify($"You're up to date (v{UpdateChecker.CurrentVersion.ToString(3)}).");
+        }
+    }
+
+    private void OnBalloonUpdateClicked(object? sender, EventArgs e)
+    {
+        UnhookBalloon();
+        if (LastUpdateResult is UpdateResult.Available a)
+            FireAndForget(() => PromptAndUpdateAsync(a.Version, a.DownloadUrl));
+    }
+
+    private void OnBalloonClosed(object? sender, EventArgs e) => UnhookBalloon();
+
+    private void UnhookBalloon()
+    {
+        _icon.BalloonTipClicked -= OnBalloonUpdateClicked;
+        _icon.BalloonTipClosed  -= OnBalloonClosed;
+    }
+
+    private async Task PromptAndUpdateAsync(string version, string downloadUrl)
+    {
+        var choice = MessageBox.Show(
+            $"SaveLocker v{version} is available.\n\nUpdate now? The app will restart after installing.",
+            "SaveLocker Update",
+            MessageBoxButtons.YesNo,
+            MessageBoxIcon.Information,
+            MessageBoxDefaultButton.Button1,
+            MessageBoxOptions.DefaultDesktopOnly);
+
+        if (choice == DialogResult.No)
+        {
+            // Ask whether to skip this version entirely.
+            var skip = MessageBox.Show(
+                "Skip this version and don't ask again?",
+                "SaveLocker Update",
+                MessageBoxButtons.YesNo,
+                MessageBoxIcon.Question,
+                MessageBoxDefaultButton.Button2,
+                MessageBoxOptions.DefaultDesktopOnly);
+
+            if (skip == DialogResult.Yes)
+            {
+                _config.SkipVersion = version;
+                _config.Save();
+                LastUpdateResult = null;
+                _ui.Post(_ => RebuildMenu(), null);
+            }
+            return;
+        }
+
+        try
+        {
+            Notify($"Downloading SaveLocker v{version}…");
+            _updateChecker ??= new UpdateChecker(_config);
+            var installerPath = await _updateChecker.DownloadInstallerAsync(version, downloadUrl);
+
+            Process.Start(new ProcessStartInfo(installerPath)
+            {
+                UseShellExecute = true,
+                Arguments = "/SILENT /FORCECLOSEAPPLICATIONS /NORESTART",
+            });
+
+            // Release the single-instance mutex so the installer can replace the exe.
+            _ui.Post(_ => ExitThread(), null);
+        }
+        catch (Exception ex)
+        {
+            AgentLogger.LogException("PromptAndUpdateAsync", ex);
+            Notify("Update failed: " + ex.Message);
+        }
+    }
+
     // ─── Process watcher callbacks ───────────────────────────────────────────────
 
     private bool IsRunning(TrackedGame g)
@@ -302,6 +429,7 @@ internal sealed class TrayContext : ApplicationContext
     {
         if (disposing)
         {
+            _updateTimer.Dispose();
             _drainer.Dispose();
             _apiServer.Dispose();
             _window?.Dispose();

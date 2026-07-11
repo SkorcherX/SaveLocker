@@ -1,7 +1,7 @@
-using LocalGameSync.Server;
-using LocalGameSync.Server.Data;
-using LocalGameSync.Server.Services;
-using LocalGameSync.Shared;
+﻿using SaveLocker.Server;
+using SaveLocker.Server.Data;
+using SaveLocker.Server.Services;
+using SaveLocker.Shared;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -13,7 +13,7 @@ var dbPath = configuredDbPath ?? defaultDbPath;
 // Migrate the DB file from the old default name on first run after rename.
 if (configuredDbPath is null && !File.Exists(dbPath))
 {
-    var legacyPath = Path.Combine(AppContext.BaseDirectory, "data", "localgamesync.db");
+    var legacyPath = Path.Combine(AppContext.BaseDirectory, "data", "SaveLocker.db");
     if (File.Exists(legacyPath))
         File.Move(legacyPath, dbPath);
 }
@@ -269,6 +269,15 @@ agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http,
         await sync.SetMachinePathAsync(http.CurrentMachine().Id, gameId, value.Trim());
     return Results.Ok();
 });
+
+agent.MapGet("/agent/latest", (IConfiguration cfg) =>
+{
+    var ver = cfg["AgentUpdate:LatestVersion"];
+    var url = cfg["AgentUpdate:DownloadUrl"];
+    return string.IsNullOrWhiteSpace(ver)
+        ? Results.NoContent()
+        : Results.Ok(new AgentVersionInfo(ver, url ?? ""));
+}).Produces<AgentVersionInfo>();
 
 // ---- Admin dashboard API (requires X-Admin-Password when one is set) ----
 var admin = app.MapGroup("/api").AddEndpointFilter<AdminPasswordFilter>();

@@ -1,4 +1,4 @@
-; Inno Setup script for the SaveLocker Windows tray agent.
+﻿; Inno Setup script for the SaveLocker Windows tray agent.
 ;
 ; Machine-wide install (requests UAC elevation up front): files go to
 ; C:\Program Files\SaveLocker. Auto-start is still the per-user HKCU\...\Run entry
@@ -11,10 +11,11 @@
 ;         See installer\build-installer.ps1 (does both).
 
 #define AppName "SaveLocker"
-#define AppVersion "0.1.0"
+#ifndef AppVersion
+  #define AppVersion "dev"
+#endif
 #define AppPublisher "SaveLocker"
-; The binary keeps the LocalGameSync.Agent.exe filename until the project is renamed.
-#define AppExe "LocalGameSync.Agent.exe"
+#define AppExe "SaveLocker.Agent.exe"
 ; Path to the self-contained publish output (relative to this script).
 #define PublishDir "..\src\Agent\bin\Release\net9.0-windows\win-x64\publish"
 ; Per-user Run key + the value name the in-app toggle (AutoStart.cs) uses.

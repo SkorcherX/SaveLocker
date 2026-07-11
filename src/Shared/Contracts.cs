@@ -1,6 +1,6 @@
-using System.Text.Json.Serialization;
+﻿using System.Text.Json.Serialization;
 
-namespace LocalGameSync.Shared;
+namespace SaveLocker.Shared;
 
 /// <summary>
 /// DTOs exchanged over the REST API between the agent and the server.
@@ -166,6 +166,11 @@ public record AgentCommandDto(
     string? Result);
 
 public record CommandResultRequest(CommandStatus Status, string? Result);
+
+// ----- Agent update channel -----
+
+/// <summary>Latest available agent version info, served by the SaveLocker server.</summary>
+public record AgentVersionInfo(string LatestVersion, string DownloadUrl);
 
 // ----- Server backups (admin) -----
 

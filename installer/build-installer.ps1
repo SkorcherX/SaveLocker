@@ -1,7 +1,7 @@
-# Builds the SaveLocker agent installer end to end:
+﻿# Builds the SaveLocker agent installer end to end:
 #   1. builds the React agent UI (npm run build in agent-ui/)
 #   2. publishes the agent self-contained (single exe, no .NET runtime needed), then
-#   3. compiles installer\LocalGameSync.iss with Inno Setup's ISCC.exe.
+#   3. compiles installer\SaveLocker.iss with Inno Setup's ISCC.exe.
 # Output: installer\dist\SaveLocker-Agent-Setup-<version>.exe
 #
 # Prerequisites: .NET 9 SDK, Node.js, Inno Setup 6 (winget install JRSoftware.InnoSetup).
@@ -10,7 +10,7 @@
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
-$agentProj = Join-Path $repo 'src\Agent\LocalGameSync.Agent.csproj'
+$agentProj = Join-Path $repo 'src\Agent\SaveLocker.Agent.csproj'
 $agentUi   = Join-Path $repo 'agent-ui'
 
 Write-Host '== Building SaveLocker agent UI (React) ==' -ForegroundColor Cyan
@@ -37,7 +37,11 @@ if (-not $iscc) {
 }
 if (-not $iscc) { throw 'ISCC.exe not found. Install Inno Setup 6 (winget install JRSoftware.InnoSetup).' }
 
-& $iscc (Join-Path $PSScriptRoot 'SaveLocker.iss')
+$publishExe = Join-Path $repo 'src\Agent\bin\Release\net9.0-windows\win-x64\publish\SaveLocker.Agent.exe'
+$appVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($publishExe).FileVersion
+Write-Host "Agent version: $appVersion" -ForegroundColor Cyan
+
+& $iscc "/DAppVersion=$appVersion" (Join-Path $PSScriptRoot 'SaveLocker.iss')
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
 
 Write-Host '== Done ==' -ForegroundColor Green

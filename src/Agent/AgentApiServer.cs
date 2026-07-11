@@ -1,10 +1,10 @@
-using System.Net;
+﻿using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows.Forms;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// Minimal HTTP server that drives the SaveLocker Agent UI (React app in WebView2).
@@ -18,6 +18,7 @@ internal sealed class AgentApiServer : IDisposable
     private readonly Func<Task<IReadOnlyList<ScanCandidate>>> _doScan;
     private readonly Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> _enroll;
     private readonly Action? _onRegistered;
+    private readonly Func<UpdateResult?> _getUpdateResult;
     private readonly string _uiRoot;
 
     private IReadOnlyList<ScanCandidate>? _candidateCache;
@@ -39,7 +40,8 @@ internal sealed class AgentApiServer : IDisposable
         SynchronizationContext ui,
         Func<Task<IReadOnlyList<ScanCandidate>>> doScan,
         Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> enroll,
-        Action? onRegistered = null)
+        Action? onRegistered = null,
+        Func<UpdateResult?>? getUpdateResult = null)
     {
         Port = port;
         _config = config;
@@ -47,6 +49,7 @@ internal sealed class AgentApiServer : IDisposable
         _doScan = doScan;
         _enroll = enroll;
         _onRegistered = onRegistered;
+        _getUpdateResult = getUpdateResult ?? (() => null);
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
         _http.Prefixes.Add($"http://localhost:{port}/");
     }
@@ -305,6 +308,21 @@ internal sealed class AgentApiServer : IDisposable
                 _candidateCache = list;
             }
             await WriteJsonAsync(res, new { path = pickedPath });
+            return;
+        }
+
+        // GET /api/agent-version
+        if (route == "agent-version" && method == "GET")
+        {
+            var current = UpdateChecker.CurrentVersion.ToString(3);
+            var updateResult = _getUpdateResult();
+            var latestVersion = updateResult is UpdateResult.Available av ? av.Version : null;
+            await WriteJsonAsync(res, new
+            {
+                currentVersion = current,
+                latestVersion,
+                updateAvailable = latestVersion is not null,
+            });
             return;
         }
 

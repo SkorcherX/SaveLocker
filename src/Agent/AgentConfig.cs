@@ -1,7 +1,7 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// Per-machine agent configuration, persisted as JSON. Default location is
@@ -23,6 +23,10 @@ public sealed class AgentConfig
     public int TotalSavesPushed { get; set; }
     /// <summary>UTC timestamp of the most recent push or pull across all games.</summary>
     public DateTime? LastSyncTime { get; set; }
+    /// <summary>Version string the user chose to skip ("Skip This Version"); suppresses update prompts for that version.</summary>
+    public string? SkipVersion { get; set; }
+    /// <summary>UTC timestamp of the last update check; used to enforce a 24 h cooldown between background checks.</summary>
+    public DateTime? LastUpdateCheck { get; set; }
 
     [JsonIgnore] public string ConfigPath { get; private set; } = DefaultConfigPath;
 
