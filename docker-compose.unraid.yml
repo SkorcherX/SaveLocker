@@ -16,13 +16,3 @@ services:
       start_period: 60s
     restart: unless-stopped
 
-  watchtower:
-    image: containrrr/watchtower:latest
-    container_name: watchtower-savelocker
-    environment:
-      - DOCKER_API_VERSION=1.41
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /root/.docker/config.json:/config.json
-    command: savelocker-server --interval 300
-    restart: unless-stopped

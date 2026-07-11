@@ -172,7 +172,7 @@ Every push to `main` triggers a GitHub Actions workflow that:
 2. Publishes the ASP.NET server (`dotnet publish`)
 3. Builds and pushes a Docker image to `ghcr.io/skorcherx/savelocker:latest`
 
-[Watchtower](https://containrrr.dev/watchtower/) on the unRAID host polls GHCR every 5 minutes and auto-restarts the container on a new image — so a `git push` is a full deploy with no manual steps.
+To deploy the new image on unRAID, run `docker compose pull && docker compose up -d` — the container is replaced in place with zero downtime.
 
 ---
 
@@ -197,13 +197,12 @@ SaveLocker/
 │   └── Shared/         # Wire contracts, archive helpers, manifest loader
 ├── web/                # React admin dashboard (Vite, TypeScript, Tailwind CSS v4)
 ├── installer/          # Inno Setup script + wizard artwork
-└── LocalGameSync/      # Obsidian vault — living project notes and decisions
+└── SaveLocker/         # Obsidian vault — living project notes and decisions
 ```
 
 ---
 
 ## Roadmap
 
-- [ ] Technical rename — solution, namespaces, exe → SaveLocker
 - [ ] Code-signing — remove SmartScreen warning for new users
 - [ ] macOS / Linux agent (server already runs cross-platform)

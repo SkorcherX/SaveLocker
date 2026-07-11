@@ -87,7 +87,7 @@ SaveLocker/
 │   └── release.yml                      # v* tag → windows-latest build → installer → GitHub Release
 │
 ├── SaveLocker.sln
-└── docker-compose.unraid.yml           # Server container + Watchtower on unRAID
+└── docker-compose.unraid.yml           # Server container for unRAID deployment
 ```
 
 ## Auth model

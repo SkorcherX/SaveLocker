@@ -48,7 +48,7 @@ See `Backlog.md` for the full list.
 ---
 
 ## Deployment
-- **unRAID:** Docker on port 5080. `git push main` → Actions build → GHCR → Watchtower auto-deploys (~5 min).
+- **unRAID:** Docker on port 5080. `git push main` → Actions build → GHCR. To deploy: `docker compose pull && docker compose up -d`.
 - **Tag a release:** `git tag v0.2.0 && git push origin v0.2.0` → `release.yml` builds installer → GitHub Release.
 
 ---
