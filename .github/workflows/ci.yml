@@ -16,7 +16,7 @@ jobs:
         with:
           dotnet-version: '9.0.x'
       - name: Build server
-        run: dotnet build src/Server/LocalGameSync.Server.csproj -c Release --no-incremental
+        run: dotnet build src/Server/SaveLocker.Server.csproj -c Release --no-incremental
 
   build-web:
     runs-on: ubuntu-latest

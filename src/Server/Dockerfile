@@ -11,10 +11,10 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-COPY LocalGameSync.sln ./
-COPY src/Shared/LocalGameSync.Shared.csproj src/Shared/
-COPY src/Server/LocalGameSync.Server.csproj src/Server/
-RUN dotnet restore src/Server/LocalGameSync.Server.csproj
+COPY SaveLocker.sln ./
+COPY src/Shared/SaveLocker.Shared.csproj src/Shared/
+COPY src/Server/SaveLocker.Server.csproj src/Server/
+RUN dotnet restore src/Server/SaveLocker.Server.csproj
 
 COPY src/Shared/ src/Shared/
 COPY src/Server/ src/Server/
@@ -22,7 +22,7 @@ COPY src/Server/ src/Server/
 # Bake the React build into wwwroot so the server serves it as static files
 COPY --from=web-build /web/dist/ src/Server/wwwroot/
 
-RUN dotnet publish src/Server/LocalGameSync.Server.csproj -c Release -o /app /p:UseAppHost=false
+RUN dotnet publish src/Server/SaveLocker.Server.csproj -c Release -o /app /p:UseAppHost=false
 
 # Stage 3: runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
@@ -43,4 +43,4 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -sf http://localhost:8080/health || exit 1
 
-ENTRYPOINT ["dotnet", "LocalGameSync.Server.dll"]
+ENTRYPOINT ["dotnet", "SaveLocker.Server.dll"]
