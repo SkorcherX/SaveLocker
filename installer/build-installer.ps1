@@ -1,4 +1,4 @@
-﻿# Builds the SaveLocker agent installer end to end:
+# Builds the SaveLocker agent installer end to end:
 #   1. builds the React agent UI (npm run build in agent-ui/)
 #   2. publishes the agent self-contained (single exe, no .NET runtime needed), then
 #   3. compiles installer\SaveLocker.iss with Inno Setup's ISCC.exe.
@@ -7,6 +7,15 @@
 # Prerequisites: .NET 9 SDK, Node.js, Inno Setup 6 (winget install JRSoftware.InnoSetup).
 # The Release publish output is separate from the dev Debug build, so a running
 # (Debug) agent does not need to be stopped for this.
+#
+# Optional parameter: -AppVersion <version>
+#   When provided (e.g. by CI passing the git tag), this version is used directly and
+#   the FileVersion read from the compiled exe is ignored. This makes the installer
+#   filename authoritative from the tag rather than depending on MinVer's git traversal
+#   inside the build process.
+param(
+    [string]$AppVersion = ""
+)
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
@@ -37,12 +46,14 @@ if (-not $iscc) {
 }
 if (-not $iscc) { throw 'ISCC.exe not found. Install Inno Setup 6 (winget install JRSoftware.InnoSetup).' }
 
-$publishExe = Join-Path $repo 'src\Agent\bin\Release\net9.0-windows\win-x64\publish\SaveLocker.Agent.exe'
-$rawVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($publishExe).FileVersion
-$appVersion = [System.Version]::Parse($rawVersion).ToString(3)  # major.minor.patch only
-Write-Host "Agent version: $appVersion" -ForegroundColor Cyan
+if (-not $AppVersion) {
+    $publishExe = Join-Path $repo 'src\Agent\bin\Release\net9.0-windows\win-x64\publish\SaveLocker.Agent.exe'
+    $rawVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($publishExe).FileVersion
+    $AppVersion = [System.Version]::Parse($rawVersion).ToString(3)  # major.minor.patch only
+}
+Write-Host "Agent version: $AppVersion" -ForegroundColor Cyan
 
-& $iscc "/DAppVersion=$appVersion" (Join-Path $PSScriptRoot 'SaveLocker.iss')
+& $iscc "/DAppVersion=$AppVersion" (Join-Path $PSScriptRoot 'SaveLocker.iss')
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed ($LASTEXITCODE)" }
 
 Write-Host '== Done ==' -ForegroundColor Green

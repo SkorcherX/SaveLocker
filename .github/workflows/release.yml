@@ -30,7 +30,9 @@ jobs:
         run: choco install innosetup -y
 
       - name: Build installer
-        run: .\installer\build-installer.ps1
+        run: |
+          $version = '${{ github.ref_name }}'.TrimStart('v')
+          .\installer\build-installer.ps1 -AppVersion $version
 
       - name: Create GitHub Release and upload installer
         uses: softprops/action-gh-release@v2
