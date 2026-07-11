@@ -448,6 +448,11 @@ admin.MapGet("/admin/agent-installer", (AgentInstallerService installer) =>
 admin.MapPost("/admin/agent-installer", async (
     HttpRequest req, AgentInstallerService installer, CancellationToken ct) =>
 {
+    // Kestrel's default body limit is 30 MB; installers are ~43 MB.
+    // Must be set before ReadFormAsync begins reading the body.
+    var sizeCap = req.HttpContext.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (sizeCap is { IsReadOnly: false }) sizeCap.MaxRequestBodySize = null;
+
     var version = req.Query["version"].FirstOrDefault()?.Trim();
     if (string.IsNullOrWhiteSpace(version))
         return Results.BadRequest("version query parameter is required.");
