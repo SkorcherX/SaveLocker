@@ -1,4 +1,4 @@
-namespace LocalGameSync.Server.Services;
+﻿namespace SaveLocker.Server.Services;
 
 /// <summary>
 /// Proactively removes expired leases on a 1-hour sweep. Without this, a stale

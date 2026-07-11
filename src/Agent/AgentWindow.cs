@@ -1,10 +1,10 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// The SaveLocker agent window: a 900×600 WinForms shell hosting a WebView2 control

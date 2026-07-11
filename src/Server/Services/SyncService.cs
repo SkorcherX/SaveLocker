@@ -1,8 +1,8 @@
-using LocalGameSync.Server.Data;
-using LocalGameSync.Shared;
+﻿using SaveLocker.Server.Data;
+using SaveLocker.Shared;
 using Microsoft.EntityFrameworkCore;
 
-namespace LocalGameSync.Server.Services;
+namespace SaveLocker.Server.Services;
 
 /// <summary>
 /// Core orchestration: machine registration, leasing, conflict-aware uploads,

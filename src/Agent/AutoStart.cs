@@ -1,6 +1,6 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// "Start with Windows" via the per-user Run registry key
@@ -52,7 +52,7 @@ internal static class AutoStart
         if (!string.IsNullOrEmpty(proc) &&
             string.Equals(Path.GetFileName(proc), "dotnet.exe", StringComparison.OrdinalIgnoreCase))
         {
-            var apphost = Path.Combine(AppContext.BaseDirectory, "LocalGameSync.Agent.exe");
+            var apphost = Path.Combine(AppContext.BaseDirectory, "SaveLocker.Agent.exe");
             if (File.Exists(apphost)) return apphost;
         }
         return proc;

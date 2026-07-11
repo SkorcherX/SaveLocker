@@ -2,7 +2,7 @@
 
 #nullable disable
 
-namespace LocalGameSync.Server.Migrations
+namespace SaveLocker.Server.Migrations
 {
     /// <inheritdoc />
     public partial class AddGameRetainVersions : Migration

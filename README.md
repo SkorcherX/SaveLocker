@@ -1,8 +1,8 @@
-# SaveLocker
+﻿# SaveLocker
 
 **Save-game sync for games without cloud saves.** A Windows tray agent watches your save folders, pushes archives to a self-hosted server after each session, and pulls the latest save before you launch — so you can switch between machines without thinking about it.
 
-> The codebase directory and solution are still named `LocalGameSync`; the product name is **SaveLocker**. A technical rename is a future milestone.
+
 
 ---
 
@@ -142,13 +142,13 @@ npm run dev   # proxies /api to :5179 — open http://localhost:5173
 
 ```sh
 # Build (stop the running agent first — it locks the DLLs)
-dotnet build src/Agent/LocalGameSync.Agent.csproj --no-incremental
+dotnet build src/Agent/SaveLocker.Agent.csproj --no-incremental
 
 # Run (tray mode)
-src/Agent/bin/Debug/net9.0-windows/LocalGameSync.Agent.exe
+src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.exe
 
 # Run (CLI)
-src/Agent/bin/Debug/net9.0-windows/LocalGameSync.Agent.exe status
+src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.exe status
 ```
 
 The agent UI is a Vite/React app in `agent-ui/` — `npm run dev` there (port 5177) proxies `/api` to the agent's local server on port 5178. MSBuild runs `npm run build` automatically and copies `dist/` into the output folder on every build.

@@ -1,11 +1,11 @@
-using System.Net.Http.Headers;
+﻿using System.Net.Http.Headers;
 using System.Text.Json;
-using LocalGameSync.Server.Data;
+using SaveLocker.Server.Data;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.Processing;
 
-namespace LocalGameSync.Server.Services;
+namespace SaveLocker.Server.Services;
 
 /// <summary>
 /// Fetches cover/hero/logo/icon artwork for a game from SteamGridDB

@@ -1,4 +1,4 @@
-namespace LocalGameSync.Shared;
+﻿namespace SaveLocker.Shared;
 
 /// <summary>
 /// Expands Ludusavi manifest path placeholders (e.g. &lt;winAppData&gt;) into

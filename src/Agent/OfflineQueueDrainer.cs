@@ -1,4 +1,4 @@
-namespace LocalGameSync.Agent;
+﻿namespace SaveLocker.Agent;
 
 /// <summary>
 /// Periodically retries pushes that were queued because the server was unreachable.

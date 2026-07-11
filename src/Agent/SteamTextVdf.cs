@@ -1,4 +1,4 @@
-namespace LocalGameSync.Agent;
+﻿namespace SaveLocker.Agent;
 
 /// <summary>
 /// Reader for Steam's <b>text</b> KeyValues format, used by

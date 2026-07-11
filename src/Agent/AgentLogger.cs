@@ -1,4 +1,4 @@
-namespace LocalGameSync.Agent;
+﻿namespace SaveLocker.Agent;
 
 /// <summary>
 /// Thread-safe rolling log file at %ProgramData%\SaveLocker\agent.log.

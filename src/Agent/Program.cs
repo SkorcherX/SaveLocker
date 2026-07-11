@@ -1,6 +1,6 @@
-using LocalGameSync.Shared;
+﻿using SaveLocker.Shared;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 static class Program
 {

@@ -1,6 +1,6 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// Debounced filesystem watcher: coalesces a burst of save-file writes into a

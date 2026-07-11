@@ -1,7 +1,7 @@
-using LocalGameSync.Server.Data;
-using LocalGameSync.Server.Services;
+﻿using SaveLocker.Server.Data;
+using SaveLocker.Server.Services;
 
-namespace LocalGameSync.Server;
+namespace SaveLocker.Server;
 
 /// <summary>
 /// Endpoint filter that authenticates a request by its <c>X-Api-Key</c> header,

@@ -1,7 +1,7 @@
-using LocalGameSync.Server.Data;
-using LocalGameSync.Shared;
+﻿using SaveLocker.Server.Data;
+using SaveLocker.Shared;
 
-namespace LocalGameSync.Server.Services;
+namespace SaveLocker.Server.Services;
 
 /// <summary>Maps server entities to wire DTOs.</summary>
 public static class Mapping

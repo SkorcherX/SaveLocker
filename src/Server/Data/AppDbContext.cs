@@ -1,6 +1,6 @@
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 
-namespace LocalGameSync.Server.Data;
+namespace SaveLocker.Server.Data;
 
 public class AppDbContext : DbContext
 {

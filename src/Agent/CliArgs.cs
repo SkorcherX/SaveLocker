@@ -1,4 +1,4 @@
-namespace LocalGameSync.Agent;
+﻿namespace SaveLocker.Agent;
 
 /// <summary>
 /// Minimal command-line parser: first non-option token is the command, the rest

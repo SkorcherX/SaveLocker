@@ -1,7 +1,7 @@
-using YamlDotNet.Serialization;
+﻿using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 
-namespace LocalGameSync.Shared;
+namespace SaveLocker.Shared;
 
 /// <summary>
 /// Loads and queries the community Ludusavi manifest

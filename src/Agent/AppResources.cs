@@ -1,7 +1,7 @@
-using System.Drawing;
+﻿using System.Drawing;
 using System.Windows.Forms;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>App-wide UI resources: the tray/window icon and a robust clipboard copy.</summary>
 internal static class AppResources
@@ -14,7 +14,7 @@ internal static class AppResources
         try
         {
             var asm = typeof(AppResources).Assembly;
-            using var stream = asm.GetManifestResourceStream("LocalGameSync.Agent.Assets.SaveLocker.ico");
+            using var stream = asm.GetManifestResourceStream("SaveLocker.Agent.Assets.SaveLocker.ico");
             if (stream is null) return SystemIcons.Application;
             return new Icon(stream);
         }

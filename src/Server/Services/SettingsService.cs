@@ -1,8 +1,8 @@
-using LocalGameSync.Server.Data;
-using LocalGameSync.Shared;
+﻿using SaveLocker.Server.Data;
+using SaveLocker.Shared;
 using Microsoft.EntityFrameworkCore;
 
-namespace LocalGameSync.Server.Services;
+namespace SaveLocker.Server.Services;
 
 /// <summary>
 /// Server settings persisted as DB key/value pairs, with fallback to

@@ -1,10 +1,10 @@
-using System.Net;
+﻿using System.Net;
 using System.Net.Http.Json;
-using LocalGameSync.Shared;
+using SaveLocker.Shared;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
-/// <summary>Typed HTTP client for the LocalGameSync server REST API.</summary>
+/// <summary>Typed HTTP client for the SaveLocker server REST API.</summary>
 public sealed class ApiClient
 {
     private readonly HttpClient _http;

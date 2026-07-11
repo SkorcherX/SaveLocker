@@ -1,6 +1,6 @@
-using LocalGameSync.Server.Services;
+﻿using SaveLocker.Server.Services;
 
-namespace LocalGameSync.Server;
+namespace SaveLocker.Server;
 
 /// <summary>
 /// Endpoint filter that guards the admin dashboard API.

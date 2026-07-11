@@ -1,4 +1,4 @@
-{
+﻿{
   "openapi": "3.0.1",
   "info": {
     "title": "SaveLocker API",
@@ -13,7 +13,7 @@
     "/health": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -25,7 +25,7 @@
     "/api/machines/register": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "requestBody": {
           "content": {
@@ -54,7 +54,7 @@
     "/api/admin/status": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -66,7 +66,7 @@
     "/api/games": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -86,7 +86,7 @@
       },
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "requestBody": {
           "content": {
@@ -115,7 +115,7 @@
     "/api/games/{id}/lease": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -143,7 +143,7 @@
       },
       "delete": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -166,7 +166,7 @@
     "/api/games/{id}/lease/renew": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -189,7 +189,7 @@
     "/api/games/{id}/upload": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -242,7 +242,7 @@
     "/api/games/{id}/download": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -265,7 +265,7 @@
     "/api/versions/{versionId}/download": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -288,7 +288,7 @@
     "/api/agent/games": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "requestBody": {
           "content": {
@@ -317,7 +317,7 @@
     "/api/agent/commands": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -339,7 +339,7 @@
     "/api/agent/commands/{id}/result": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -372,7 +372,7 @@
     "/api/agent/path/{gameId}": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -402,7 +402,7 @@
     "/api/machines": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -424,7 +424,7 @@
     "/api/machines/{id}": {
       "delete": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -447,7 +447,7 @@
     "/api/games/{id}/enabled": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -478,7 +478,7 @@
     "/api/games/{id}/save-dir": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -508,7 +508,7 @@
     "/api/games/{id}/retain": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -539,7 +539,7 @@
     "/api/games/{id}/versions/{versionId}": {
       "delete": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -571,7 +571,7 @@
     "/api/games/{id}/paths": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -604,7 +604,7 @@
     "/api/games/{id}/paths/{machineId}": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -641,7 +641,7 @@
       },
       "delete": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -673,7 +673,7 @@
     "/api/overview": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -695,7 +695,7 @@
     "/api/settings": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -714,7 +714,7 @@
     "/api/settings/steamgriddb-key": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "requestBody": {
           "content": {
@@ -736,7 +736,7 @@
     "/api/admin/password": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "requestBody": {
           "content": {
@@ -758,7 +758,7 @@
     "/api/games/{id}/art/refresh": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -781,7 +781,7 @@
     "/api/games/{id}": {
       "delete": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -804,7 +804,7 @@
     "/api/games/{id}/state": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -834,7 +834,7 @@
     "/api/games/{id}/versions": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -867,7 +867,7 @@
     "/api/conflicts": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -889,7 +889,7 @@
     "/api/conflicts/{id}/resolve": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -921,7 +921,7 @@
     "/api/games/{id}/rollback": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -953,7 +953,7 @@
     "/api/games/{id}/set-latest": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -985,7 +985,7 @@
     "/api/games/{id}/lease/force": {
       "delete": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -1008,7 +1008,7 @@
     "/api/commands": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "requestBody": {
           "content": {
@@ -1035,7 +1035,7 @@
       },
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -1057,7 +1057,7 @@
     "/api/audit": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "parameters": [
           {
@@ -1090,7 +1090,7 @@
     "/api/admin/backups": {
       "get": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -1112,7 +1112,7 @@
     "/api/admin/backup": {
       "post": {
         "tags": [
-          "LocalGameSync.Server"
+          "SaveLocker.Server"
         ],
         "responses": {
           "200": {
@@ -1925,7 +1925,7 @@
   },
   "tags": [
     {
-      "name": "LocalGameSync.Server"
+      "name": "SaveLocker.Server"
     }
   ]
 }

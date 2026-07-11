@@ -1,7 +1,7 @@
-using LocalGameSync.Shared;
+﻿using SaveLocker.Shared;
 using Microsoft.Data.Sqlite;
 
-namespace LocalGameSync.Server.Services;
+namespace SaveLocker.Server.Services;
 
 /// <summary>Resolved configuration for <see cref="BackupService"/>, built once at startup.</summary>
 public sealed class BackupOptions

@@ -1,6 +1,6 @@
-using LocalGameSync.Shared;
+﻿using SaveLocker.Shared;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// Coordinates a tracked game's saves with the server: archive + hash + upload

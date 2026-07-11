@@ -1,6 +1,6 @@
-using System.Text;
+﻿using System.Text;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// Minimal reader for Steam's <b>binary</b> KeyValues format, used by

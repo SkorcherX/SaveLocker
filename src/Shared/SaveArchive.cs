@@ -1,8 +1,8 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace LocalGameSync.Shared;
+namespace SaveLocker.Shared;
 
 /// <summary>
 /// Helpers for turning a save-game directory into a deterministic, hashable

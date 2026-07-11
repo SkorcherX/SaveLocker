@@ -1,6 +1,6 @@
-using LocalGameSync.Shared;
+﻿using SaveLocker.Shared;
 
-namespace LocalGameSync.Server.Data;
+namespace SaveLocker.Server.Data;
 
 /// <summary>A registered machine (the PC or the laptop).</summary>
 public class Machine

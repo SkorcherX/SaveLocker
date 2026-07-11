@@ -1,6 +1,6 @@
-using Microsoft.Win32;
+﻿using Microsoft.Win32;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>Where a <see cref="ScanCandidate"/> was discovered.</summary>
 public enum ScanSource

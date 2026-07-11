@@ -1,6 +1,6 @@
-using LocalGameSync.Shared;
+﻿using SaveLocker.Shared;
 
-namespace LocalGameSync.Agent;
+namespace SaveLocker.Agent;
 
 /// <summary>
 /// The agent half of the command channel ([[UX Roadmap]] Workstream 5). On a
