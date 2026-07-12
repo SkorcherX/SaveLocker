@@ -168,7 +168,14 @@ public static class SaveArchive
         {
             var matcher = new Matcher(StringComparison.OrdinalIgnoreCase);
             matcher.AddInclude("**/*");
-            foreach (var g in globs) matcher.AddExclude(g);
+            foreach (var g in globs)
+            {
+                matcher.AddExclude(g);
+                // A bare filename pattern (no '/') should match at any depth, gitignore-style:
+                // "*.log" excludes logs in every subfolder, not just the save root. Patterns
+                // that already contain '/' are treated as explicit paths anchored at the root.
+                if (!g.Contains('/')) matcher.AddExclude("**/" + g);
+            }
             var kept = new HashSet<string>(matcher.Match(all).Files.Select(m => m.Path), StringComparer.Ordinal);
             all = all.Where(kept.Contains).ToList();
         }
