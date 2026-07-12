@@ -73,7 +73,7 @@ export function AuditView() {
   return (
     <div style={{ padding: '20px 24px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-        <span style={{ color: '#9CA3AF', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+        <span style={{ color: '#129271', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em' }}>
           Audit Log — last {entries.length} events
         </span>
         <button

@@ -24,7 +24,7 @@ export function GamesSidebar({ games, selectedId, onSelect, onAddGame, onRefresh
       minHeight: 0,
     }}>
       <div style={{ padding: '10px 14px', borderBottom: '1px solid #494949', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0 }}>
-        <span style={{ fontSize: 10.5, fontWeight: 600, color: '#8b9aaa', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Games</span>
+        <span style={{ fontSize: 10, fontWeight: 700, color: '#129271', letterSpacing: '0.12em', textTransform: 'uppercase' }}>Games</span>
         <span style={{ fontSize: 9.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }} title="Total save data stored on server">{fmtMb(grandTotal)}</span>
       </div>
 

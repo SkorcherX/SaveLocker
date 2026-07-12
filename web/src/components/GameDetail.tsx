@@ -130,7 +130,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
 
   const card = { background: '#1E252A', border: '1px solid #494949', borderRadius: 8, overflow: 'hidden' } as const;
   const cardHeader = { padding: '11px 18px', borderBottom: '1px solid #494949' } as const;
-  const sectionLabel = { fontSize: 10.5, fontWeight: 600, color: '#8b9aaa', letterSpacing: '0.1em', textTransform: 'uppercase' as const };
+  const sectionLabel = { fontSize: 10, fontWeight: 700, color: '#129271', letterSpacing: '0.12em', textTransform: 'uppercase' as const };
   const thStyle = { padding: '8px 18px', textAlign: 'left' as const, fontSize: 11, color: '#556070', fontWeight: 500 };
   const tdStyle = { padding: '11px 18px', fontSize: 13, fontWeight: 500 };
   const tdMono = { padding: '11px 18px', fontSize: 11, color: '#8b9aaa', fontFamily: "'JetBrains Mono', monospace" };
