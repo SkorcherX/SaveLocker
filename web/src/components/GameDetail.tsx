@@ -19,8 +19,18 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   const [versions, setVersions] = useState<Version[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(true);
   const [machinePaths, setMachinePaths] = useState<MachineSavePath[]>([]);
+  const [excludeText, setExcludeText] = useState((summary.game.excludeGlobs ?? []).join('\n'));
+  const [excludeForGameId, setExcludeForGameId] = useState(summary.game.id);
+  const [savingExcludes, setSavingExcludes] = useState(false);
+  const [defaultGlobs, setDefaultGlobs] = useState<string[]>([]);
 
   const { game, head, lease, hasOpenConflict } = summary;
+
+  // Reset the exclude editor when switching games (not on every poll — avoids clobbering edits).
+  if (excludeForGameId !== game.id) {
+    setExcludeForGameId(game.id);
+    setExcludeText((game.excludeGlobs ?? []).join('\n'));
+  }
   const headId = head?.id ?? null;
   const conflict = conflicts.find(c => c.gameId === game.id) ?? null;
   const gameCmds = commands.filter(c => c.gameId === game.id).slice(0, 8);
@@ -39,6 +49,19 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     api.versions(game.id).then(vs => { setVersions(vs); setLoadingVersions(false); });
     api.getGamePaths(game.id).then(setMachinePaths).catch(() => {});
   }, [game.id]);
+
+  // Global exclude defaults (read-only display); fetched once.
+  useEffect(() => {
+    api.settings().then(s => setDefaultGlobs(s.defaultExcludeGlobs ?? [])).catch(() => {});
+  }, []);
+
+  async function handleSaveExcludes() {
+    const patterns = excludeText.split('\n').map(s => s.trim()).filter(Boolean);
+    setSavingExcludes(true);
+    try { await api.setExcludes(game.id, patterns); onRefresh(); }
+    catch (e) { alert('Could not save exclude patterns: ' + (e as Error).message); }
+    finally { setSavingExcludes(false); }
+  }
 
   async function handleRefreshArt() {
     try { await api.refreshArt(game.id); onRefresh(); } catch (e) { alert('Refresh art failed: ' + (e as Error).message); }
@@ -191,6 +214,28 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                 {game.suggestedSaveDir || <span style={{ color: '#494949', fontStyle: 'italic' }}>none</span>}
               </span>
               <button style={{ padding: '3px 9px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: 'pointer', flexShrink: 0 }} onClick={handleSetSaveDir}>Edit</button>
+            </div>
+
+            {/* Exclude patterns (per-game, on top of the global defaults) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: '#2A3238', padding: '8px 10px', borderRadius: 5, border: '1px solid #494949' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10, color: '#556070' }}>exclude patterns — one glob per line (e.g. <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>*.log</code>, <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>cache/**</code>):</span>
+                <button disabled={savingExcludes} onClick={handleSaveExcludes} style={{ marginLeft: 'auto', padding: '3px 9px', border: `1px solid ${savingExcludes ? '#494949' : '#129271'}`, color: savingExcludes ? '#556070' : '#129271', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: savingExcludes ? 'default' : 'pointer', flexShrink: 0 }}>{savingExcludes ? 'Saving…' : 'Save'}</button>
+              </div>
+              <textarea
+                value={excludeText}
+                onChange={e => setExcludeText(e.target.value)}
+                spellCheck={false}
+                rows={3}
+                placeholder="(none — only global defaults apply)"
+                style={{ width: '100%', resize: 'vertical', background: '#1E252A', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: '6px 8px', boxSizing: 'border-box' }}
+              />
+              {defaultGlobs.length > 0 && (
+                <span style={{ fontSize: 10, color: '#556070' }}>
+                  global defaults (always applied):&nbsp;
+                  <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#8b9aaa' }}>{defaultGlobs.join(', ')}</span>
+                </span>
+              )}
             </div>
 
           </div>

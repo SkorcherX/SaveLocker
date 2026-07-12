@@ -39,6 +39,8 @@ export const api = {
   setSaveDir: (gameId: string, value: string) => request<void>(`/games/${gameId}/save-dir?value=${encodeURIComponent(value)}`, { method: 'POST' }),
   setRetention: (gameId: string, value: number | null) =>
     request<void>(`/games/${gameId}/retain${value !== null ? `?value=${value}` : ''}`, { method: 'POST' }),
+  setExcludes: (gameId: string, patterns: string[]) =>
+    request<void>(`/games/${gameId}/excludes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patterns) }),
   deleteVersion: (gameId: string, versionId: string) =>
     request<void>(`/games/${gameId}/versions/${versionId}`, { method: 'DELETE' }),
   setLatest: (gameId: string, versionId: string) => request<void>(`/games/${gameId}/set-latest?version=${versionId}`, { method: 'POST' }),
