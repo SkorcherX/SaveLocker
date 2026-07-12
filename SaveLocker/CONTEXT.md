@@ -4,11 +4,11 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.2 (tagged + pushed). Version-display + silent auto-relaunch **verified fixed on device**. Only installer persistence across a Docker update remains to verify — see `Backlog.md`.
+**Current version:** v0.1.2 (tagged + pushed). All three v0.1.1 auto-update bugs **verified fixed on device** — v0.1.2 fully closed out.
 
 ---
 
-## Status (2026-07-11) — v0.1.2 fixes shipped, pending verification
+## Status (2026-07-12) — v0.1.2 fully verified; sync-toast fix uncommitted-to-release
 
 | Area | State |
 |------|-------|
@@ -16,21 +16,24 @@
 | Game scanning (Steam VDF + Ludusavi) | ✅ done |
 | Server (REST API, EF/SQLite, leases, conflicts) | ✅ done |
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
-| Agent auto-update (release CI, server-hosted installer) | ⚠️ version display + auto-relaunch ✅ verified; installer persistence still to verify |
+| Agent auto-update (release CI, server-hosted installer) | ✅ all 3 bugs verified on device |
 | Fetch installer from GitHub (dashboard button) | ✅ done (2026-07-11) |
+| Sync notifications (one toast + save date, not 4) | ✅ committed `777b9ab`, needs release + device check |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 
 **v0.1.1 bugs — all fixed, shipped in v0.1.2:**
 1. **Agent UI version wrong** — showed `0.0.0` then `0.1.0`. Real cause: MinVer assigns Version/FileVersion/AssemblyVersion **inside an MSBuild target**, which overrides command-line `--property` globals, so no `--property` ever won. Fixed with `MinVerVersionOverride` env var in `build-installer.ps1` (stamps all fields) + `UpdateChecker` now reads `FileVersion` via `Environment.ProcessPath` instead of `AssemblyVersion`. **✅ Verified on device — tray header shows `0.1.2`.**
 2. **No auto-relaunch after silent update** — `skipifsilent` removed from `SaveLocker.iss [Run]`. **✅ Verified on device** — agent restarts silently after update.
-3. **Uploaded installer lost on Docker update** — added `"AgentInstallerRoot": "/data/agent-installer"` to `appsettings.json` `Storage`.
+3. **Uploaded installer lost on Docker update** — added `"AgentInstallerRoot": "/data/agent-installer"` to `appsettings.json` `Storage`. **✅ Verified on device** — installer survives `docker compose pull && up -d`.
+
+**Sync toaster reduction (`777b9ab`, 2026-07-12):** dashboard sync fired 4 toasts (pull, push, folder-watcher auto-push, summary). Fixed by splitting `SyncEngine`'s callback into `log` (agent.log, always) and `notify` (toast); routine progress is log-only, only conflicts/blocks/offline-retries/lease warnings toast. Dashboard commands emit one summary with the save timestamp. Pre-launch/post-exit auto-syncs are now silent on success too (by design). Not yet in a tagged release.
 
 **⚠️ v0.1.2 was force-retagged** onto the fix commits (tag moved 3×). The GitHub Release object couldn't be regenerated from here (no `gh`/token) — CI overwrites the installer asset, but the release *notes* may be stale.
 
 ---
 
 ## Active backlog (priority order)
-1. **Finish v0.1.2 verification** — version display ✅ + auto-relaunch ✅ done; only installer persistence across Docker update left (see `Backlog.md`)
+1. **Ship + verify sync-toast fix** (`777b9ab`) — tag a release and confirm on device: dashboard sync → one toast with save date; conflict still alerts
 2. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
 3. Code-sign the exe (SmartScreen warns for unsigned installers)
 4. Per-game glob filters (include/exclude file patterns before archiving)

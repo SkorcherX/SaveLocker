@@ -2,13 +2,11 @@
 
 Active items only. Completed work is in `logs/sessions.md`.
 
-## Immediate — verify v0.1.2 end-to-end
+## Immediate — verify on device
 
-The three v0.1.1 bugs are fixed and shipped in `v0.1.2` (see `logs/sessions.md` 2026-07-11). Remaining on-device checks:
+- **Sync toaster reduction** (committed `777b9ab`, not yet in a release) — a dashboard sync now fires **one** summary toast with the save timestamp instead of 4. Routine engine progress is log-only; only conflicts/blocked-pulls/offline-retries/lease warnings toast. Verify on device: dashboard sync → single toast; force a conflict → still alerts. Note: auto pre-launch/post-exit syncs are now silent on success too (by design — flag if unwanted).
 
-- ✅ **Agent version display** — **verified on device 2026-07-12**: tray header shows `0.1.2` (was `0.0.0`, then `0.1.0`). Root cause was MinVer overriding version fields inside an MSBuild target; fixed with `MinVerVersionOverride` env var + reading `FileVersion` at runtime.
-- ✅ **Silent auto-relaunch** — **verified on device 2026-07-12**: agent restarts and the tray icon reappears after a silent update (`skipifsilent` removal).
-- **Verify installer persistence** — after `docker compose pull && up -d`, confirm the hosted installer survives (`Storage:AgentInstallerRoot=/data/agent-installer`). Test at the next server update.
+_v0.1.2 fully verified on device (2026-07-12): version display, silent auto-relaunch, and installer persistence across a Docker update all confirmed. See `logs/sessions.md`._
 
 ## High priority
 - **Scheduled GitHub installer auto-poll** — the manual "Fetch latest from GitHub" button shipped (2026-07-11). Follow-up: a background service that periodically polls the GitHub Releases API and auto-fetches a newer installer (opt-in via config, e.g. `AgentUpdate:AutoFetchHours`). Mirror `LeaseSweeperService`'s `BackgroundService` + `IServiceScopeFactory` pattern; reuse `AgentInstallerService.FetchLatestFromGitHubAsync`.

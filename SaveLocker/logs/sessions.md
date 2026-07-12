@@ -5,6 +5,15 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-12 — v0.1.2 fully verified + sync-toast reduction
+
+**Commit:** `777b9ab`. `gh` CLI installed + authed (SkorcherX, keyring) — now available by full path `"$env:ProgramFiles\GitHub CLI\gh.exe"`.
+
+- **v0.1.2 fully verified on device** — all three v0.1.1 auto-update bugs confirmed fixed: agent version display (`0.1.2`), silent auto-relaunch, and installer persistence across a Docker update.
+- **Sync toaster spam → one toast** — a dashboard sync fired 4 balloons (pull result, push result, a folder-watcher auto-push tripped by the restored files, and the command summary). Root cause: `SyncEngine`'s single callback both logged and toasted, so every routine progress line popped a balloon. Split it into `log` (agent.log, always) + `notify` (toast). Routine progress is now log-only; only conflicts, blocked pulls, offline-queue retries, and lease-checkout warnings toast. Dashboard commands emit one summary that includes the latest save timestamp (single-game). Tray Force Pull/Push get a one-line confirmation. Pre-launch/post-exit auto-syncs are now silent on success (by design). Not yet in a tagged release.
+
+---
+
 ## 2026-07-11 (session 2) — v0.1.2 auto-update fixes + fetch-from-GitHub
 
 **Commits:** `3902505`, `f8accb4`, `303fdfc` (fixes), `639bce1` (feature). Tag `v0.1.2` force-moved onto `303fdfc`.
