@@ -28,6 +28,23 @@ export function GamesSidebar({ games, selectedId, onSelect, onAddGame, onRefresh
         <span style={{ fontSize: 9.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }} title="Total save data stored on server">{fmtMb(grandTotal)}</span>
       </div>
 
+      {/* Action buttons — anchored below header, always visible */}
+      <div style={{ flexShrink: 0, borderBottom: '1px solid #494949', padding: '8px 12px', display: 'flex', gap: 6 }}>
+        <button
+          onClick={onAddGame}
+          style={{ flex: 1, padding: '6px 0', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+        >
+          + Add game
+        </button>
+        <button
+          onClick={onRefresh}
+          style={{ padding: '6px 10px', background: 'transparent', color: '#8b9aaa', border: '1px solid #494949', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
+          title="Refresh"
+        >
+          ↻
+        </button>
+      </div>
+
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       {games.length === 0 && (
         <div style={{ padding: '20px 14px', fontSize: 12, color: '#556070' }}>No games tracked yet.</div>
@@ -92,22 +109,6 @@ export function GamesSidebar({ games, selectedId, onSelect, onAddGame, onRefresh
       })}
       </div>
 
-      {/* Action buttons */}
-      <div style={{ flexShrink: 0, borderTop: '1px solid #494949', padding: '10px 12px', display: 'flex', gap: 6 }}>
-        <button
-          onClick={onAddGame}
-          style={{ flex: 1, padding: '6px 0', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
-        >
-          + Add game
-        </button>
-        <button
-          onClick={onRefresh}
-          style={{ padding: '6px 10px', background: 'transparent', color: '#8b9aaa', border: '1px solid #494949', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
-          title="Refresh"
-        >
-          ↻
-        </button>
-      </div>
     </aside>
   );
 }
