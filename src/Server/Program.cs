@@ -374,6 +374,20 @@ admin.MapPost("/settings/steamgriddb-key", async (
     return Results.Ok(new { ok, message });
 });
 
+admin.MapPost("/settings/agent-update-auto-fetch", async (
+    SetAutoFetchHoursRequest req, SettingsService settings, CancellationToken ct) =>
+{
+    try
+    {
+        await settings.SetAutoFetchHoursAsync(req.Hours, ct);
+        return Results.Ok(new { autoFetchHours = req.Hours });
+    }
+    catch (ArgumentOutOfRangeException ex)
+    {
+        return Results.BadRequest(ex.Message);
+    }
+});
+
 admin.MapPost("/admin/password", async (SetAdminPasswordRequest req, SettingsService settings) =>
 {
     await settings.SetAdminPasswordAsync(req.Password);

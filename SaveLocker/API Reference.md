@@ -28,8 +28,9 @@ Server endpoints (`src/Server/Program.cs`).
 - `GET /api/games/{id}/versions` → `SaveVersionDto[]`.
 
 ## Server settings
-- `GET /api/settings` → `ServerSettingsDto { steamGridDbConfigured, steamGridDbKeyMasked, steamGridDbFromConfig }`. Never returns the raw key.
+- `GET /api/settings` → `ServerSettingsDto { steamGridDbConfigured, steamGridDbKeyMasked, steamGridDbFromConfig, autoFetchHours }`. Never returns the raw key.
 - `POST /api/settings/steamgriddb-key` body `{ apiKey }` → `{ ok, message }`. Stores in DB then verifies. Null/blank clears the DB override (falls back to config).
+- `POST /api/settings/agent-update-auto-fetch` body `{ hours }` → `{ autoFetchHours }`. Sets the GitHub installer polling interval; `0` disables it. The server applies a console change within one minute and immediately polls when enabling or changing the interval.
 
 ## Leases
 - `POST /api/games/{id}/lease` → `LeaseAcquireResponse { granted, lease }`. *(agent)*
@@ -62,11 +63,11 @@ Server endpoints (`src/Server/Program.cs`).
 - `POST /api/admin/agent-installer?version={v}` — multipart `file` field (`.exe`). Stores installer + sidecar JSON; replaces any previous. Returns `AgentInstallerStatus`. Body limit: 200 MB.
 - `DELETE /api/admin/agent-installer` → 204. Removes the hosted installer; agents stop being offered updates.
 
-The server can optionally keep the hosted installer current from GitHub by setting
-`AgentUpdate:AutoFetchHours` (for Docker: `AgentUpdate__AutoFetchHours`). A positive
-number enables an immediate check at startup followed by checks at that many hours;
-`0` or an omitted value disables the scheduler. The scheduler only downloads when the
-GitHub release is newer than the hosted installer.
+The server can optionally keep the hosted installer current from GitHub through
+**Configuration → Agent updates → Automatic GitHub fetch**. Set the interval in hours
+(`0` disables it); dashboard values are stored in the server database and override
+`AgentUpdate:AutoFetchHours` config/environment defaults. The scheduler only downloads
+when the GitHub release is newer than the hosted installer.
 
 ## Agent installer download (public)
 - `GET /api/agent/installer/download` — streams the hosted installer binary. No auth. 404 if none hosted.

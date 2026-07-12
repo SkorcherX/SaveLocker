@@ -57,6 +57,13 @@ export const api = {
   saveSgdbKey: (key: string | null) =>
     request<{ message?: string }>('/settings/steamgriddb-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apiKey: key }) }),
 
+  setAutoFetchHours: (hours: number) =>
+    request<{ autoFetchHours: number }>('/settings/agent-update-auto-fetch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hours }),
+    }),
+
   getGamePaths: (gameId: string) =>
     request<MachineSavePath[]>(`/games/${gameId}/paths`),
   setMachinePath: (gameId: string, machineId: string, path: string) =>

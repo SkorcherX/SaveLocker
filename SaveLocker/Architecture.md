@@ -26,9 +26,9 @@ Hub-and-spoke (not peer-to-peer). See `Decisions.md` for why unRAID is the keyst
 - `Services/ArchiveStore.cs` — archive files on disk: `{root}/{gameId}/{versionId}.zip`.
 - `Services/BackupService.cs` — nightly SQLite snapshots (`BackupScheduler` + `VACUUM INTO`, WAL-safe) with retention; the DB is the version graph, so it has its own on-box backup (`/data/backups`). See `API Reference.md`.
 - `Services/AgentInstallerService.cs` — stores the agent installer binary on disk (`Storage:AgentInstallerRoot`, default `data/agent-installer/`) with a sidecar `installer-info.json`. `GET /api/agent/latest` checks here first; admin endpoints let the dashboard upload/delete/stream the installer. See **Agent auto-update** below.
-- `Services/AgentInstallerPollerService.cs` — optional `BackgroundService` that checks the configured GitHub release at the `AgentUpdate:AutoFetchHours` interval and refreshes the hosted installer only when a newer release is available.
+- `Services/AgentInstallerPollerService.cs` — optional `BackgroundService` that checks the configured GitHub release at the dashboard-managed `AgentUpdate:AutoFetchHours` interval and refreshes the hosted installer only when a newer release is available.
 - `Services/LeaseSweeperService.cs` — `BackgroundService` that runs hourly via `IServiceScopeFactory` and sweeps leases where `ExpiresAt < UtcNow`.
-- `Services/SettingsService.cs` — DB-backed key/value store (`AppSetting` entity). DB value overrides `IConfiguration` (appsettings/env); used for SteamGridDB key and admin password hash.
+- `Services/SettingsService.cs` — DB-backed key/value store (`AppSetting` entity). DB value overrides `IConfiguration` (appsettings/env); used for SteamGridDB key, admin password hash, and installer auto-fetch interval.
 - **OpenAPI** — `AddOpenApi()`/`MapOpenApi()` serve `/openapi/v1.json`; Swagger UI at `/swagger`. The web dashboard's types are generated from this doc (`openapi-typescript` → `web/src/api-types.ts`).
 - **Dashboard** — React `web/` SPA. Docker `web` build stage copies `dist/` into `src/Server/wwwroot/`. Its `types.ts` is generated from the server's OpenAPI doc, so it can't drift from the DTOs.
 

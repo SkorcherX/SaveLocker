@@ -1045,6 +1045,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/settings/agent-update-auto-fetch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetAutoFetchHoursRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/password": {
         parameters: {
             query?: never;
@@ -1933,9 +1970,18 @@ export interface components {
             adminPasswordSet: boolean;
             /** @default null */
             defaultExcludeGlobs: string[] | null;
+            /**
+             * Format: double
+             * @default 0
+             */
+            autoFetchHours: number;
         };
         SetAdminPasswordRequest: {
             password: string | null;
+        };
+        SetAutoFetchHoursRequest: {
+            /** Format: double */
+            hours: number;
         };
         SetSteamGridDbKeyRequest: {
             apiKey: string | null;

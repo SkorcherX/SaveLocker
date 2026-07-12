@@ -800,6 +800,28 @@
         }
       }
     },
+    "/api/settings/agent-update-auto-fetch": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAutoFetchHoursRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/admin/password": {
       "post": {
         "tags": [
@@ -2056,6 +2078,11 @@
             },
             "default": null,
             "nullable": true
+          },
+          "autoFetchHours": {
+            "type": "number",
+            "format": "double",
+            "default": 0
           }
         }
       },
@@ -2068,6 +2095,18 @@
           "password": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "SetAutoFetchHoursRequest": {
+        "required": [
+          "hours"
+        ],
+        "type": "object",
+        "properties": {
+          "hours": {
+            "type": "number",
+            "format": "double"
           }
         }
       },

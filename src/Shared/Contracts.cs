@@ -51,7 +51,8 @@ public record ServerSettingsDto(
     string? SteamGridDbKeyMasked,
     bool SteamGridDbFromConfig,
     bool AdminPasswordSet,
-    string[]? DefaultExcludeGlobs = null);
+    string[]? DefaultExcludeGlobs = null,
+    double AutoFetchHours = 0);
 
 /// <summary>Status of the agent installer binary hosted on this server.</summary>
 public record AgentInstallerStatus(
@@ -62,6 +63,9 @@ public record AgentInstallerStatus(
 
 /// <summary>Set (or clear, when null/empty) the SteamGridDB API key from the dashboard.</summary>
 public record SetSteamGridDbKeyRequest(string? ApiKey);
+
+/// <summary>Sets how often the server checks GitHub for a newer agent installer; 0 disables it.</summary>
+public record SetAutoFetchHoursRequest(double Hours);
 
 /// <summary>Set (or clear, when null/empty) the admin dashboard password.</summary>
 public record SetAdminPasswordRequest(string? Password);

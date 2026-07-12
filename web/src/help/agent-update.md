@@ -17,6 +17,10 @@ The dashboard can pull the latest installer directly from the SaveLocker GitHub 
 
 This is useful when you've deployed a new server version via Docker but haven't manually placed a new installer in `/data/agent-installer/`.
 
+## Automatic fetching
+
+In **Configuration → Agent Updates**, set **Automatic GitHub fetch** to an interval in hours. The server checks immediately when you enable or change the schedule, then repeats at that interval. Set it to `0` to disable automatic fetching. The change is stored by the server and applies within one minute; no Docker or JSON configuration edit is required.
+
 ## Checking the current hosted version
 
 The Configuration tab shows the **currently hosted installer version**. If it's blank, no installer has been uploaded yet and auto-update is effectively disabled.

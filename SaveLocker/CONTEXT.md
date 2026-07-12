@@ -18,7 +18,7 @@
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
 | Agent auto-update (version, silent relaunch, installer persistence) | ✅ verified on device (v0.1.2) |
 | Fetch installer from GitHub — manual dashboard button | ✅ done (2026-07-11) |
-| Scheduled GitHub installer auto-poll | ✅ server build + startup smoke check; opt-in via `AgentUpdate:AutoFetchHours` |
+| Scheduled GitHub installer auto-poll | ✅ dashboard-configurable in Agent Updates; persisted server-side and applied within a minute |
 | Sync notifications (one toast + save date, not 4) | ✅ v0.1.3, verified on device |
 | Per-game exclude globs + 200 MB upload cap (5e) | ✅ v0.1.4; depth-matching fix in v0.1.5 |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |

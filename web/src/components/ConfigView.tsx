@@ -23,6 +23,8 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
   const [uploading, setUploading] = useState(false);
   const [versionOverride, setVersionOverride] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [autoFetchHoursInput, setAutoFetchHoursInput] = useState(() => String(settings.autoFetchHours));
+  const [savingAutoFetchHours, setSavingAutoFetchHours] = useState(false);
 
   async function loadInstaller() {
     setInstallerLoading(true);
@@ -32,6 +34,7 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
   }
 
   useEffect(() => { loadInstaller(); }, []);
+  useEffect(() => { setAutoFetchHoursInput(String(settings.autoFetchHours)); }, [settings.autoFetchHours]);
 
   function parseVersionFromName(name: string): string {
     const m = name.match(/Setup-(.+?)\.exe$/i);
@@ -70,6 +73,21 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
       alert(`Fetched v${info.version} (${info.fileName}) from GitHub.`);
     } catch (e) { alert('Fetch from GitHub failed: ' + (e as Error).message); }
     finally { setFetchingGitHub(false); }
+  }
+
+  async function handleSaveAutoFetchHours() {
+    const raw = autoFetchHoursInput.trim();
+    const hours = raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(hours) || hours < 0) {
+      alert('Enter a non-negative number of hours. Set 0 to disable automatic fetching.');
+      return;
+    }
+    setSavingAutoFetchHours(true);
+    try {
+      await api.setAutoFetchHours(hours);
+      await onRefresh();
+    } catch (e) { alert('Could not save auto-fetch schedule: ' + (e as Error).message); }
+    finally { setSavingAutoFetchHours(false); }
   }
   // Per-game retention inputs: gameId -> string (empty = use default)
   const [retentionInputs, setRetentionInputs] = useState<Record<string, string>>(
@@ -339,6 +357,43 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
             <span style={{ fontSize: 11, color: '#9CA3AF' }}>
               Pulls the newest release installer from GitHub and hosts it — no manual download needed.
             </span>
+          </div>
+
+          {/* Automatic GitHub fetch */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid #2A3238', paddingTop: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: '#ECEFF1' }}>Automatic GitHub fetch:</span>
+              {settings.autoFetchHours > 0 ? (
+                <span style={{ padding: '2px 7px', background: '#129271', color: '#fff', borderRadius: 4, fontSize: 10, fontWeight: 600, letterSpacing: '0.04em' }}>
+                  every {settings.autoFetchHours} h
+                </span>
+              ) : (
+                <span style={{ padding: '2px 7px', border: '1px solid #556070', color: '#556070', borderRadius: 4, fontSize: 10, fontWeight: 600 }}>disabled</span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                type="number"
+                min={0}
+                step={0.5}
+                value={autoFetchHoursInput}
+                onChange={e => setAutoFetchHoursInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleSaveAutoFetchHours()}
+                aria-label="Automatic GitHub fetch interval in hours"
+                style={{ width: 140, padding: '7px 10px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 5, fontSize: 12, fontFamily: "'JetBrains Mono', monospace" }}
+              />
+              <span style={{ fontSize: 12, color: '#9CA3AF' }}>hours</span>
+              <button
+                onClick={handleSaveAutoFetchHours}
+                disabled={savingAutoFetchHours}
+                style={{ padding: '6px 14px', background: savingAutoFetchHours ? '#2A3238' : '#129271', color: savingAutoFetchHours ? '#556070' : '#fff', border: 'none', borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: savingAutoFetchHours ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+              >
+                {savingAutoFetchHours ? 'Saving…' : 'Save schedule'}
+              </button>
+            </div>
+            <p style={{ fontSize: 11, color: '#9CA3AF', margin: 0 }}>
+              Set 0 to disable. When enabled, the server checks GitHub immediately, then at this interval; changes apply within a minute.
+            </p>
           </div>
 
         </div>

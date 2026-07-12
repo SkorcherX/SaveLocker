@@ -18,6 +18,9 @@ public sealed class SettingsService
     /// <summary>Settings key for the admin dashboard password hash.</summary>
     public const string AdminPasswordHash = "Admin:PasswordHash";
 
+    /// <summary>Settings key for the GitHub installer auto-fetch interval.</summary>
+    public const string AgentUpdateAutoFetchHours = "AgentUpdate:AutoFetchHours";
+
     private readonly AppDbContext _db;
     private readonly IConfiguration _cfg;
 
@@ -64,6 +67,26 @@ public sealed class SettingsService
             await SetAsync(AdminPasswordHash, Tokens.HashPassword(password), ct);
     }
 
+    public async Task<double> GetAutoFetchHoursAsync(CancellationToken ct = default)
+    {
+        var value = await GetEffectiveAsync(AgentUpdateAutoFetchHours, ct);
+        return double.TryParse(value, System.Globalization.NumberStyles.Float,
+                   System.Globalization.CultureInfo.InvariantCulture, out var hours) &&
+               double.IsFinite(hours) && hours >= 0 && hours <= TimeSpan.MaxValue.TotalHours
+            ? hours
+            : 0;
+    }
+
+    public async Task SetAutoFetchHoursAsync(double hours, CancellationToken ct = default)
+    {
+        if (!double.IsFinite(hours) || hours < 0 || hours > TimeSpan.MaxValue.TotalHours)
+            throw new ArgumentOutOfRangeException(nameof(hours), "Hours must be a finite, non-negative value.");
+
+        // Store zero explicitly so an admin can override a positive appsettings/env value to disable polling.
+        await SetAsync(AgentUpdateAutoFetchHours,
+            hours.ToString(System.Globalization.CultureInfo.InvariantCulture), ct);
+    }
+
     /// <summary>The dashboard-facing settings snapshot (never includes the raw key).</summary>
     public async Task<ServerSettingsDto> GetServerSettingsDtoAsync(CancellationToken ct = default)
     {
@@ -74,7 +97,8 @@ public sealed class SettingsService
             SteamGridDbKeyMasked: Mask(key),
             SteamGridDbFromConfig: !inDb && !string.IsNullOrWhiteSpace(key),
             AdminPasswordSet: await HasAdminPasswordAsync(ct),
-            DefaultExcludeGlobs: GlobConfig.GlobalDefaults(_cfg));
+            DefaultExcludeGlobs: GlobConfig.GlobalDefaults(_cfg),
+            AutoFetchHours: await GetAutoFetchHoursAsync(ct));
     }
 
     /// <summary>Show only the last 4 characters so the dashboard can confirm which key is set.</summary>

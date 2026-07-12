@@ -13,7 +13,7 @@ quick "what shipped, where" index.
 | Sync toaster reduction — one summary toast with save date instead of 4 | v0.1.3 | ✅ device | sessions 2026-07-12 |
 | Per-game exclude globs + configurable upload cap (hygiene 5e) | v0.1.4 (agent); server on main | API-verified live; agent device check pending | sessions 2026-07-12 (session 2); `logs/002_glob_filters.md` |
 | Console Help KB — dashboard Help tab, 8 static Markdown articles, full-text search, `#help/<slug>` deep-links, conflict card "Why did this happen?" link | main (`be54374`) | build-verified | 2026-07-11 |
-| Scheduled GitHub installer auto-poll | main | server build + startup smoke check | `AgentInstallerPollerService`, opt-in `AgentUpdate:AutoFetchHours`; sessions 2026-07-12 |
+| Scheduled GitHub installer auto-poll | main | server + dashboard builds | `AgentInstallerPollerService`, dashboard-configurable in Agent Updates; sessions 2026-07-12 |
 
 ## Dropped from backlog — won't do (2026-07-12)
 

@@ -6,48 +6,64 @@ namespace SaveLocker.Server.Services;
 /// </summary>
 public sealed class AgentInstallerPollerService : BackgroundService
 {
+    private static readonly TimeSpan ConfigurationCheckInterval = TimeSpan.FromMinutes(1);
+
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly ILogger<AgentInstallerPollerService> _log;
-    private readonly TimeSpan? _interval;
 
     public AgentInstallerPollerService(
-        IConfiguration cfg,
         IServiceScopeFactory scopeFactory,
         ILogger<AgentInstallerPollerService> log)
     {
         _scopeFactory = scopeFactory;
         _log = log;
-
-        var hours = cfg.GetValue<double?>("AgentUpdate:AutoFetchHours");
-        _interval = hours is > 0 ? TimeSpan.FromHours(hours.Value) : null;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        if (_interval is null)
-        {
-            _log.LogInformation(
-                "GitHub installer auto-poll disabled (AgentUpdate:AutoFetchHours is not positive).");
-            return;
-        }
-
-        _log.LogInformation(
-            "GitHub installer auto-poll enabled; checking every {Hours:0.##} hour(s).",
-            _interval.Value.TotalHours);
-
         try
         {
-            // Check once immediately so enabling the feature does not require a
-            // server restart to happen to land just before the next interval.
-            await PollAsync(ct);
+            double? configuredHours = null;
+            DateTime? nextPollAt = null;
 
             while (!ct.IsCancellationRequested)
             {
-                await Task.Delay(_interval.Value, ct);
-                await PollAsync(ct);
+                var hours = await GetConfiguredHoursAsync(ct);
+                if (configuredHours != hours)
+                {
+                    configuredHours = hours;
+                    nextPollAt = null;
+                    if (hours > 0)
+                        _log.LogInformation(
+                            "GitHub installer auto-poll enabled; checking every {Hours:0.##} hour(s).", hours);
+                    else
+                        _log.LogInformation(
+                            "GitHub installer auto-poll disabled (AgentUpdate:AutoFetchHours is not positive).");
+                }
+
+                if (hours > 0 && (nextPollAt is null || DateTime.UtcNow >= nextPollAt.Value))
+                {
+                    // A newly enabled or reconfigured schedule checks immediately.
+                    await PollAsync(ct);
+                    nextPollAt = DateTime.UtcNow.AddHours(hours);
+                }
+
+                var untilNextPoll = nextPollAt is null
+                    ? ConfigurationCheckInterval
+                    : nextPollAt.Value - DateTime.UtcNow;
+                await Task.Delay(
+                    untilNextPoll < ConfigurationCheckInterval ? untilNextPoll : ConfigurationCheckInterval,
+                    ct);
             }
         }
         catch (OperationCanceledException) { /* graceful shutdown */ }
+    }
+
+    private async Task<double> GetConfiguredHoursAsync(CancellationToken ct)
+    {
+        await using var scope = _scopeFactory.CreateAsyncScope();
+        var settings = scope.ServiceProvider.GetRequiredService<SettingsService>();
+        return await settings.GetAutoFetchHoursAsync(ct);
     }
 
     private async Task PollAsync(CancellationToken ct)
