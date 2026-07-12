@@ -60,6 +60,17 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
     try { await api.deleteInstaller(); await loadInstaller(); }
     catch (e) { alert('Delete failed: ' + (e as Error).message); }
   }
+
+  const [fetchingGitHub, setFetchingGitHub] = useState(false);
+  async function handleFetchGitHub() {
+    setFetchingGitHub(true);
+    try {
+      const info = await api.fetchInstallerFromGitHub();
+      await loadInstaller();
+      alert(`Fetched v${info.version} (${info.fileName}) from GitHub.`);
+    } catch (e) { alert('Fetch from GitHub failed: ' + (e as Error).message); }
+    finally { setFetchingGitHub(false); }
+  }
   // Per-game retention inputs: gameId -> string (empty = use default)
   const [retentionInputs, setRetentionInputs] = useState<Record<string, string>>(
     () => Object.fromEntries(games.map(s => [s.game.id, s.game.retainVersions?.toString() ?? '']))
@@ -315,6 +326,20 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
           <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: -6 }}>
             Upload a <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>SaveLocker-Agent-Setup-x.y.z.exe</code> built from the release workflow. Version is auto-parsed from the filename. Once uploaded, connected agents will be offered the update at their next check-in.
           </p>
+
+          {/* Fetch from GitHub */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', borderTop: '1px solid #2A3238', paddingTop: 14 }}>
+            <button
+              onClick={handleFetchGitHub}
+              disabled={fetchingGitHub}
+              style={{ padding: '6px 14px', background: 'transparent', color: fetchingGitHub ? '#556070' : '#129271', border: `1px solid ${fetchingGitHub ? '#2A3238' : '#129271'}`, borderRadius: 5, fontSize: 12, fontWeight: 600, cursor: fetchingGitHub ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {fetchingGitHub ? 'Fetching…' : 'Fetch latest from GitHub'}
+            </button>
+            <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+              Pulls the newest release installer from GitHub and hosts it — no manual download needed.
+            </span>
+          </div>
 
         </div>
       </div>

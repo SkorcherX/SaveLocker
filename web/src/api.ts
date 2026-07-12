@@ -92,4 +92,14 @@ export const api = {
   deleteInstaller: (): Promise<void> =>
     fetch('/api/admin/agent-installer', { method: 'DELETE', headers: headers() })
       .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
+
+  fetchInstallerFromGitHub: (): Promise<AgentInstallerStatus> =>
+    fetch('/api/admin/agent-installer/fetch-github', { method: 'POST', headers: headers() })
+      .then(async res => {
+        if (!res.ok) {
+          const detail = await res.json().then(j => j.detail).catch(() => null);
+          throw new Error(detail || `${res.status} ${res.statusText}`);
+        }
+        return res.json() as Promise<AgentInstallerStatus>;
+      }),
 };

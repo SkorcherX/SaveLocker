@@ -474,6 +474,21 @@ admin.MapDelete("/admin/agent-installer", (AgentInstallerService installer) =>
     return Results.NoContent();
 });
 
+// Pulls the latest release installer straight from GitHub instead of a manual upload.
+admin.MapPost("/admin/agent-installer/fetch-github", async (
+    AgentInstallerService installer, IHttpClientFactory httpFactory, CancellationToken ct) =>
+{
+    try
+    {
+        var info = await installer.FetchLatestFromGitHubAsync(httpFactory.CreateClient(), ct);
+        return Results.Ok(info);
+    }
+    catch (Exception ex)
+    {
+        return Results.Problem(ex.Message);
+    }
+}).Produces<AgentInstallerStatus>();
+
 app.Run();
 
 // Streams a downloaded version, exposing its id and content hash as response

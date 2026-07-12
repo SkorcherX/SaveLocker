@@ -10,6 +10,7 @@ namespace SaveLocker.Server.Services;
 public class AgentInstallerService
 {
     private readonly string _root;
+    private readonly string _githubRepo;
     private const string InfoFileName = "installer-info.json";
 
     private static readonly JsonSerializerOptions _json = new() { PropertyNameCaseInsensitive = true };
@@ -18,6 +19,7 @@ public class AgentInstallerService
     {
         _root = cfg["Storage:AgentInstallerRoot"]
             ?? Path.Combine(AppContext.BaseDirectory, "data", "agent-installer");
+        _githubRepo = cfg["AgentUpdate:GitHubRepo"] ?? "SkorcherX/SaveLocker";
         Directory.CreateDirectory(_root);
     }
 
@@ -59,6 +61,50 @@ public class AgentInstallerService
             File.Delete(f);
         var info = Path.Combine(_root, InfoFileName);
         if (File.Exists(info)) File.Delete(info);
+    }
+
+    /// <summary>
+    /// Fetches the latest release's agent installer asset from the configured GitHub repo
+    /// (<c>AgentUpdate:GitHubRepo</c>) and stores it as the hosted installer — automating the
+    /// otherwise-manual download-from-GitHub-then-upload step. Throws if no matching asset exists.
+    /// </summary>
+    public async Task<AgentInstallerStatus> FetchLatestFromGitHubAsync(HttpClient http, CancellationToken ct)
+    {
+        using var meta = new HttpRequestMessage(
+            HttpMethod.Get, $"https://api.github.com/repos/{_githubRepo}/releases/latest");
+        meta.Headers.UserAgent.ParseAdd("SaveLocker-Server");
+        meta.Headers.Accept.ParseAdd("application/vnd.github+json");
+
+        using var metaResp = await http.SendAsync(meta, ct);
+        metaResp.EnsureSuccessStatusCode();
+
+        using var doc = JsonDocument.Parse(await metaResp.Content.ReadAsStringAsync(ct));
+        var root = doc.RootElement;
+        var version = (root.GetProperty("tag_name").GetString() ?? "").TrimStart('v', 'V');
+
+        string? assetName = null, assetUrl = null;
+        foreach (var a in root.GetProperty("assets").EnumerateArray())
+        {
+            var name = a.GetProperty("name").GetString() ?? "";
+            if (name.StartsWith("SaveLocker-Agent-Setup", StringComparison.OrdinalIgnoreCase) &&
+                name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            {
+                assetName = name;
+                assetUrl = a.GetProperty("browser_download_url").GetString();
+                break;
+            }
+        }
+        if (assetUrl is null || assetName is null)
+            throw new InvalidOperationException(
+                $"Latest release of {_githubRepo} has no SaveLocker-Agent-Setup-*.exe asset.");
+
+        using var dl = new HttpRequestMessage(HttpMethod.Get, assetUrl);
+        dl.Headers.UserAgent.ParseAdd("SaveLocker-Server");
+        using var dlResp = await http.SendAsync(dl, HttpCompletionOption.ResponseHeadersRead, ct);
+        dlResp.EnsureSuccessStatusCode();
+
+        await using var stream = await dlResp.Content.ReadAsStreamAsync(ct);
+        return await SaveAsync(stream, version, assetName, ct);
     }
 
     /// <summary>Returns the on-disk path to the hosted installer, or null if none is present.</summary>
