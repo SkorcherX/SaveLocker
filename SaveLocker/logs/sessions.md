@@ -5,6 +5,20 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-12 (session 2) — Per-game exclude globs + upload cap (hygiene 5e)
+
+**Commits:** `1b571f8` (Shared), `d28b635` (server), `bd39588` (agent), `5e7e273` (web). Task brief: `logs/002_glob_filters.md`.
+
+- **Decisions:** exclude-only • 200 MB configurable cap • global defaults + per-game overrides.
+- **Shared** — `SaveArchive.HashDirectory`/`CreateArchive` take optional `excludeGlobs`, applied through one shared file enumeration (`Microsoft.Extensions.FileSystemGlobbing`) so the hash always matches the archive. `CreateArchive` builds the zip entry-by-entry (not `CreateFromDirectory`) to skip excluded files. Verified: excluding `*.log`+`cache/**` yields the same hash as a dir without them; archive omits them.
+- **Server** — `Game.ExcludeGlobs` (newline-separated) + migration `AddGameExcludeGlobs`. `GlobConfig` helper (parse/join/global-defaults/effective). Agent `GET /api/games` returns the **effective** set (global ∪ per-game); dashboard endpoints return per-game. `POST /api/games/{id}/excludes`. Upload endpoint lifts Kestrel's 30 MB to `Storage:MaxUploadMb` (200). `ServerSettingsDto.DefaultExcludeGlobs`. `Sync:DefaultExcludeGlobs` config. Live-tested: dashboard sees per-game, agent gets merged+deduped effective, settings expose defaults.
+- **Agent** — `TrackedGame.ExcludeGlobs`; reconcile keeps it in sync (silent) + sets on adoption; `SyncEngine` Push/Pull pass it to hash + archive.
+- **Web** — `api.setExcludes`; GameDetail exclude-patterns textarea + read-only global-defaults display; editor resets on game switch via render-phase state reset (no clobber on poll).
+- **Pending:** agent release so the runtime applies excludes, then device verification.
+- **Tooling installed this session:** `dotnet-ef` 9.0.9 (global), plus `Microsoft.Extensions.FileSystemGlobbing` package ref in Shared.
+
+---
+
 ## 2026-07-12 — v0.1.2 fully verified + sync-toast reduction
 
 **Commit:** `777b9ab`. `gh` CLI installed + authed (SkorcherX, keyring) — now available by full path `"$env:ProgramFiles\GitHub CLI\gh.exe"`.

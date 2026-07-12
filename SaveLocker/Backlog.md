@@ -11,7 +11,7 @@ _v0.1.2 fully verified on device (2026-07-12): version display, silent auto-rela
 ## High priority
 - **Scheduled GitHub installer auto-poll** — the manual "Fetch latest from GitHub" button shipped (2026-07-11). Follow-up: a background service that periodically polls the GitHub Releases API and auto-fetches a newer installer (opt-in via config, e.g. `AgentUpdate:AutoFetchHours`). Mirror `LeaseSweeperService`'s `BackgroundService` + `IServiceScopeFactory` pattern; reuse `AgentInstallerService.FetchLatestFromGitHubAsync`.
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
-- **Per-game glob filters** — include/exclude file patterns before archiving (e.g., exclude `*.log`, `*.tmp`). Upload limit may need raising at the same time (`Storage__MaxUploadMb` config or Kestrel `MaxRequestBodySize`).
+- ✅ **Per-game glob filters + upload cap (5e)** — **shipped to `main` 2026-07-12** (exclude-only; global defaults `Sync:DefaultExcludeGlobs` + per-game; 200 MB `Storage:MaxUploadMb`). Same filter drives archive + hash. API verified live. **Still needs an agent release** for the runtime to apply excludes, then device verification. See `logs/002_glob_filters.md`.
 
 ## Medium priority
 - **Save-in-use safety** — auto-push on process-exit uses a 5 s quiet-period debounce. Some games write saves for several seconds after exit, risking a partial archive. Options: longer debounce, file-lock polling, or a user-configurable delay per game.

@@ -19,6 +19,7 @@
 | Agent auto-update (release CI, server-hosted installer) | ✅ all 3 bugs verified on device |
 | Fetch installer from GitHub (dashboard button) | ✅ done (2026-07-11) |
 | Sync notifications (one toast + save date, not 4) | ✅ shipped in v0.1.3, verified on device |
+| Per-game exclude globs + 200 MB upload cap (5e) | ✅ built + API verified live; on `main`, needs release for agent runtime |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 
 **v0.1.1 bugs — all fixed, shipped in v0.1.2:**
@@ -33,9 +34,9 @@
 ---
 
 ## Active backlog (priority order)
-1. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
-2. Code-sign the exe (SmartScreen warns for unsigned installers)
-3. Per-game glob filters + upload size cap (hygiene 5e — include/exclude patterns applied to both archive AND hash; raise the 30 MB game-upload limit)
+1. **Release agent build with 5e** (glob filters) — cut a tag so the agent runtime applies excludes; then device-verify (add `*.log` to a game, confirm it's not archived and a log-only change doesn't create a version). Server/dashboard side already works after Docker redeploy.
+2. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
+3. Code-sign the exe (SmartScreen warns for unsigned installers)
 4. Save-in-use safety (5 s debounce may be too short for some games)
 
 See `Backlog.md` for the full list.
