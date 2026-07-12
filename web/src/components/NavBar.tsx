@@ -8,12 +8,10 @@ interface Props {
   view: View;
   onViewChange: (v: View) => void;
   onConnect: () => void;
-  onAddGame: () => void;
   onRefresh: () => void;
-  isGamesView: boolean;
 }
 
-export function NavBar({ view, onViewChange, onConnect, onAddGame, onRefresh, isGamesView }: Props) {
+export function NavBar({ view, onViewChange, onConnect, onRefresh }: Props) {
   const [keyInput, setKeyInput] = useState(getPassword());
 
   function handleConnect() {
@@ -83,10 +81,6 @@ export function NavBar({ view, onViewChange, onConnect, onAddGame, onRefresh, is
         >
           Connect
         </button>
-
-        {isGamesView && (
-          <button className={ghostBtn} onClick={onAddGame}>+ Add game</button>
-        )}
 
         <button className={ghostBtn} onClick={onRefresh}>↻ Refresh</button>
       </div>

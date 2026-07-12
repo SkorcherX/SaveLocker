@@ -23,6 +23,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   const [excludeForGameId, setExcludeForGameId] = useState(summary.game.id);
   const [savingExcludes, setSavingExcludes] = useState(false);
   const [defaultGlobs, setDefaultGlobs] = useState<string[]>([]);
+  const [excludeOpen, setExcludeOpen] = useState(false);
 
   const { game, head, lease, hasOpenConflict } = summary;
 
@@ -216,28 +217,6 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               <button style={{ padding: '3px 9px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: 'pointer', flexShrink: 0 }} onClick={handleSetSaveDir}>Edit</button>
             </div>
 
-            {/* Exclude patterns (per-game, on top of the global defaults) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, background: '#2A3238', padding: '8px 10px', borderRadius: 5, border: '1px solid #494949' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 10, color: '#556070' }}>exclude patterns — one glob per line (e.g. <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>*.log</code>, <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>cache/**</code>):</span>
-                <button disabled={savingExcludes} onClick={handleSaveExcludes} style={{ marginLeft: 'auto', padding: '3px 9px', border: `1px solid ${savingExcludes ? '#494949' : '#129271'}`, color: savingExcludes ? '#556070' : '#129271', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: savingExcludes ? 'default' : 'pointer', flexShrink: 0 }}>{savingExcludes ? 'Saving…' : 'Save'}</button>
-              </div>
-              <textarea
-                value={excludeText}
-                onChange={e => setExcludeText(e.target.value)}
-                spellCheck={false}
-                rows={3}
-                placeholder="(none — only global defaults apply)"
-                style={{ width: '100%', resize: 'vertical', background: '#1E252A', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: '6px 8px', boxSizing: 'border-box' }}
-              />
-              {defaultGlobs.length > 0 && (
-                <span style={{ fontSize: 10, color: '#556070' }}>
-                  global defaults (always applied):&nbsp;
-                  <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#8b9aaa' }}>{defaultGlobs.join(', ')}</span>
-                </span>
-              )}
-            </div>
-
           </div>
         </div>
       </div>
@@ -280,6 +259,47 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
           </div>
         </div>
       )}
+
+      {/* ── Exclude Patterns (collapsible) ── */}
+      <div style={card}>
+        <button
+          onClick={() => setExcludeOpen(o => !o)}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 18px', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+        >
+          <span style={sectionLabel}>Exclude patterns</span>
+          <span style={{ fontSize: 11, color: '#556070', userSelect: 'none' }}>{excludeOpen ? '▲' : '▼'}</span>
+        </button>
+        {excludeOpen && (
+          <div style={{ padding: '0 18px 14px', display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid #494949' }}>
+            <p style={{ fontSize: 11, color: '#556070', marginTop: 10 }}>
+              One glob per line — e.g. <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>*.log</code>, <code style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 10 }}>cache/**</code>. Bare patterns match at any depth. See <a href="#help/glob-patterns" style={{ color: '#129271' }}>glob pattern docs</a>.
+            </p>
+            <textarea
+              value={excludeText}
+              onChange={e => setExcludeText(e.target.value)}
+              spellCheck={false}
+              rows={4}
+              placeholder="(none — only global defaults apply)"
+              style={{ width: '100%', resize: 'vertical', background: '#2A3238', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontFamily: "'JetBrains Mono', monospace", fontSize: 11, padding: '6px 8px', boxSizing: 'border-box' }}
+            />
+            {defaultGlobs.length > 0 && (
+              <span style={{ fontSize: 10, color: '#556070' }}>
+                global defaults (always applied):&nbsp;
+                <span style={{ fontFamily: "'JetBrains Mono', monospace", color: '#8b9aaa' }}>{defaultGlobs.join(', ')}</span>
+              </span>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                disabled={savingExcludes}
+                onClick={handleSaveExcludes}
+                style={{ padding: '5px 14px', border: `1px solid ${savingExcludes ? '#494949' : '#129271'}`, color: savingExcludes ? '#556070' : '#129271', background: 'transparent', borderRadius: 4, fontSize: 11, cursor: savingExcludes ? 'default' : 'pointer' }}
+              >
+                {savingExcludes ? 'Saving…' : 'Save patterns'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Machines Table ── */}
       <div style={card}>

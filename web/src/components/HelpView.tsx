@@ -75,7 +75,7 @@ export function HelpView() {
         {query.trim()
           ? (
             <div>
-              <div style={{ padding: '6px 14px 2px', fontSize: 9.5, fontWeight: 600, color: '#556070', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              <div style={{ padding: '6px 14px 2px', fontSize: 10, fontWeight: 700, color: '#129271', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
                 Results ({filtered.length})
               </div>
               {filtered.map(a => (
@@ -90,7 +90,7 @@ export function HelpView() {
             const catArticles = articles.filter(a => a.category === cat);
             return (
               <div key={cat}>
-                <div style={{ padding: '8px 14px 4px', fontSize: 9.5, fontWeight: 600, color: '#556070', textTransform: 'uppercase', letterSpacing: '0.1em', borderBottom: '1px solid #252e35' }}>
+                <div style={{ padding: '8px 14px 4px', fontSize: 10, fontWeight: 700, color: '#129271', textTransform: 'uppercase', letterSpacing: '0.12em', borderBottom: '1px solid #252e35' }}>
                   {cat}
                 </div>
                 {catArticles.map(a => (

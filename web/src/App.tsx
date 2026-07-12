@@ -92,9 +92,7 @@ export default function App() {
         view={view}
         onViewChange={v => { setView(v); if (!data && v !== 'help') load(); }}
         onConnect={load}
-        onAddGame={handleAddGame}
         onRefresh={load}
-        isGamesView={view === 'games'}
       />
 
       {error && (
@@ -128,6 +126,7 @@ export default function App() {
                 commands={data.commands}
                 conflicts={data.conflicts}
                 onRefresh={load}
+                onAddGame={handleAddGame}
               />
             : view === 'audit'
             ? <AuditView />

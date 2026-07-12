@@ -9,9 +9,10 @@ interface Props {
   commands: Command[];
   conflicts: Conflict[];
   onRefresh: () => void;
+  onAddGame: () => void;
 }
 
-export function GamesView({ games, machines, commands, conflicts, onRefresh }: Props) {
+export function GamesView({ games, machines, commands, conflicts, onRefresh, onAddGame }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(
     games.length > 0 ? games[0].game.id : null
   );
@@ -32,7 +33,7 @@ export function GamesView({ games, machines, commands, conflicts, onRefresh }: P
 
   return (
     <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-      <GamesSidebar games={games} selectedId={activeId} onSelect={id => setSelectedId(id)} />
+      <GamesSidebar games={games} selectedId={activeId} onSelect={id => setSelectedId(id)} onAddGame={onAddGame} onRefresh={onRefresh} />
 
       <main style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
         {selectedSummary ? (

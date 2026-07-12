@@ -4,11 +4,13 @@ interface Props {
   games: GameSummary[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  onAddGame: () => void;
+  onRefresh: () => void;
 }
 
 const fmtMb = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1) + ' MB';
 
-export function GamesSidebar({ games, selectedId, onSelect }: Props) {
+export function GamesSidebar({ games, selectedId, onSelect, onAddGame, onRefresh }: Props) {
   const grandTotal = games.reduce((sum, s) => sum + s.totalStorageBytes, 0);
 
   return (
@@ -19,14 +21,14 @@ export function GamesSidebar({ games, selectedId, onSelect }: Props) {
       borderRight: '1px solid #494949',
       display: 'flex',
       flexDirection: 'column',
-      overflowY: 'auto',
       minHeight: 0,
     }}>
-      <div style={{ padding: '10px 14px', borderBottom: '1px solid #494949', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+      <div style={{ padding: '10px 14px', borderBottom: '1px solid #494949', display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexShrink: 0 }}>
         <span style={{ fontSize: 10.5, fontWeight: 600, color: '#8b9aaa', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Games</span>
         <span style={{ fontSize: 9.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }} title="Total save data stored on server">{fmtMb(grandTotal)}</span>
       </div>
 
+      <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
       {games.length === 0 && (
         <div style={{ padding: '20px 14px', fontSize: 12, color: '#556070' }}>No games tracked yet.</div>
       )}
@@ -88,6 +90,24 @@ export function GamesSidebar({ games, selectedId, onSelect }: Props) {
           </button>
         );
       })}
+      </div>
+
+      {/* Action buttons */}
+      <div style={{ flexShrink: 0, borderTop: '1px solid #494949', padding: '10px 12px', display: 'flex', gap: 6 }}>
+        <button
+          onClick={onAddGame}
+          style={{ flex: 1, padding: '6px 0', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}
+        >
+          + Add game
+        </button>
+        <button
+          onClick={onRefresh}
+          style={{ padding: '6px 10px', background: 'transparent', color: '#8b9aaa', border: '1px solid #494949', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
+          title="Refresh"
+        >
+          ↻
+        </button>
+      </div>
     </aside>
   );
 }
