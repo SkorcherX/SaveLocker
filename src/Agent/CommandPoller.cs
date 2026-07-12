@@ -88,6 +88,14 @@ public sealed class CommandPoller : IDisposable
         {
             if (localById.TryGetValue(sg.Id, out var local))
             {
+                // Keep exclude globs in sync with the server's effective set (silent).
+                var serverGlobs = sg.ExcludeGlobs ?? Array.Empty<string>();
+                if (!serverGlobs.SequenceEqual(local.ExcludeGlobs))
+                {
+                    local.ExcludeGlobs = serverGlobs.ToList();
+                    changed = true;
+                }
+
                 // Server now has a stored path for this machine → apply it (highest authority).
                 if (!string.IsNullOrWhiteSpace(sg.MachineSavePath) &&
                     sg.MachineSavePath != local.SaveDirectory)
@@ -119,7 +127,8 @@ public sealed class CommandPoller : IDisposable
                 GameId = sg.Id,
                 Name = sg.Name,
                 ManifestKey = sg.ManifestKey,
-                SaveDirectory = dir ?? ""
+                SaveDirectory = dir ?? "",
+                ExcludeGlobs = (sg.ExcludeGlobs ?? Array.Empty<string>()).ToList()
             });
             changed = true;
             _notify(dir is null

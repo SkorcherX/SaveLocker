@@ -82,4 +82,7 @@ public sealed class TrackedGame
     public Guid? LastKnownVersionId { get; set; }
     /// <summary>Content hash of the local save at last sync, to detect real changes.</summary>
     public string? LastSyncedHash { get; set; }
+    /// <summary>Effective exclude globs (global defaults ∪ per-game) from the server;
+    /// files matching these are skipped when hashing and archiving.</summary>
+    public List<string> ExcludeGlobs { get; set; } = new();
 }

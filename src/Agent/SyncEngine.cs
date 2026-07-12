@@ -44,7 +44,7 @@ public sealed class SyncEngine
             return null;
         }
 
-        var hash = SaveArchive.HashDirectory(game.SaveDirectory);
+        var hash = SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs);
         if (!force && hash == game.LastSyncedHash)
         {
             _log($"[{game.Name}] no local changes since last sync.");
@@ -52,7 +52,7 @@ public sealed class SyncEngine
         }
 
         var archive = Path.Combine(_tempDir, $"{game.GameId:N}-push.zip");
-        SaveArchive.CreateArchive(game.SaveDirectory, archive);
+        SaveArchive.CreateArchive(game.SaveDirectory, archive, game.ExcludeGlobs);
 
         try
         {
@@ -113,7 +113,7 @@ public sealed class SyncEngine
             }
 
             var (versionId, headHash) = head.Value;
-            var localHash = SaveArchive.HashDirectory(game.SaveDirectory);
+            var localHash = SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs);
             if (localHash == headHash)
             {
                 game.LastKnownVersionId = versionId;
