@@ -37,7 +37,7 @@ $dotnet = Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'
 # When an explicit version is provided (CI), stamp it directly into the assembly so the
 # running agent reports the correct version string regardless of MinVer's git access.
 if ($AppVersion) {
-    & $dotnet publish $agentProj -p:PublishProfile=win-x64 "--property:Version=$AppVersion" --nologo
+    & $dotnet publish $agentProj -p:PublishProfile=win-x64 "--property:Version=$AppVersion" "--property:AssemblyVersion=$AppVersion" --nologo
 } else {
     & $dotnet publish $agentProj -p:PublishProfile=win-x64 --nologo
 }
