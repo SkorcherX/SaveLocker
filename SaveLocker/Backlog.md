@@ -2,15 +2,16 @@
 
 Active items only. Completed work is in `logs/sessions.md`.
 
-## Immediate — v0.1.1 bugs (block next release)
+## Immediate — verify v0.1.2 end-to-end
 
-See `tasks/001_v0.1.1_bugs.md` for full investigation details and exact file locations.
+The three v0.1.1 bugs are fixed and shipped in `v0.1.2` (see `logs/sessions.md` 2026-07-11). Still needs a real installed-agent test to confirm:
 
-- **Bug: Agent UI shows "AGENT V0.0.0"** — `build-installer.ps1` passes `--property:Version=$v` but MinVer overrides `AssemblyVersion` separately (still `0.0.0.0` when git is inaccessible in CI). Fix: add `--property:AssemblyVersion=$AppVersion` to the same `dotnet publish` call. Then retag to verify.
-- **Bug: No auto-relaunch after silent update** — `skipifsilent` flag removed from `SaveLocker.iss [Run]` section (committed). Needs a real end-to-end update test against a new installed build to confirm.
-- **Bug: Uploaded installer lost on Docker update** — `AgentInstallerService` defaults to `AppContext.BaseDirectory/data/agent-installer` (inside container, wiped on update). Fix: add `"AgentInstallerRoot": "/data/agent-installer"` to the `Storage` block in `src/Server/appsettings.json`.
+- **Verify agent version display** — install the `v0.1.2` exe; the tray UI header should read `0.1.2` (was `0.0.0`, then `0.1.0`). Root cause was MinVer overriding version fields inside an MSBuild target; fixed with `MinVerVersionOverride` env var + reading `FileVersion` at runtime. Verified locally (`FileVersion=0.1.2.0`); needs on-device confirmation.
+- **Verify silent auto-relaunch** — old agent running → upload newer installer → trigger update check → confirm the agent restarts and the tray icon reappears (`skipifsilent` removal).
+- **Verify installer persistence** — after `docker compose pull && up -d`, confirm the hosted installer survives (`Storage:AgentInstallerRoot=/data/agent-installer`).
 
 ## High priority
+- **Scheduled GitHub installer auto-poll** — the manual "Fetch latest from GitHub" button shipped (2026-07-11). Follow-up: a background service that periodically polls the GitHub Releases API and auto-fetches a newer installer (opt-in via config, e.g. `AgentUpdate:AutoFetchHours`). Mirror `LeaseSweeperService`'s `BackgroundService` + `IServiceScopeFactory` pattern; reuse `AgentInstallerService.FetchLatestFromGitHubAsync`.
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
 - **Per-game glob filters** — include/exclude file patterns before archiving (e.g., exclude `*.log`, `*.tmp`). Upload limit may need raising at the same time (`Storage__MaxUploadMb` config or Kestrel `MaxRequestBodySize`).
 

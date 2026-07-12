@@ -5,6 +5,18 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-11 (session 2) — v0.1.2 auto-update fixes + fetch-from-GitHub
+
+**Commits:** `3902505`, `f8accb4`, `303fdfc` (fixes), `639bce1` (feature). Tag `v0.1.2` force-moved onto `303fdfc`.
+
+- **Agent version bug (the hard one)** — UI showed `0.0.0`, then `0.1.0` after a first attempt. Root cause: MinVer assigns `Version`/`FileVersion`/`AssemblyVersion` **inside an MSBuild target**, and target property assignments override command-line `--property` globals — so neither `--property:Version` nor `--property:AssemblyVersion` ever won (FileVersion fell back to the `MinVerMinimumMajorMinor` floor `0.1.0`). Fixed two ways: (1) `build-installer.ps1` now sets the `MinVerVersionOverride` env var (MinVer's own escape hatch, stamps all fields); (2) `UpdateChecker.CurrentVersion` reads `FileVersion` via `Environment.ProcessPath` instead of `AssemblyVersion` (`Assembly.Location` is empty for single-file exes). Verified locally: `FileVersion=0.1.2.0`.
+- **Installer persistence** — added `Storage:AgentInstallerRoot=/data/agent-installer` to `appsettings.json` (was defaulting inside the container, wiped on every Docker update).
+- **Silent auto-relaunch** — `skipifsilent` already removed from `SaveLocker.iss [Run]`; still needs a real end-to-end test.
+- **Fetch installer from GitHub (feature)** — new `POST /api/admin/agent-installer/fetch-github`: calls the GitHub Releases API, finds the `SaveLocker-Agent-Setup-*.exe` asset, downloads it, and hosts it via `AgentInstallerService.FetchLatestFromGitHubAsync` — automating the manual download+upload. Repo configurable via `AgentUpdate:GitHubRepo`. "Fetch latest from GitHub" button in Config → Agent Updates. `openapi.json` + `api-types.ts` regenerated.
+- **Note:** `v0.1.2` tag was force-moved 3× as fixes landed. The GitHub Release object wasn't regenerated (no `gh`/token locally) — CI overwrites the installer asset but release notes may be stale.
+
+---
+
 ## 2026-07-11 — MinVer versioning + release CI + server installer + console UI
 
 **Commits:** `0a8f2fc`, `c9c6fee`, plus namespace/build fixes through `6cf06a6`
