@@ -4,9 +4,9 @@ Active items only. Completed work is in `logs/sessions.md`.
 
 ## Immediate — verify v0.1.2 end-to-end
 
-The three v0.1.1 bugs are fixed and shipped in `v0.1.2` (see `logs/sessions.md` 2026-07-11). Still needs a real installed-agent test to confirm:
+The three v0.1.1 bugs are fixed and shipped in `v0.1.2` (see `logs/sessions.md` 2026-07-11). Remaining on-device checks:
 
-- **Verify agent version display** — install the `v0.1.2` exe; the tray UI header should read `0.1.2` (was `0.0.0`, then `0.1.0`). Root cause was MinVer overriding version fields inside an MSBuild target; fixed with `MinVerVersionOverride` env var + reading `FileVersion` at runtime. Verified locally (`FileVersion=0.1.2.0`); needs on-device confirmation.
+- ✅ **Agent version display** — **verified on device 2026-07-12**: tray header shows `0.1.2` (was `0.0.0`, then `0.1.0`). Root cause was MinVer overriding version fields inside an MSBuild target; fixed with `MinVerVersionOverride` env var + reading `FileVersion` at runtime.
 - **Verify silent auto-relaunch** — old agent running → upload newer installer → trigger update check → confirm the agent restarts and the tray icon reappears (`skipifsilent` removal).
 - **Verify installer persistence** — after `docker compose pull && up -d`, confirm the hosted installer survives (`Storage:AgentInstallerRoot=/data/agent-installer`).
 
