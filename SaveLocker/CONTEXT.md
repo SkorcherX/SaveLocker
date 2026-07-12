@@ -8,7 +8,7 @@
 
 ---
 
-## Status (2026-07-12)
+## Status (2026-07-11)
 
 | Area | State |
 |------|-------|
@@ -21,6 +21,7 @@
 | Sync notifications (one toast + save date, not 4) | ✅ v0.1.3, verified on device |
 | Per-game exclude globs + 200 MB upload cap (5e) | ✅ v0.1.4; depth-matching fix in v0.1.5 |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
+| Console Help KB (8 articles, search, deep-links) | ✅ done (2026-07-11, `be54374`) |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 
@@ -28,10 +29,9 @@ Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open wor
 
 ## Active backlog (priority order — see `Backlog.md`)
 1. **Device-verify 5e** on v0.1.5 (add `*.log` to a game → nested + root excluded; log-only change → no version). Both agents must be on the same version for consistent hashing.
-2. **Console Help page / Knowledge Base** — spec'd in `Backlog.md`: a `help` dashboard tab with curated Markdown articles (conflicts, syncing, multi-machine, glob patterns, troubleshooting). Static/bundled, no API changes. Not started.
-3. Scheduled GitHub installer auto-poll (follow-up to the manual fetch button)
-4. Code-sign the exe (SmartScreen warns for unsigned installers)
-5. Save-in-use safety (5 s debounce may be too short for some games)
+2. Scheduled GitHub installer auto-poll (follow-up to the manual fetch button)
+3. Code-sign the exe (SmartScreen warns for unsigned installers)
+4. Save-in-use safety (5 s debounce may be too short for some games)
 
 **Gotcha surfaced 2026-07-12:** with two agents, saves diverge → dashboard conflict when the pushing machine's known head ≠ current server head (another machine advanced it). A "behind" machine keeps conflicting until resolved (dashboard resolve → pull, or tray Force Pull); the agent doesn't auto-advance its parent on conflict. Version/glob skew between agents guarantees this — keep both agents identical. (This is the seed for the Help KB "Understanding conflicts" article.)
 
