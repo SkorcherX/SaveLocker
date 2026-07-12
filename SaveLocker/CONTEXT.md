@@ -4,7 +4,7 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.5 (releasing — glob patterns now match at any depth, gitignore-style). v0.1.4 shipped 5e glob filters; v0.1.1–0.1.3 verified on device. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
+**Current version:** v0.1.5 (released — glob patterns now match at any depth, gitignore-style; asset ProductVersion `0.1.5` verified). v0.1.4 shipped 5e glob filters; v0.1.1–0.1.3 verified on device. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
 
 ---
 
