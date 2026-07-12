@@ -4,7 +4,7 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.2 (tagged + pushed). All three v0.1.1 auto-update bugs **verified fixed on device** — v0.1.2 fully closed out.
+**Current version:** v0.1.3 (released — clean tag, asset ProductVersion `0.1.3` verified via `gh`). Ships the sync-toast reduction. v0.1.2 fully verified on device. Next: confirm the one-toast sync behavior on device.
 
 ---
 
@@ -18,7 +18,7 @@
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
 | Agent auto-update (release CI, server-hosted installer) | ✅ all 3 bugs verified on device |
 | Fetch installer from GitHub (dashboard button) | ✅ done (2026-07-11) |
-| Sync notifications (one toast + save date, not 4) | ✅ committed `777b9ab`, needs release + device check |
+| Sync notifications (one toast + save date, not 4) | ✅ shipped in v0.1.3; device check pending |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 
 **v0.1.1 bugs — all fixed, shipped in v0.1.2:**
@@ -33,7 +33,7 @@
 ---
 
 ## Active backlog (priority order)
-1. **Ship + verify sync-toast fix** (`777b9ab`) — tag a release and confirm on device: dashboard sync → one toast with save date; conflict still alerts
+1. **Verify sync-toast fix on device** (shipped in v0.1.3) — dashboard sync → one toast with save date; conflict still alerts
 2. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
 3. Code-sign the exe (SmartScreen warns for unsigned installers)
 4. Per-game glob filters (include/exclude file patterns before archiving)

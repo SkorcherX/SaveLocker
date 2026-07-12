@@ -4,7 +4,7 @@ Active items only. Completed work is in `logs/sessions.md`.
 
 ## Immediate — verify on device
 
-- **Sync toaster reduction** (committed `777b9ab`, not yet in a release) — a dashboard sync now fires **one** summary toast with the save timestamp instead of 4. Routine engine progress is log-only; only conflicts/blocked-pulls/offline-retries/lease warnings toast. Verify on device: dashboard sync → single toast; force a conflict → still alerts. Note: auto pre-launch/post-exit syncs are now silent on success too (by design — flag if unwanted).
+- **Sync toaster reduction** (shipped in **v0.1.3**, `777b9ab`) — a dashboard sync now fires **one** summary toast with the save timestamp instead of 4. Routine engine progress is log-only; only conflicts/blocked-pulls/offline-retries/lease warnings toast. Verify on device: dashboard sync → single toast; force a conflict → still alerts. Note: auto pre-launch/post-exit syncs are now silent on success too (by design — flag if unwanted).
 
 _v0.1.2 fully verified on device (2026-07-12): version display, silent auto-relaunch, and installer persistence across a Docker update all confirmed. See `logs/sessions.md`._
 
