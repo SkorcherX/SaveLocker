@@ -34,10 +34,18 @@ try {
 
 Write-Host '== Publishing agent (self-contained, single file) ==' -ForegroundColor Cyan
 $dotnet = Join-Path $env:ProgramFiles 'dotnet\dotnet.exe'
-# When an explicit version is provided (CI), stamp it directly into the assembly so the
-# running agent reports the correct version string regardless of MinVer's git access.
+# When an explicit version is provided (CI), stamp it into the assembly so the running
+# agent reports the correct version. MinVer assigns Version/FileVersion/AssemblyVersion
+# inside an MSBuild target, which overrides command-line --property globals, so those
+# never win. MinVerVersionOverride is MinVer's own escape hatch and stamps all version
+# fields consistently — including FileVersion, which UpdateChecker reads at runtime.
 if ($AppVersion) {
-    & $dotnet publish $agentProj -p:PublishProfile=win-x64 "--property:Version=$AppVersion" "--property:AssemblyVersion=$AppVersion" --nologo
+    $env:MinVerVersionOverride = $AppVersion
+    try {
+        & $dotnet publish $agentProj -p:PublishProfile=win-x64 --nologo
+    } finally {
+        Remove-Item Env:\MinVerVersionOverride -ErrorAction SilentlyContinue
+    }
 } else {
     & $dotnet publish $agentProj -p:PublishProfile=win-x64 --nologo
 }
