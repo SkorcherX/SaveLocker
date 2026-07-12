@@ -41,3 +41,22 @@ button:hover { opacity: 0.85; transition: opacity 0.1s; }
 a { text-decoration: none; color: inherit; }
 input::placeholder { color: #556070; }
 input:focus { border-color: #129271 !important; outline: none; }
+
+/* Help KB prose */
+.help-content { color: #ECEFF1; line-height: 1.75; }
+.help-content h1 { font-size: 20px; font-weight: 700; margin-bottom: 16px; color: #ECEFF1; }
+.help-content h2 { font-size: 14px; font-weight: 600; margin: 24px 0 8px; color: #ECEFF1; text-transform: uppercase; letter-spacing: 0.06em; }
+.help-content h3 { font-size: 13px; font-weight: 600; margin: 18px 0 6px; color: #8b9aaa; }
+.help-content p  { font-size: 13px; margin-bottom: 12px; color: #cbd5e1; }
+.help-content ul, .help-content ol { font-size: 13px; margin: 0 0 12px 20px; color: #cbd5e1; }
+.help-content li { margin-bottom: 4px; }
+.help-content strong { color: #ECEFF1; font-weight: 600; }
+.help-content code { font-family: 'JetBrains Mono', monospace; font-size: 11px; background: #1E252A; border: 1px solid #494949; border-radius: 3px; padding: 1px 5px; color: #86efac; }
+.help-content pre  { background: #1E252A; border: 1px solid #494949; border-radius: 5px; padding: 12px 14px; overflow-x: auto; margin-bottom: 14px; }
+.help-content pre code { background: none; border: none; padding: 0; font-size: 12px; color: #86efac; }
+.help-content blockquote { border-left: 3px solid #129271; margin: 12px 0; padding: 6px 14px; background: #1E252A; border-radius: 0 4px 4px 0; font-size: 13px; color: #8b9aaa; }
+.help-content table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 12px; }
+.help-content th { background: #222d34; color: #8b9aaa; font-weight: 600; padding: 6px 10px; text-align: left; border-bottom: 1px solid #494949; }
+.help-content td { padding: 6px 10px; border-bottom: 1px solid #252e35; color: #cbd5e1; }
+.help-content a { color: #129271; text-decoration: underline; }
+.help-content a:hover { color: #16b992; }

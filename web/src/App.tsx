@@ -5,8 +5,9 @@ import { NavBar } from './components/NavBar';
 import { GamesView } from './components/GamesView';
 import { ConfigView } from './components/ConfigView';
 import { AuditView } from './components/AuditView';
+import { HelpView } from './components/HelpView';
 
-type View = 'games' | 'config' | 'audit';
+type View = 'games' | 'config' | 'audit' | 'help';
 
 interface AppData {
   games: GameSummary[];
@@ -19,6 +20,7 @@ interface AppData {
 function getInitialView(): View {
   if (location.hash === '#config') return 'config';
   if (location.hash === '#audit') return 'audit';
+  if (location.hash.startsWith('#help')) return 'help';
   return 'games';
 }
 
@@ -52,12 +54,23 @@ export default function App() {
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
+    function onHash() {
+      if (location.hash.startsWith('#help')) setView('help');
+    }
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  useEffect(() => {
     const id = setInterval(load, 15000);
     return () => clearInterval(id);
   }, [load]);
 
   useEffect(() => {
-    location.hash = view === 'config' ? 'config' : view === 'audit' ? 'audit' : '';
+    if (view === 'config') location.hash = 'config';
+    else if (view === 'audit') location.hash = 'audit';
+    else if (view === 'help') { if (!location.hash.startsWith('#help')) location.hash = 'help'; }
+    else location.hash = '';
   }, [view]);
 
   async function handleAddGame() {
@@ -77,7 +90,7 @@ export default function App() {
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <NavBar
         view={view}
-        onViewChange={v => { setView(v); if (!data) load(); }}
+        onViewChange={v => { setView(v); if (!data && v !== 'help') load(); }}
         onConnect={load}
         onAddGame={handleAddGame}
         onRefresh={load}
@@ -100,7 +113,13 @@ export default function App() {
         </div>
       )}
 
-      {data && (
+      {view === 'help' && (
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <HelpView />
+        </div>
+      )}
+
+      {data && view !== 'help' && (
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
           {view === 'games'
             ? <GamesView

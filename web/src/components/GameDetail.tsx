@@ -246,6 +246,8 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
       {conflict && (
         <div style={{ background: '#241a1a', border: '1px solid #4a2a2a', borderRadius: 8, padding: '10px 12px' }}>
           <b style={{ color: '#f4a60d' }}>Conflict — choose the version to keep:</b>
+          {' '}
+          <a href="#help/conflicts" style={{ fontSize: 11, color: '#129271', textDecoration: 'underline' }}>Why did this happen?</a>
           <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
             {[conflict.versionAId, conflict.versionBId].map(vid => {
               const v = versions.find(x => x.id === vid);
