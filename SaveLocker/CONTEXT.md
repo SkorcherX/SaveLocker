@@ -4,11 +4,11 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.3 (released + **verified on device** — agent UI shows `0.1.3`; dashboard sync produces a single toast). v0.1.2 also fully verified. No open verification tasks.
+**Current version:** v0.1.4 (tag pushed — ships 5e glob filters; release CI building). v0.1.1/0.1.2/0.1.3 fully verified on device. Recently-shipped work is indexed in `logs/shipped-2026-07.md`.
 
 ---
 
-## Status (2026-07-12) — v0.1.2 fully verified; sync-toast fix uncommitted-to-release
+## Status (2026-07-12)
 
 | Area | State |
 |------|-------|
@@ -16,26 +16,19 @@
 | Game scanning (Steam VDF + Ludusavi) | ✅ done |
 | Server (REST API, EF/SQLite, leases, conflicts) | ✅ done |
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
-| Agent auto-update (release CI, server-hosted installer) | ✅ all 3 bugs verified on device |
-| Fetch installer from GitHub (dashboard button) | ✅ done (2026-07-11) |
-| Sync notifications (one toast + save date, not 4) | ✅ shipped in v0.1.3, verified on device |
-| Per-game exclude globs + 200 MB upload cap (5e) | ✅ built + API verified live; on `main`, needs release for agent runtime |
+| Agent auto-update (version, silent relaunch, installer persistence) | ✅ verified on device (v0.1.2) |
+| Fetch installer from GitHub — manual dashboard button | ✅ done (2026-07-11) |
+| Sync notifications (one toast + save date, not 4) | ✅ v0.1.3, verified on device |
+| Per-game exclude globs + 200 MB upload cap (5e) | ✅ v0.1.4; API-verified live, agent device check pending |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 
-**v0.1.1 bugs — all fixed, shipped in v0.1.2:**
-1. **Agent UI version wrong** — showed `0.0.0` then `0.1.0`. Real cause: MinVer assigns Version/FileVersion/AssemblyVersion **inside an MSBuild target**, which overrides command-line `--property` globals, so no `--property` ever won. Fixed with `MinVerVersionOverride` env var in `build-installer.ps1` (stamps all fields) + `UpdateChecker` now reads `FileVersion` via `Environment.ProcessPath` instead of `AssemblyVersion`. **✅ Verified on device — tray header shows `0.1.2`.**
-2. **No auto-relaunch after silent update** — `skipifsilent` removed from `SaveLocker.iss [Run]`. **✅ Verified on device** — agent restarts silently after update.
-3. **Uploaded installer lost on Docker update** — added `"AgentInstallerRoot": "/data/agent-installer"` to `appsettings.json` `Storage`. **✅ Verified on device** — installer survives `docker compose pull && up -d`.
-
-**Sync toaster reduction (`777b9ab`, 2026-07-12):** dashboard sync fired 4 toasts (pull, push, folder-watcher auto-push, summary). Fixed by splitting `SyncEngine`'s callback into `log` (agent.log, always) and `notify` (toast); routine progress is log-only, only conflicts/blocks/offline-retries/lease warnings toast. Dashboard commands emit one summary with the save timestamp. Pre-launch/post-exit auto-syncs are now silent on success too (by design). Not yet in a tagged release.
-
-**⚠️ v0.1.2 was force-retagged** onto the fix commits (tag moved 3×). The GitHub Release object couldn't be regenerated from here (no `gh`/token) — CI overwrites the installer asset, but the release *notes* may be stale.
+Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 
 ---
 
-## Active backlog (priority order)
-1. **Release agent build with 5e** (glob filters) — cut a tag so the agent runtime applies excludes; then device-verify (add `*.log` to a game, confirm it's not archived and a log-only change doesn't create a version). Server/dashboard side already works after Docker redeploy.
-2. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
+## Active backlog (priority order — see `Backlog.md`)
+1. **Device-verify 5e** once v0.1.4 installs (add `*.log` to a game → not archived; log-only change → no version)
+2. Scheduled GitHub installer auto-poll (follow-up to the manual fetch button)
 3. Code-sign the exe (SmartScreen warns for unsigned installers)
 4. Save-in-use safety (5 s debounce may be too short for some games)
 

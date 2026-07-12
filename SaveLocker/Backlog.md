@@ -1,17 +1,14 @@
 # Backlog
 
-Active items only. Completed work is in `logs/sessions.md`.
+Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
+(full detail in `logs/sessions.md`).
 
-## Immediate — verify on device
-
-- **Sync toaster reduction** (shipped in **v0.1.3**, `777b9ab`) — a dashboard sync now fires **one** summary toast with the save timestamp instead of 4. Routine engine progress is log-only; only conflicts/blocked-pulls/offline-retries/lease warnings toast. Verify on device: dashboard sync → single toast; force a conflict → still alerts. Note: auto pre-launch/post-exit syncs are now silent on success too (by design — flag if unwanted).
-
-_v0.1.2 fully verified on device (2026-07-12): version display, silent auto-relaunch, and installer persistence across a Docker update all confirmed. See `logs/sessions.md`._
+## Immediate
+- **Device-verify 5e (glob filters)** once v0.1.4 installs — add `*.log` to a game, sync, confirm the log isn't in the archive and a log-only change creates no new version. (Server/dashboard side already live after Docker redeploy.)
 
 ## High priority
-- **Scheduled GitHub installer auto-poll** — the manual "Fetch latest from GitHub" button shipped (2026-07-11). Follow-up: a background service that periodically polls the GitHub Releases API and auto-fetches a newer installer (opt-in via config, e.g. `AgentUpdate:AutoFetchHours`). Mirror `LeaseSweeperService`'s `BackgroundService` + `IServiceScopeFactory` pattern; reuse `AgentInstallerService.FetchLatestFromGitHubAsync`.
+- **Scheduled GitHub installer auto-poll** — follow-up to the shipped manual "Fetch latest from GitHub" button. A background service that periodically polls the GitHub Releases API and auto-fetches a newer installer (opt-in via config, e.g. `AgentUpdate:AutoFetchHours`). Mirror `LeaseSweeperService`'s `BackgroundService` + `IServiceScopeFactory` pattern; reuse `AgentInstallerService.FetchLatestFromGitHubAsync`.
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
-- ✅ **Per-game glob filters + upload cap (5e)** — **shipped to `main` 2026-07-12** (exclude-only; global defaults `Sync:DefaultExcludeGlobs` + per-game; 200 MB `Storage:MaxUploadMb`). Same filter drives archive + hash. API verified live. **Still needs an agent release** for the runtime to apply excludes, then device verification. See `logs/002_glob_filters.md`.
 
 ## Medium priority
 - **Save-in-use safety** — auto-push on process-exit uses a 5 s quiet-period debounce. Some games write saves for several seconds after exit, risking a partial archive. Options: longer debounce, file-lock polling, or a user-configurable delay per game.
