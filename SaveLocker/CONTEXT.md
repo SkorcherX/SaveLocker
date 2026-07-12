@@ -4,7 +4,7 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.3 (released — clean tag, asset ProductVersion `0.1.3` verified via `gh`). Ships the sync-toast reduction. v0.1.2 fully verified on device. Next: confirm the one-toast sync behavior on device.
+**Current version:** v0.1.3 (released + **verified on device** — agent UI shows `0.1.3`; dashboard sync produces a single toast). v0.1.2 also fully verified. No open verification tasks.
 
 ---
 
@@ -18,7 +18,7 @@
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
 | Agent auto-update (release CI, server-hosted installer) | ✅ all 3 bugs verified on device |
 | Fetch installer from GitHub (dashboard button) | ✅ done (2026-07-11) |
-| Sync notifications (one toast + save date, not 4) | ✅ shipped in v0.1.3; device check pending |
+| Sync notifications (one toast + save date, not 4) | ✅ shipped in v0.1.3, verified on device |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 
 **v0.1.1 bugs — all fixed, shipped in v0.1.2:**
@@ -33,10 +33,10 @@
 ---
 
 ## Active backlog (priority order)
-1. **Verify sync-toast fix on device** (shipped in v0.1.3) — dashboard sync → one toast with save date; conflict still alerts
-2. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
-3. Code-sign the exe (SmartScreen warns for unsigned installers)
-4. Per-game glob filters (include/exclude file patterns before archiving)
+1. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
+2. Code-sign the exe (SmartScreen warns for unsigned installers)
+3. Per-game glob filters + upload size cap (hygiene 5e — include/exclude patterns applied to both archive AND hash; raise the 30 MB game-upload limit)
+4. Save-in-use safety (5 s debounce may be too short for some games)
 
 See `Backlog.md` for the full list.
 
