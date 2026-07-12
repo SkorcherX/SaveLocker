@@ -174,7 +174,7 @@ public sealed class CommandPoller : IDisposable
             {
                 var result = await ExecuteAsync(cmd);
                 await _api().ReportCommandAsync(cmd.Id, CommandStatus.Done, result);
-                _notify($"{cmd.Type} (from dashboard): {result}");
+                _notify(result);
             }
             catch (Exception ex)
             {
@@ -201,7 +201,6 @@ public sealed class CommandPoller : IDisposable
             return "no matching mapped game on this machine.";
 
         var engine = _engine();
-        var n = 0;
         foreach (var g in targets)
         {
             switch (cmd.Type)
@@ -217,9 +216,35 @@ public sealed class CommandPoller : IDisposable
                     await engine.PushAsync(g, cmd.Force);
                     break;
             }
-            n++;
         }
-        return $"{cmd.Type.ToString().ToLowerInvariant()}ed {n} game(s).";
+
+        // One concise summary (the per-step engine progress goes to the log, not toasts).
+        // For a single game, include the save's timestamp so the user can confirm it's current.
+        var verb = cmd.Type.ToString().ToLowerInvariant() + "ed";
+        if (targets.Count == 1)
+        {
+            var save = LatestSaveTimestamp(targets[0].SaveDirectory);
+            return save is { } d
+                ? $"{targets[0].Name} {verb} — latest save {d:MMM d, h:mm tt}"
+                : $"{targets[0].Name} {verb}.";
+        }
+        return $"{verb} {targets.Count} games.";
+    }
+
+    /// <summary>Newest last-write time among a game's save files, or null if none/unreadable.</summary>
+    private static DateTime? LatestSaveTimestamp(string dir)
+    {
+        try
+        {
+            DateTime? newest = null;
+            foreach (var f in Directory.EnumerateFiles(dir, "*", SearchOption.AllDirectories))
+            {
+                var t = File.GetLastWriteTime(f);
+                if (newest is null || t > newest) newest = t;
+            }
+            return newest;
+        }
+        catch { return null; }
     }
 
     /// <summary>Mapped games matching the command's target (skips unmapped ones).</summary>

@@ -132,7 +132,7 @@ internal sealed class TrayContext : ApplicationContext
     private void RebuildEngine()
     {
         var api = new ApiClient(_config.ServerUrl, _config.ApiKey);
-        _engine = new SyncEngine(_config, api, msg => { Notify(msg); AgentLogger.Log(msg); }, _offlineQueue);
+        _engine = new SyncEngine(_config, api, log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue);
     }
 
     private void RebuildMenu()
@@ -147,8 +147,16 @@ internal sealed class TrayContext : ApplicationContext
         {
             var game = g;
             var sub = new ToolStripMenuItem(game.Name);
-            sub.DropDownItems.Add("Force Pull (get latest)", null, (_, _) => FireAndForget(() => _engine.PullAsync(game, force: true)));
-            sub.DropDownItems.Add("Force Push (send mine)", null, (_, _) => FireAndForget(() => _engine.PushAsync(game, force: true)));
+            sub.DropDownItems.Add("Force Pull (get latest)", null, (_, _) => FireAndForget(async () =>
+            {
+                await _engine.PullAsync(game, force: true);
+                Notify($"{game.Name}: force-pulled latest save.");
+            }));
+            sub.DropDownItems.Add("Force Push (send mine)", null, (_, _) => FireAndForget(async () =>
+            {
+                await _engine.PushAsync(game, force: true);
+                Notify($"{game.Name}: force-pushed local save.");
+            }));
             menu.Items.Add(sub);
         }
         if (_config.Games.Count > 0)

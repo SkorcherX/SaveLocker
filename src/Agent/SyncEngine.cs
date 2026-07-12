@@ -13,20 +13,27 @@ public sealed class SyncEngine
     private readonly AgentConfig _config;
     private readonly ApiClient _api;
     private readonly Action<string> _log;
+    private readonly Action<string> _notify;
     private readonly string _tempDir;
     private readonly OfflineQueue? _offlineQueue;
     private readonly TimeSpan _leaseRenewInterval = TimeSpan.FromHours(3);
     private readonly Dictionary<Guid, System.Threading.Timer> _leaseTimers = new();
 
-    public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, OfflineQueue? offlineQueue = null)
+    /// <param name="log">Routine progress — written to the agent log only.</param>
+    /// <param name="notify">User-facing alerts (conflicts, blocks, offline retries). Both notified and logged.</param>
+    public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, Action<string>? notify = null, OfflineQueue? offlineQueue = null)
     {
         _config = config;
         _api = api;
         _log = log ?? (_ => { });
+        _notify = notify ?? (_ => { });
         _offlineQueue = offlineQueue;
         _tempDir = Path.Combine(AgentConfig.DefaultDir, "tmp");
         Directory.CreateDirectory(_tempDir);
     }
+
+    /// <summary>An event the user should see as a toast — also written to the log.</summary>
+    private void Alert(string msg) { _log(msg); _notify(msg); }
 
     /// <summary>Upload local saves to the server. Returns the upload outcome.</summary>
     public async Task<UploadResult?> PushAsync(TrackedGame game, bool force = false, CancellationToken ct = default)
@@ -66,7 +73,7 @@ public sealed class SyncEngine
                     _log($"[{game.Name}] server already had this content.");
                     break;
                 case UploadStatus.Conflict:
-                    _log($"[{game.Name}] CONFLICT: your save diverged from the server. " +
+                    Alert($"[{game.Name}] CONFLICT: your save diverged from the server. " +
                          "Resolve it in the dashboard.");
                     break;
             }
@@ -75,14 +82,14 @@ public sealed class SyncEngine
         }
         catch (HttpRequestException ex) when (!ct.IsCancellationRequested)
         {
-            _log($"[{game.Name}] server unreachable — queued for retry. ({ex.Message})");
+            Alert($"[{game.Name}] server unreachable — queued for retry. ({ex.Message})");
             _offlineQueue?.Enqueue(game.GameId, game.Name, force);
             return null;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // HttpClient internal timeout fired (not a user cancellation).
-            _log($"[{game.Name}] upload timed out — queued for retry.");
+            Alert($"[{game.Name}] upload timed out — queued for retry.");
             _offlineQueue?.Enqueue(game.GameId, game.Name, force);
             return null;
         }
@@ -123,7 +130,7 @@ public sealed class SyncEngine
             var hasUnsyncedLocal = HasLocalData(game.SaveDirectory) && localHash != game.LastSyncedHash;
             if (hasUnsyncedLocal && !force)
             {
-                _log($"[{game.Name}] BLOCKED pull: local saves have changes not yet pushed and " +
+                Alert($"[{game.Name}] BLOCKED pull: local saves have changes not yet pushed and " +
                      "would be overwritten. Push first (your progress becomes the server version), " +
                      "or force-pull to discard local and take the server copy.");
                 return false;
@@ -157,7 +164,7 @@ public sealed class SyncEngine
         if (!lease.Granted)
         {
             var holder = lease.Lease.HolderMachineName;
-            _log($"[{game.Name}] WARNING: saves are checked out by '{holder}'. " +
+            Alert($"[{game.Name}] WARNING: saves are checked out by '{holder}'. " +
                  "Launched without pulling — a conflict may occur on exit.");
             return (false, holder);
         }
