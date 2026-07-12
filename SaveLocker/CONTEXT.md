@@ -4,7 +4,7 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.2 (tagged + pushed). Version-display bug **verified fixed on device** (tray shows `0.1.2`). Two auto-update bugs still need on-device verification — see `Backlog.md`.
+**Current version:** v0.1.2 (tagged + pushed). Version-display + silent auto-relaunch **verified fixed on device**. Only installer persistence across a Docker update remains to verify — see `Backlog.md`.
 
 ---
 
@@ -16,13 +16,13 @@
 | Game scanning (Steam VDF + Ludusavi) | ✅ done |
 | Server (REST API, EF/SQLite, leases, conflicts) | ✅ done |
 | Admin dashboard (React + Tailwind, baked into Docker) | ✅ done |
-| Agent auto-update (release CI, server-hosted installer) | ⚠️ version display ✅ verified; auto-relaunch + persistence still to verify |
+| Agent auto-update (release CI, server-hosted installer) | ⚠️ version display + auto-relaunch ✅ verified; installer persistence still to verify |
 | Fetch installer from GitHub (dashboard button) | ✅ done (2026-07-11) |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 
 **v0.1.1 bugs — all fixed, shipped in v0.1.2:**
 1. **Agent UI version wrong** — showed `0.0.0` then `0.1.0`. Real cause: MinVer assigns Version/FileVersion/AssemblyVersion **inside an MSBuild target**, which overrides command-line `--property` globals, so no `--property` ever won. Fixed with `MinVerVersionOverride` env var in `build-installer.ps1` (stamps all fields) + `UpdateChecker` now reads `FileVersion` via `Environment.ProcessPath` instead of `AssemblyVersion`. **✅ Verified on device — tray header shows `0.1.2`.**
-2. **No auto-relaunch after silent update** — `skipifsilent` removed from `SaveLocker.iss [Run]`. Still unverified end-to-end.
+2. **No auto-relaunch after silent update** — `skipifsilent` removed from `SaveLocker.iss [Run]`. **✅ Verified on device** — agent restarts silently after update.
 3. **Uploaded installer lost on Docker update** — added `"AgentInstallerRoot": "/data/agent-installer"` to `appsettings.json` `Storage`.
 
 **⚠️ v0.1.2 was force-retagged** onto the fix commits (tag moved 3×). The GitHub Release object couldn't be regenerated from here (no `gh`/token) — CI overwrites the installer asset, but the release *notes* may be stale.
@@ -30,7 +30,7 @@
 ---
 
 ## Active backlog (priority order)
-1. **Finish v0.1.2 verification** — version display ✅ done; still test silent auto-relaunch + installer persistence across Docker update (see `Backlog.md`)
+1. **Finish v0.1.2 verification** — version display ✅ + auto-relaunch ✅ done; only installer persistence across Docker update left (see `Backlog.md`)
 2. Scheduled GitHub installer auto-poll (background follow-up to the manual fetch button)
 3. Code-sign the exe (SmartScreen warns for unsigned installers)
 4. Per-game glob filters (include/exclude file patterns before archiving)
