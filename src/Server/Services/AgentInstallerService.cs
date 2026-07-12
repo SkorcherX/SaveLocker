@@ -68,7 +68,8 @@ public class AgentInstallerService
     /// (<c>AgentUpdate:GitHubRepo</c>) and stores it as the hosted installer — automating the
     /// otherwise-manual download-from-GitHub-then-upload step. Throws if no matching asset exists.
     /// </summary>
-    public async Task<AgentInstallerStatus> FetchLatestFromGitHubAsync(HttpClient http, CancellationToken ct)
+    public async Task<AgentInstallerStatus> FetchLatestFromGitHubAsync(
+        HttpClient http, CancellationToken ct, bool onlyIfNewer = false)
     {
         using var meta = new HttpRequestMessage(
             HttpMethod.Get, $"https://api.github.com/repos/{_githubRepo}/releases/latest");
@@ -98,6 +99,14 @@ public class AgentInstallerService
             throw new InvalidOperationException(
                 $"Latest release of {_githubRepo} has no SaveLocker-Agent-Setup-*.exe asset.");
 
+        // The scheduled poll still needs to inspect release metadata, but should not
+        // repeatedly download the same installer on every interval. Manual fetches
+        // retain their original force-refresh behavior.
+        var current = GetInfo();
+        if (onlyIfNewer && current is not null && GetInstallerPath() is not null &&
+            !IsNewerVersion(version, current.Version))
+            return current;
+
         using var dl = new HttpRequestMessage(HttpMethod.Get, assetUrl);
         dl.Headers.UserAgent.ParseAdd("SaveLocker-Server");
         using var dlResp = await http.SendAsync(dl, HttpCompletionOption.ResponseHeadersRead, ct);
@@ -105,6 +114,30 @@ public class AgentInstallerService
 
         await using var stream = await dlResp.Content.ReadAsStreamAsync(ct);
         return await SaveAsync(stream, version, assetName, ct);
+    }
+
+    private static bool IsNewerVersion(string candidate, string current)
+    {
+        var candidateVersion = ParseVersion(candidate);
+        var currentVersion = ParseVersion(current);
+        if (candidateVersion is not null && currentVersion is not null)
+            return candidateVersion > currentVersion;
+
+        // Release tags are expected to be semver-like. If either value is not,
+        // only an exact match is considered current so a malformed new tag can
+        // still be surfaced instead of silently ignored.
+        return !string.Equals(
+            candidate.Trim().TrimStart('v', 'V'),
+            current.Trim().TrimStart('v', 'V'),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static Version? ParseVersion(string value)
+    {
+        var normalized = value.Trim().TrimStart('v', 'V');
+        var suffix = normalized.IndexOfAny(['-', '+']);
+        if (suffix >= 0) normalized = normalized[..suffix];
+        return Version.TryParse(normalized, out var parsed) ? parsed : null;
     }
 
     /// <summary>Returns the on-disk path to the hosted installer, or null if none is present.</summary>

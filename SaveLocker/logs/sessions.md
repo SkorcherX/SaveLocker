@@ -5,6 +5,15 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-12 — Scheduled GitHub installer auto-poll
+
+- Added `AgentInstallerPollerService`, a server `BackgroundService` following the existing `IServiceScopeFactory` scheduler pattern.
+- Added opt-in `AgentUpdate:AutoFetchHours` (`0` by default; Docker env form: `AgentUpdate__AutoFetchHours`). Enabled schedules check immediately at startup, then at the configured hour interval.
+- Reused `AgentInstallerService.FetchLatestFromGitHubAsync` with an `onlyIfNewer` mode so metadata is polled without repeatedly downloading the same installer. Manual dashboard fetches retain force-refresh behavior.
+- Verified with `dotnet build src/Server/SaveLocker.Server.csproj --no-incremental` (0 warnings, 0 errors) and an isolated startup smoke check showing the scheduler disabled by default. The smoke host later hit a local Windows Event Log permission failure unrelated to the feature.
+
+---
+
 ## 2026-07-12 (session 2) — Per-game exclude globs + upload cap (hygiene 5e)
 
 **Commits:** `1b571f8` (Shared), `d28b635` (server), `bd39588` (agent), `5e7e273` (web). Task brief: `logs/002_glob_filters.md`.

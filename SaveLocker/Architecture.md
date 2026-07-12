@@ -26,6 +26,7 @@ Hub-and-spoke (not peer-to-peer). See `Decisions.md` for why unRAID is the keyst
 - `Services/ArchiveStore.cs` — archive files on disk: `{root}/{gameId}/{versionId}.zip`.
 - `Services/BackupService.cs` — nightly SQLite snapshots (`BackupScheduler` + `VACUUM INTO`, WAL-safe) with retention; the DB is the version graph, so it has its own on-box backup (`/data/backups`). See `API Reference.md`.
 - `Services/AgentInstallerService.cs` — stores the agent installer binary on disk (`Storage:AgentInstallerRoot`, default `data/agent-installer/`) with a sidecar `installer-info.json`. `GET /api/agent/latest` checks here first; admin endpoints let the dashboard upload/delete/stream the installer. See **Agent auto-update** below.
+- `Services/AgentInstallerPollerService.cs` — optional `BackgroundService` that checks the configured GitHub release at the `AgentUpdate:AutoFetchHours` interval and refreshes the hosted installer only when a newer release is available.
 - `Services/LeaseSweeperService.cs` — `BackgroundService` that runs hourly via `IServiceScopeFactory` and sweeps leases where `ExpiresAt < UtcNow`.
 - `Services/SettingsService.cs` — DB-backed key/value store (`AppSetting` entity). DB value overrides `IConfiguration` (appsettings/env); used for SteamGridDB key and admin password hash.
 - **OpenAPI** — `AddOpenApi()`/`MapOpenApi()` serve `/openapi/v1.json`; Swagger UI at `/swagger`. The web dashboard's types are generated from this doc (`openapi-typescript` → `web/src/api-types.ts`).

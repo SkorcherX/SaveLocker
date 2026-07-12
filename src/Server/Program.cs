@@ -37,6 +37,7 @@ builder.Services.AddSingleton(new BackupOptions
 builder.Services.AddSingleton<BackupService>();
 builder.Services.AddHostedService<BackupScheduler>();
 builder.Services.AddHostedService<LeaseSweeperService>();
+builder.Services.AddHostedService<AgentInstallerPollerService>();
 
 builder.Services.AddSingleton<ArchiveStore>();
 builder.Services.AddSingleton<AgentInstallerService>();

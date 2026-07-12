@@ -7,7 +7,6 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 - **Device-verify 5e (glob filters)** once v0.1.4 installs — add `*.log` to a game, sync, confirm the log isn't in the archive and a log-only change creates no new version. (Server/dashboard side already live after Docker redeploy.)
 
 ## High priority
-- **Scheduled GitHub installer auto-poll** — follow-up to the shipped manual "Fetch latest from GitHub" button. A background service that periodically polls the GitHub Releases API and auto-fetches a newer installer (opt-in via config, e.g. `AgentUpdate:AutoFetchHours`). Mirror `LeaseSweeperService`'s `BackgroundService` + `IServiceScopeFactory` pattern; reuse `AgentInstallerService.FetchLatestFromGitHubAsync`.
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
 
 ## Medium priority

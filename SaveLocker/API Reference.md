@@ -62,6 +62,12 @@ Server endpoints (`src/Server/Program.cs`).
 - `POST /api/admin/agent-installer?version={v}` — multipart `file` field (`.exe`). Stores installer + sidecar JSON; replaces any previous. Returns `AgentInstallerStatus`. Body limit: 200 MB.
 - `DELETE /api/admin/agent-installer` → 204. Removes the hosted installer; agents stop being offered updates.
 
+The server can optionally keep the hosted installer current from GitHub by setting
+`AgentUpdate:AutoFetchHours` (for Docker: `AgentUpdate__AutoFetchHours`). A positive
+number enables an immediate check at startup followed by checks at that many hours;
+`0` or an omitted value disables the scheduler. The scheduler only downloads when the
+GitHub release is newer than the hosted installer.
+
 ## Agent installer download (public)
 - `GET /api/agent/installer/download` — streams the hosted installer binary. No auth. 404 if none hosted.
 
