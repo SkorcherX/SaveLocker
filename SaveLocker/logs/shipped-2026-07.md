@@ -15,3 +15,8 @@ quick "what shipped, where" index.
 
 Note: the **scheduled/automatic** GitHub installer auto-poll is a follow-up to the
 shipped manual button and remains open in `Backlog.md`.
+
+## Dropped from backlog — won't do (2026-07-12)
+
+- **SteamGridDB key in agent UI** — the agent tray UI displays no game cover art (only the app logo); art is fetched server-side and shown only in the web dashboard. No plan to add art to the agent UI, so there's nothing for the key to power there. Console/dashboard config is sufficient.
+- **CloudFlare Access / remote-access hardening** — SaveLocker is a LAN-only self-hosted tool by design. Exposing it over the internet is the operator's responsibility (Tailscale or another secure tunnel); we won't build in remote-access hardening or work around Cloudflare Tunnel's file-size limit.
