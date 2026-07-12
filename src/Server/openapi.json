@@ -567,6 +567,42 @@
         }
       }
     },
+    "/api/games/{id}/excludes": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/games/{id}/versions/{versionId}": {
       "delete": {
         "tags": [
@@ -1700,6 +1736,14 @@
             "format": "int32",
             "default": null,
             "nullable": true
+          },
+          "excludeGlobs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
+            "nullable": true
           }
         }
       },
@@ -2004,6 +2048,14 @@
           },
           "adminPasswordSet": {
             "type": "boolean"
+          },
+          "defaultExcludeGlobs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": null,
+            "nullable": true
           }
         }
       },

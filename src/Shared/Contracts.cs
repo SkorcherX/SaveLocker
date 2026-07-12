@@ -29,7 +29,10 @@ public record GameDto(
     string? HeroUrl = null,
     string? LogoUrl = null,
     string? IconUrl = null,
-    int? RetainVersions = null);
+    int? RetainVersions = null,
+    // Dashboard endpoints carry the game's own patterns; the agent /games endpoint
+    // carries the effective set (global defaults ∪ per-game) that agents apply.
+    string[]? ExcludeGlobs = null);
 
 /// <summary>A specific machine's stored save path for one game.</summary>
 public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);
@@ -47,7 +50,8 @@ public record ServerSettingsDto(
     bool SteamGridDbConfigured,
     string? SteamGridDbKeyMasked,
     bool SteamGridDbFromConfig,
-    bool AdminPasswordSet);
+    bool AdminPasswordSet,
+    string[]? DefaultExcludeGlobs = null);
 
 /// <summary>Status of the agent installer binary hosted on this server.</summary>
 public record AgentInstallerStatus(

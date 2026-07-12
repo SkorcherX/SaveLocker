@@ -40,6 +40,10 @@ public class Game
     /// <summary>How many versions to keep for this game. Null = use the server global default.</summary>
     public int? RetainVersions { get; set; }
 
+    /// <summary>Newline-separated per-game exclude globs (e.g. <c>*.log</c>). Applied on top
+    /// of the server global defaults when agents hash + archive this game's saves.</summary>
+    public string? ExcludeGlobs { get; set; }
+
     /// <summary>The current authoritative version agents should pull. Null until first upload.</summary>
     public Guid? HeadVersionId { get; set; }
 

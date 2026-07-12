@@ -448,6 +448,17 @@ public sealed class SyncService
         return true;
     }
 
+    /// <summary>Set (or clear) a game's per-game exclude globs. Takes effect on agents' next reconcile.</summary>
+    public async Task<bool> SetExcludeGlobsAsync(Guid gameId, IEnumerable<string> patterns)
+    {
+        var game = await _db.Games.FindAsync(gameId);
+        if (game is null) return false;
+        game.ExcludeGlobs = GlobConfig.Join(patterns);
+        await Audit(null, gameId, "game.excludes", GlobConfig.Parse(game.ExcludeGlobs).Length + " pattern(s)");
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     /// <summary>
     /// Delete a single version by id. Refuses to delete the current head or any version
     /// referenced by an open conflict. Returns (true, null) on success or (false, reason).

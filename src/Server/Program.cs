@@ -199,12 +199,14 @@ app.MapGet("/api/admin/status", async (SettingsService settings) =>
 var agent = app.MapGroup("/api").AddEndpointFilter<ApiKeyFilter>();
 
 // Include this machine's stored save path in each game so the agent can use it in reconcile.
-agent.MapGet("/games", async (HttpContext http, SyncService sync) =>
+agent.MapGet("/games", async (HttpContext http, SyncService sync, IConfiguration cfg) =>
 {
     var machine = http.CurrentMachine();
     var games = await sync.ListGamesAsync();
     var pathMap = await sync.GetMachinePathMapAsync(machine.Id);
-    return Results.Ok(games.Select(g => g.ToDtoWithPath(pathMap.GetValueOrDefault(g.Id))));
+    // Agents receive the effective exclude set (global defaults ∪ per-game) to apply.
+    return Results.Ok(games.Select(g => g.ToDtoWithPath(pathMap.GetValueOrDefault(g.Id))
+        with { ExcludeGlobs = GlobConfig.Effective(cfg, g.ExcludeGlobs) }));
 }).Produces<List<GameDto>>();
 
 // ---- Leases (agent) ----
@@ -226,11 +228,16 @@ agent.MapPost("/games/{id:guid}/lease/renew", async (Guid id, HttpContext http, 
 
 // ---- Upload / download (agent) ----
 agent.MapPost("/games/{id:guid}/upload", async (
-    Guid id, HttpContext http, SyncService sync,
+    Guid id, HttpContext http, SyncService sync, IConfiguration cfg,
     string hash, Guid? parent, bool? force, CancellationToken ct) =>
 {
     if (string.IsNullOrWhiteSpace(hash))
         return Results.BadRequest("Missing content hash.");
+
+    // Lift Kestrel's 30 MB default to the configured save-upload cap (default 200 MB).
+    var sizeCap = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (sizeCap is { IsReadOnly: false })
+        sizeCap.MaxRequestBodySize = (long)(cfg.GetValue<int?>("Storage:MaxUploadMb") ?? 200) * 1024 * 1024;
 
     var machine = http.CurrentMachine();
     var result = await sync.UploadAsync(id, machine.Id, parent, hash, http.Request.Body, force ?? false, ct);
@@ -317,6 +324,9 @@ admin.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, SyncSe
 
 admin.MapPost("/games/{id:guid}/retain", async (Guid id, int? value, SyncService sync) =>
     await sync.SetGameRetentionAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+admin.MapPost("/games/{id:guid}/excludes", async (Guid id, string[] patterns, SyncService sync) =>
+    await sync.SetExcludeGlobsAsync(id, patterns) ? Results.Ok() : Results.NotFound());
 
 admin.MapDelete("/games/{id:guid}/versions/{versionId:guid}", async (Guid id, Guid versionId, SyncService sync) =>
 {

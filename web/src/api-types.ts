@@ -768,6 +768,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/games/{id}/excludes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": string[];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/games/{id}/versions/{versionId}": {
         parameters: {
             query?: never;
@@ -1792,6 +1831,8 @@ export interface components {
              * @default null
              */
             retainVersions: number | null;
+            /** @default null */
+            excludeGlobs: string[] | null;
         };
         GameStateDto: {
             game: components["schemas"]["GameDto"];
@@ -1890,6 +1931,8 @@ export interface components {
             steamGridDbKeyMasked: string | null;
             steamGridDbFromConfig: boolean;
             adminPasswordSet: boolean;
+            /** @default null */
+            defaultExcludeGlobs: string[] | null;
         };
         SetAdminPasswordRequest: {
             password: string | null;

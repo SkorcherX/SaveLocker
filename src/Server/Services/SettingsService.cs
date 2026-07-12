@@ -73,7 +73,8 @@ public sealed class SettingsService
             SteamGridDbConfigured: !string.IsNullOrWhiteSpace(key),
             SteamGridDbKeyMasked: Mask(key),
             SteamGridDbFromConfig: !inDb && !string.IsNullOrWhiteSpace(key),
-            AdminPasswordSet: await HasAdminPasswordAsync(ct));
+            AdminPasswordSet: await HasAdminPasswordAsync(ct),
+            DefaultExcludeGlobs: GlobConfig.GlobalDefaults(_cfg));
     }
 
     /// <summary>Show only the last 4 characters so the dashboard can confirm which key is set.</summary>
