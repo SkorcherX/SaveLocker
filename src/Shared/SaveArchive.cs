@@ -1,6 +1,7 @@
 ﻿using System.IO.Compression;
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.Extensions.FileSystemGlobbing;
 
 namespace SaveLocker.Shared;
 
@@ -16,15 +17,17 @@ public static class SaveArchive
     /// Compute a stable SHA-256 over a directory's contents. Files are ordered
     /// by their normalised relative path so the hash is reproducible across
     /// machines and runs. Returns the all-zero hash for a missing/empty dir.
+    /// <paramref name="excludeGlobs"/> (e.g. <c>*.log</c>, <c>cache/**</c>) are skipped —
+    /// pass the SAME globs used for <see cref="CreateArchive"/> so the hash matches the archive.
     /// </summary>
-    public static string HashDirectory(string sourceDir)
+    public static string HashDirectory(string sourceDir, IEnumerable<string>? excludeGlobs = null)
     {
         using var sha = SHA256.Create();
 
         if (!Directory.Exists(sourceDir))
             return Convert.ToHexString(new byte[32]).ToLowerInvariant();
 
-        var files = EnumerateRelativeFiles(sourceDir);
+        var files = EnumerateRelativeFiles(sourceDir, excludeGlobs);
 
         foreach (var rel in files)
         {
@@ -53,10 +56,11 @@ public static class SaveArchive
     }
 
     /// <summary>
-    /// Zip a save directory into <paramref name="destinationZip"/>. Returns the
-    /// content hash of the source directory (NOT of the zip bytes).
+    /// Zip a save directory into <paramref name="destinationZip"/>, skipping files that
+    /// match <paramref name="excludeGlobs"/>. Returns the content hash of the archived
+    /// contents (NOT of the zip bytes) — computed over the same filtered file set.
     /// </summary>
-    public static string CreateArchive(string sourceDir, string destinationZip)
+    public static string CreateArchive(string sourceDir, string destinationZip, IEnumerable<string>? excludeGlobs = null)
     {
         if (!Directory.Exists(sourceDir))
             throw new DirectoryNotFoundException($"Save directory not found: {sourceDir}");
@@ -68,8 +72,17 @@ public static class SaveArchive
         if (File.Exists(destinationZip))
             File.Delete(destinationZip);
 
-        ZipFile.CreateFromDirectory(sourceDir, destinationZip, CompressionLevel.Optimal, includeBaseDirectory: false);
-        return HashDirectory(sourceDir);
+        // Add files individually (not ZipFile.CreateFromDirectory) so excluded files are skipped.
+        var files = EnumerateRelativeFiles(sourceDir, excludeGlobs);
+        using (var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create))
+        {
+            foreach (var rel in files)
+            {
+                var full = Path.Combine(sourceDir, rel.Replace('/', Path.DirectorySeparatorChar));
+                zip.CreateEntryFromFile(full, rel, CompressionLevel.Optimal);
+            }
+        }
+        return HashDirectory(sourceDir, excludeGlobs);
     }
 
     /// <summary>
@@ -134,13 +147,33 @@ public static class SaveArchive
         }
     }
 
-    private static List<string> EnumerateRelativeFiles(string root)
+    /// <summary>
+    /// Ordered, forward-slash relative paths of the files under <paramref name="root"/>,
+    /// minus any matching <paramref name="excludeGlobs"/>. Ordering is stable (Ordinal) so
+    /// the hash is reproducible. The same result drives both hashing and archiving.
+    /// </summary>
+    private static List<string> EnumerateRelativeFiles(string root, IEnumerable<string>? excludeGlobs = null)
     {
         var rootFull = Path.GetFullPath(root);
-        return Directory
+        var all = Directory
             .EnumerateFiles(rootFull, "*", SearchOption.AllDirectories)
             .Select(f => Path.GetRelativePath(rootFull, f).Replace('\\', '/'))
-            .OrderBy(p => p, StringComparer.Ordinal)
             .ToList();
+
+        var globs = excludeGlobs?
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Select(g => g.Trim())
+            .ToList();
+        if (globs is { Count: > 0 })
+        {
+            var matcher = new Matcher(StringComparison.OrdinalIgnoreCase);
+            matcher.AddInclude("**/*");
+            foreach (var g in globs) matcher.AddExclude(g);
+            var kept = new HashSet<string>(matcher.Match(all).Files.Select(m => m.Path), StringComparer.Ordinal);
+            all = all.Where(kept.Contains).ToList();
+        }
+
+        all.Sort(StringComparer.Ordinal);
+        return all;
     }
 }
