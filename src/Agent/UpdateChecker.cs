@@ -1,6 +1,6 @@
+using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
-using System.Reflection;
 using SaveLocker.Shared;
 
 namespace SaveLocker.Agent;
@@ -17,9 +17,16 @@ internal sealed class UpdateChecker
     // Shared across all checks in one tray session; avoids creating a new socket pool each time.
     private readonly HttpClient _http;
 
-    /// <summary>The running agent's version, read once from the assembly.</summary>
+    /// <summary>
+    /// The running agent's version, read from the exe's FileVersion resource.
+    /// MinVer overrides AssemblyVersion to 0.0.0.0 when git is inaccessible on CI runners,
+    /// but the command-line Version property reliably stamps FileVersion. For single-file
+    /// self-contained exes Assembly.Location is empty, so read Environment.ProcessPath.
+    /// </summary>
     public static readonly Version CurrentVersion =
-        Assembly.GetEntryAssembly()!.GetName().Version ?? new Version(0, 1, 0);
+        Version.TryParse(
+            FileVersionInfo.GetVersionInfo(Environment.ProcessPath ?? "").FileVersion,
+            out var v) ? v : new Version(0, 1, 0);
 
     public UpdateChecker(AgentConfig config)
     {
