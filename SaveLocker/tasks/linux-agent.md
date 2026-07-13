@@ -169,6 +169,46 @@ vars and supervises a child), so this exercises the entire real code path. Asser
 + AppID parsed, prefix resolved, pull-on-launch, settle gate waits out the slow writer, push
 lands. Cover **both** save shapes — in-prefix *and* portable-next-to-exe.
 
+### Status: ✅ DONE (2026-07-12)
+
+`src/Agent.Linux/` → binary **`savelocker`**. All six items done, plus the settle-gate item.
+
+- **`PathResolver.Proton(compatDataPath)`** (Shared) — Windows tokens resolve *inside* the prefix.
+  Per-game, not per-machine, as anticipated.
+- **`SteamShortcuts`** (Core) — one shortcuts.vdf reader for both hosts. `CompatDataId()` is the
+  single place the **signed → unsigned AppID** trap is handled. The Windows `GameScanner` now uses
+  it too, so the two cannot drift.
+- **`LinuxGameScanner`** — discovery is `shortcuts.vdf` across native *and* Flatpak Steam roots
+  (symlinks resolved so a root isn't counted twice). No `libraryfolders`/`*.acf` scan. Handles
+  **both save shapes**: in-prefix (manifest + Proton resolver) and portable-next-to-the-exe
+  (a plain Linux path; no prefix resolution). Only claims a portable dir when unambiguous.
+- **`ProtonRun`** — `savelocker run -- %command%`. Reads the two env vars, pulls, supervises the
+  child, then settles + pushes. **Returns the game's own exit code**, and a sync failure never
+  blocks the game launching.
+- **`Doctor`** — server, Steam roots, shortcuts, AppIDs, prefixes, save dirs, writability, lock
+  probe. The only diagnostic a headless box has.
+- **`Daemon` + `systemd --user`** — serves the same React agent UI on :5178 (`--lan` to reach it
+  from another device, per §2). Installs to `~/.local/share/SaveLocker`; **never `/usr`**.
+
+**Settle gate — handled, not silently degraded.** `FileLockProbe` now walks `/proc/*/fd` for write
+descriptors into the save dir (what `lsof` does), reading the **octal** `flags` from `fdinfo`.
+Where it cannot answer it returns `Unavailable`, which the gate **logs**; it never claims a false
+all-clear. The harness pins this with a writer that writes once then holds the descriptor open in
+silence — the fingerprint goes quiet immediately, so a broken probe settles in ~3 s where a working
+one waits the full 8 s (observed: **12 s**).
+
+**Two cross-cutting bugs surfaced and fixed** (neither was in this plan):
+1. `AgentConfig.DefaultDir` used `CommonApplicationData` = **`/usr/share`** on Linux — unwritable,
+   and wiped by SteamOS updates. Now XDG.
+2. `Detection` hardcoded `PathResolver.Windows()`. The resolver is injected now, and on Linux
+   resolves **nothing** rather than inventing host paths for a Windows game.
+
+**Verified:** `tests/linux/run-linux-tests.sh` — **27/27** in WSL on ext4 (fake HOME, fresh server,
+fixture `shortcuts.vdf` with a deliberately negative AppID). Windows agent still **10/10**.
+
+**Deferred to Phase 5, as planned:** the daemon's "notify" is a log line. A headless spoke cannot
+tell the user anything — that is health reporting, and faking it here would hide the gap.
+
 **STOP.**
 
 ---

@@ -94,13 +94,38 @@ Dashboard: `http://unraid-ip:5080`.
 
 Stop the running agent first (holds the `SaveLocker.Agent` AppMutex). Version is derived by MinVer from the nearest git tag — push a `v*` tag to trigger the GitHub release CI instead of building locally for a real release.
 
+## Linux agent (Proton / Steam Deck)
+
+Build and test **inside WSL, on the ext4 home** (`~/SaveLocker`) — never from `/mnt/*`, where DrvFs breaks inotify, permissions, case-sensitivity and locking. `dotnet` lives in `~/.dotnet` and is not on a login shell's PATH; export it (or run a `.sh` file rather than fighting inline quoting — see `Gotchas.md`).
+
+```sh
+export DOTNET_ROOT="$HOME/.dotnet"; export PATH="$HOME/.dotnet:$PATH"
+dotnet build src/Agent.Linux/SaveLocker.Agent.Linux.csproj --no-incremental
+
+# Fake-game harness: no Steam, no Proton, no GPU, no Deck required.
+# Starts its own server on :5179 with a throwaway DB, and runs against a fake HOME.
+bash tests/linux/run-linux-tests.sh          # 27 checks
+```
+
+To pull Windows-side commits into the WSL clone:
+```sh
+git fetch /mnt/e/Projects/SaveLocker main && git checkout FETCH_HEAD
+```
+
+Release build (self-contained — SteamOS ships no .NET runtime):
+```sh
+bash packaging/linux/build-linux.sh          # -> artifacts/linux/savelocker-linux-x64.tar.gz
+```
+Build on the **oldest glibc** you intend to support (Ubuntu 24.04 → Deck is forward-compatible; the reverse is not).
+
 ## Tests
 
 ```sh
-.\tests\run-agent-tests.ps1   # server must be on :5179
+.\tests\run-agent-tests.ps1   # Windows agent; server must be on :5179
+bash tests/linux/run-linux-tests.sh   # Linux agent; starts its own server (run in WSL)
 ```
 
-Scratch state written to `.verify/` (git-ignored).
+Scratch state written to `.verify/` (Windows) and `.verify-linux/` (Linux), both git-ignored.
 
 ## Regenerate OpenAPI types (web dashboard)
 

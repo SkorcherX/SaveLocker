@@ -44,21 +44,37 @@ SaveLocker/
 │   │   ├── OfflineQueue.cs              # JSON retry queue: …\SaveLocker\offline-queue.json
 │   │   ├── OfflineQueueDrainer.cs       # 30 s timer drains queue when server reachable
 │   │   ├── AgentLogger.cs               # Rolling agent.log
+│   │   ├── AgentCli.cs                  # Shared one-shot commands (register/push/pull/status/…)
+│   │   ├── CliArgs.cs                   # Minimal command-line parser
+│   │   ├── Enroller.cs                  # Candidate → server game + tracked game
+│   │   ├── FileLockProbe.cs             # "Is anyone still writing?" — FileShare (Win) / /proc (Linux)
+│   │   ├── SteamVdf.cs                  # Binary VDF parser (pure)
+│   │   ├── SteamShortcuts.cs            # shortcuts.vdf reader + the signed→unsigned AppID trap
+│   │   ├── Watchers.cs                  # Debounced FileSystemWatcher + ProcessWatcher
 │   │   ├── ScanCandidate.cs             # Discovery DTO (scanning itself is platform-specific)
 │   │   └── Platform.cs                  # IAutoStart, IGameScanner — impls injected by the host
 │   │
-│   └── Agent/                           # SaveLocker.Agent.csproj (net9.0-windows, WinForms)
-│       │                               # Windows host: UI + platform impls. → Agent.Core
-│       ├── Program.cs                   # Entry: no args → tray; args → CLI
-│       ├── TrayApp.cs                   # Tray icon, menu, engine lifecycle; injects the Windows impls
-│       ├── AgentWindow.cs               # WinForms form hosting WebView2 (900×600, DPI-scaled)
-│       ├── GameScanner.cs               # IGameScanner: Steam VDF readers + save-root heuristic
-│       ├── AutoStart.cs                 # IAutoStart: HKCU Run-key toggle ("Start with Windows")
-│       ├── FolderPicker.cs              # WinForms FolderBrowserDialog on an STA thread
-│       ├── SteamVdf.cs / SteamTextVdf.cs # Binary + text VDF parsers (pure — port to Linux as-is)
-│       ├── Watchers.cs                  # Debounced FileSystemWatcher + ProcessWatcher
-│       ├── CliArgs.cs                   # Minimal command-line parser
-│       └── AppResources.cs             # Embedded icon + asset loader
+│   ├── Agent/                           # SaveLocker.Agent.csproj (net9.0-windows, WinForms)
+│   │   │                               # Windows host: UI + platform impls. → Agent.Core
+│   │   ├── Program.cs                   # Entry: no args → tray; args → AgentCli
+│   │   ├── TrayApp.cs                   # Tray icon, menu, engine lifecycle; injects the Windows impls
+│   │   ├── AgentWindow.cs               # WinForms form hosting WebView2 (900×600, DPI-scaled)
+│   │   ├── GameScanner.cs               # IGameScanner: shortcuts + Steam libraries + save-root heuristic
+│   │   ├── AutoStart.cs                 # IAutoStart: HKCU Run-key toggle ("Start with Windows")
+│   │   ├── FolderPicker.cs              # WinForms FolderBrowserDialog on an STA thread
+│   │   ├── SteamTextVdf.cs              # Text VDF parser (libraryfolders.vdf, *.acf)
+│   │   └── AppResources.cs             # Embedded icon + asset loader
+│   │
+│   └── Agent.Linux/                     # SaveLocker.Agent.Linux.csproj → binary `savelocker`
+│       │                               # Headless Proton agent (net9.0). No tray, no toast:
+│       │                               # the daemon serves the same React UI on :5178.
+│       ├── Program.cs                   # daemon / run / doctor / autostart, else → AgentCli
+│       ├── Daemon.cs                    # Headless host: API server + poller + drainer + watchers
+│       ├── ProtonRun.cs                 # `savelocker run -- %command%` Steam launch wrapper
+│       ├── LinuxGameScanner.cs          # IGameScanner: shortcuts.vdf; in-prefix + portable saves
+│       ├── SteamRoots.cs                # Native + Flatpak Steam roots; compatdata lookup
+│       ├── Doctor.cs                    # Diagnoses the whole chain (the only UI a Deck has)
+│       └── SystemdAutoStart.cs          # IAutoStart: systemd --user unit
 │
 ├── web/                                 # React admin dashboard
 │   │                                   # Stack: Vite 8, React 19, TypeScript, Tailwind v4
@@ -89,8 +105,18 @@ SaveLocker/
 │   ├── SaveLocker.iss                   # Inno Setup 6: machine-wide, UAC, uninstall reverts all
 │   └── build-installer.ps1             # dotnet publish + ISCC → installer/dist/SaveLocker-Agent-Setup-{ver}.exe
 │
+├── packaging/linux/
+│   ├── build-linux.sh                   # Self-contained publish → tarball (build on OLDEST glibc)
+│   ├── install.sh                       # Installs to ~/.local/share/SaveLocker — never /usr
+│   └── savelocker.service               # systemd --user unit
+│
 ├── tests/
-│   └── run-agent-tests.ps1             # Integration tests (server must be on :5179)
+│   ├── run-agent-tests.ps1             # Windows agent integration tests (server on :5179)
+│   └── linux/                          # Fake-game harness — no Steam/Proton/GPU/Deck needed
+│       ├── run-linux-tests.sh          # 27 checks; starts its own server, fake HOME
+│       ├── make-fixtures.py            # Builds compatdata tree + binary shortcuts.vdf
+│       ├── slow-game.sh                # Game that flushes after exit (settle gate + lock probe)
+│       └── manifest.yaml               # Fixture Ludusavi manifest
 │
 ├── .github/workflows/
 │   ├── ci.yml                           # PR + main push: build-dotnet, build-web, build-agent-ui
