@@ -8,20 +8,20 @@ namespace SaveLocker.Agent;
 /// rights are needed; the tray agent launches automatically when the user logs in.
 /// The stored command points at the current executable (the apphost exe).
 /// </summary>
-internal static class AutoStart
+public sealed class AutoStart : IAutoStart
 {
     private const string RunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "SaveLocker";
 
     /// <summary>True when a login entry exists for this agent.</summary>
-    public static bool IsEnabled()
+    public bool IsEnabled()
     {
         using var key = Registry.CurrentUser.OpenSubKey(RunKey);
         return key?.GetValue(ValueName) is string s && !string.IsNullOrWhiteSpace(s);
     }
 
     /// <summary>Add or remove the login entry. No-op (returns false) if the exe path is unknown.</summary>
-    public static bool SetEnabled(bool enabled)
+    public bool SetEnabled(bool enabled)
     {
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
         if (key is null) return false;

@@ -31,6 +31,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly HashSet<string> _running = new(StringComparer.OrdinalIgnoreCase);
     private readonly SynchronizationContext _ui;
     private readonly Detection _detection;
+    private readonly GameScanner _scanner;
     private readonly CommandPoller _commandPoller;
     private readonly AgentApiServer _apiServer;
     private readonly OfflineQueue _offlineQueue = new();
@@ -51,6 +52,7 @@ internal sealed class TrayContext : ApplicationContext
         _config = config;
         _ui = SynchronizationContext.Current ?? new SynchronizationContext();
         _detection = new Detection(config);
+        _scanner = new GameScanner(_detection);
 
         AgentLogger.Log("SaveLocker agent starting…");
         RebuildEngine();
@@ -77,12 +79,10 @@ internal sealed class TrayContext : ApplicationContext
             port: AgentApiPort,
             config: _config,
             ui: _ui,
-            doScan: async () =>
-            {
-                var scanner = new GameScanner(_detection);
-                return await scanner.ScanAsync();
-            },
+            doScan: () => _scanner.ScanAsync(),
             enroll: EnrollAsync,
+            autoStart: new AutoStart(),
+            pickFolder: FolderPicker.ShowAsync,
             onRegistered: RebuildEngine,
             getUpdateResult: () => LastUpdateResult);
         _apiServer.Start();
@@ -92,6 +92,7 @@ internal sealed class TrayContext : ApplicationContext
             () => new ApiClient(_config.ServerUrl, _config.ApiKey),
             () => _engine,
             _detection,
+            _scanner,
             Notify,
             onGamesChanged: () => _ui.Post(_ => { RebuildMenu(); StartFolderWatchers(); }, null));
         _commandPoller.Start();

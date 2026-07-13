@@ -21,6 +21,7 @@ public sealed class CommandPoller : IDisposable
     private readonly Func<ApiClient> _api;
     private readonly Func<SyncEngine> _engine;
     private readonly Detection _detection;
+    private readonly IGameScanner _scanner;
     private readonly Action<string> _notify;
     private readonly Action _onGamesChanged;
     private readonly System.Timers.Timer _timer;
@@ -31,6 +32,7 @@ public sealed class CommandPoller : IDisposable
         Func<ApiClient> api,
         Func<SyncEngine> engine,
         Detection detection,
+        IGameScanner scanner,
         Action<string> notify,
         Action onGamesChanged,
         double pollMs = 20000)
@@ -39,6 +41,7 @@ public sealed class CommandPoller : IDisposable
         _api = api;
         _engine = engine;
         _detection = detection;
+        _scanner = scanner;
         _notify = notify;
         _onGamesChanged = onGamesChanged;
         _timer = new System.Timers.Timer(pollMs) { AutoReset = true };
@@ -197,8 +200,7 @@ public sealed class CommandPoller : IDisposable
     {
         if (cmd.Type == AgentCommandType.Scan)
         {
-            var scanner = new GameScanner(_detection);
-            var candidates = await scanner.ScanAsync();
+            var candidates = await _scanner.ScanAsync();
             return $"found {candidates.Count} candidate(s): " +
                    string.Join(", ", candidates.Take(8).Select(c => c.Name)) +
                    (candidates.Count > 8 ? "…" : "");

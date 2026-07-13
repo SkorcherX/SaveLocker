@@ -10,7 +10,7 @@ namespace SaveLocker.Agent;
 /// downloads the installer and launches it. All network I/O runs off the UI thread;
 /// this class never touches WinForms directly.
 /// </summary>
-internal sealed class UpdateChecker
+public sealed class UpdateChecker
 {
     private readonly AgentConfig _config;
 
@@ -108,7 +108,7 @@ internal sealed class UpdateChecker
 }
 
 /// <summary>Discriminated union result returned by <see cref="UpdateChecker.CheckAsync"/>.</summary>
-internal abstract record UpdateResult
+public abstract record UpdateResult
 {
     public sealed record UpToDate : UpdateResult;
     public sealed record Available(string Version, string DownloadUrl) : UpdateResult;

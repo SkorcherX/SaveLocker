@@ -30,23 +30,34 @@ SaveLocker/
 │   │   ├── appsettings.json             # Storage, Backup, AgentUpdate config sections
 │   │   └── openapi.json                 # Committed OpenAPI snapshot; regenerate after API changes
 │   │
+│   ├── Agent.Core/                      # SaveLocker.Agent.Core.csproj (net9.0 — NO WinForms)
+│   │   │                               # The platform-neutral sync brain. Namespace stays
+│   │   │                               # SaveLocker.Agent.*; the Linux agent will reuse this.
+│   │   ├── SyncEngine.cs                # push / pull / pre-launch / post-exit
+│   │   ├── SaveSettler.cs               # Settle gate: wait for the game to finish writing
+│   │   ├── ApiClient.cs                 # Typed HTTP client for server API
+│   │   ├── CommandPoller.cs             # 20 s poll: reconcile game list + run commands
+│   │   ├── AgentApiServer.cs            # HttpListener on :5178 — JSON API + agent-ui static files
+│   │   ├── AgentConfig.cs               # JSON config at %PROGRAMDATA%\SaveLocker\config.json
+│   │   ├── Detection.cs                 # Ludusavi manifest wrapper
+│   │   ├── UpdateChecker.cs             # Polls /api/agent/latest, downloads installer
+│   │   ├── OfflineQueue.cs              # JSON retry queue: …\SaveLocker\offline-queue.json
+│   │   ├── OfflineQueueDrainer.cs       # 30 s timer drains queue when server reachable
+│   │   ├── AgentLogger.cs               # Rolling agent.log
+│   │   ├── ScanCandidate.cs             # Discovery DTO (scanning itself is platform-specific)
+│   │   └── Platform.cs                  # IAutoStart, IGameScanner — impls injected by the host
+│   │
 │   └── Agent/                           # SaveLocker.Agent.csproj (net9.0-windows, WinForms)
+│       │                               # Windows host: UI + platform impls. → Agent.Core
 │       ├── Program.cs                   # Entry: no args → tray; args → CLI
-│       ├── TrayApp.cs                   # Tray icon, menu, engine lifecycle, update checks
-│       ├── AgentApiServer.cs            # HttpListener on :5178 — JSON API + agent-ui static files
+│       ├── TrayApp.cs                   # Tray icon, menu, engine lifecycle; injects the Windows impls
 │       ├── AgentWindow.cs               # WinForms form hosting WebView2 (900×600, DPI-scaled)
-│       ├── SyncEngine.cs                # push / pull / pre-launch / post-exit
-│       ├── UpdateChecker.cs             # Polls /api/agent/latest, downloads + launches installer
-│       ├── CommandPoller.cs             # 20 s poll: reconcile game list + run commands
-│       ├── ApiClient.cs                 # Typed HTTP client for server API
-│       ├── Detection.cs                 # Ludusavi manifest wrapper
-│       ├── GameScanner.cs               # Steam VDF readers + save-root heuristic
-│       ├── SteamVdf.cs / SteamTextVdf.cs # Binary + text VDF parsers
+│       ├── GameScanner.cs               # IGameScanner: Steam VDF readers + save-root heuristic
+│       ├── AutoStart.cs                 # IAutoStart: HKCU Run-key toggle ("Start with Windows")
+│       ├── FolderPicker.cs              # WinForms FolderBrowserDialog on an STA thread
+│       ├── SteamVdf.cs / SteamTextVdf.cs # Binary + text VDF parsers (pure — port to Linux as-is)
 │       ├── Watchers.cs                  # Debounced FileSystemWatcher + ProcessWatcher
-│       ├── AgentConfig.cs               # JSON config at %PROGRAMDATA%\SaveLocker\config.json
-│       ├── AutoStart.cs                 # HKCU Run-key toggle ("Start with Windows")
-│       ├── OfflineQueue.cs              # JSON retry queue: …\SaveLocker\offline-queue.json
-│       ├── OfflineQueueDrainer.cs       # 30 s timer drains queue when server reachable
+│       ├── CliArgs.cs                   # Minimal command-line parser
 │       └── AppResources.cs             # Embedded icon + asset loader
 │
 ├── web/                                 # React admin dashboard

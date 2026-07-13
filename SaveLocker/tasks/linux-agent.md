@@ -74,6 +74,28 @@ Not set: git identity inside the WSL clone — only needed if you intend to comm
 **10/10** (server on :5179, fresh DB — see `Gotchas.md`). The Windows agent must behave
 identically. No new features in this phase.
 
+### Status: ✅ DONE (2026-07-12)
+`src/Agent.Core/SaveLocker.Agent.Core.csproj` (net9.0) now holds `SyncEngine`, `SaveSettler`,
+`ApiClient`, `CommandPoller`, `OfflineQueue`, `OfflineQueueDrainer`, `AgentConfig`,
+`AgentApiServer`, `Detection`, `AgentLogger` and `UpdateChecker` — moved with `git mv`, namespace
+unchanged (`SaveLocker.Agent.*`), so no call site churned. Windows keeps `TrayApp`, `AgentWindow`,
+`AutoStart`, `GameScanner`, `AppResources`, `Program`, `Watchers`, `SteamVdf`/`SteamTextVdf`.
+
+Three Windows leaks in the moved files, extracted behind interfaces in `Agent.Core/Platform.cs`:
+- `AgentApiServer` called `AutoStart` statics (registry) → `IAutoStart`, injected from `TrayApp`.
+  `AutoStart` went from a static class to `sealed class AutoStart : IAutoStart`.
+- `AgentApiServer` hosted a WinForms `FolderBrowserDialog` → extracted to `Agent/FolderPicker.cs`
+  and injected as `Func<Task<string?>>? pickFolder`. **Null on a headless platform** — the
+  folder-pick routes then return no path, which is the correct Linux behaviour.
+- `CommandPoller` constructed `GameScanner` directly → `IGameScanner`, injected.
+- `ScanCandidate`/`ScanSource` moved out of `GameScanner.cs` into `Agent.Core/ScanCandidate.cs`
+  (Core consumes the candidates; only discovery is platform-specific).
+- `AgentApiServer`, `UpdateChecker` and `UpdateResult` went `internal` → `public` (cross-assembly).
+
+**Verified:** `dotnet build --no-incremental` succeeds, 0 errors; `.\tests\run-agent-tests.ps1`
+**10/10** against a fresh DB. The one warning (MSB3277 WindowsBase/WebView2) is **pre-existing** —
+confirmed by building HEAD in a throwaway worktree, not introduced by the split.
+
 **STOP.**
 
 ---
