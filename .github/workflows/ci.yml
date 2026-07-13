@@ -46,6 +46,16 @@ jobs:
       - run: npm run build
         working-directory: agent-ui
 
+  # Build the server image on PRs. docker-publish.yml only runs on push-to-main, so without this
+  # a broken Dockerfile is invisible until AFTER a merge, as a failed publish. This builds and
+  # throws the image away — it publishes nothing.
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the server image
+        run: docker build -f src/Server/Dockerfile -t savelocker:ci .
+
   # The agent integration suite, driven against the LINUX agent. Same script that runs on
   # Windows (PowerShell Core runs on both) — so the shared Agent.Core sync brain is held to
   # one behavioural contract, not two.

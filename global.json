@@ -1,0 +1,9 @@
+{
+  "//": "Pins the .NET SDK so the dev box, CI and the Docker image agree on the toolchain.",
+  "//why": "windows-latest preinstalls the SDK 10, and `dotnet build` silently takes the newest SDK installed unless it is pinned here. CI was therefore building the net9.0 targets with SDK 10.0.301 while the dev box used 9.0.315. It worked, but a toolchain that differs between CI and dev is a latent trip hazard.",
+  "//rollForward": "latestFeature = accept any 9.0.x SDK (9.0.315 here, whatever the runners and the sdk:9.0 image carry), but NEVER roll forward to 10. A box with only SDK 10 fails loudly, which is the intent. Bump this and the Dockerfile's sdk/aspnet tags together — see tasks/dotnet-10-upgrade.md.",
+  "sdk": {
+    "version": "9.0.100",
+    "rollForward": "latestFeature"
+  }
+}

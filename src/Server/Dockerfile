@@ -11,6 +11,10 @@ RUN npm run build
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
+# global.json pins the SDK. Copy it in so the container is held to the SAME toolchain as dev and
+# CI — if this image's tag and the pin ever disagree, the build fails here loudly instead of
+# quietly compiling with a different SDK.
+COPY global.json ./
 COPY SaveLocker.sln ./
 COPY src/Shared/SaveLocker.Shared.csproj src/Shared/
 COPY src/Server/SaveLocker.Server.csproj src/Server/
