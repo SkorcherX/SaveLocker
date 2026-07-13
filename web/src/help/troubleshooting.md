@@ -9,9 +9,9 @@
 
 ## Sync not triggering after game close
 
-- The agent uses a **5-second quiet period** after game exit before pushing. If the game writes saves for longer than 5 seconds, the push may capture an incomplete save. Wait a few seconds after the game's UI disappears before closing the agent.
+- After a game exits, the agent waits for its save folder to go quiet before backing it up — 10 seconds by default. A backup that seems slow is usually just this working as intended. See [Save-in-use safety](#help/save-in-use-safety).
 - Make sure the game is launched through Steam so the agent's process watcher can detect the exit event.
-- Check the agent log for "push" entries to confirm a push was attempted.
+- Check the agent log for "push" entries to confirm a push was attempted. If you see `still writing after 120s`, something in the save folder is being written continuously — add an [exclude pattern](#help/glob-patterns) for it.
 
 ## Upload rejected: "archive exceeds 200 MB"
 

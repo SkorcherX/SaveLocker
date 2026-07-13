@@ -81,6 +81,6 @@ See `Backlog.md` for the full list.
 | Known traps | `Gotchas.md` |
 | REST endpoints | `API Reference.md` |
 | Dev build & run | `Build and Run.md` |
-| Agent CLI | `CLI Reference.md` |
+| Agent CLI | `web/src/help/cli-reference.md` (KB article) |
 | Active backlog | `Backlog.md` |
 | Session history | `logs/sessions.md` |

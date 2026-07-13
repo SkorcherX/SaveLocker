@@ -17,7 +17,7 @@ The Obsidian vault is at `SaveLocker/` (repo root). It is flat by design — no 
 | `SaveLocker/Gotchas.md` | Before touching builds, paths, or the running server |
 | `SaveLocker/API Reference.md` | When adding or changing server endpoints |
 | `SaveLocker/Build and Run.md` | When running builds, Docker, or the test suite |
-| `SaveLocker/CLI Reference.md` | When touching agent CLI commands |
+| `web/src/help/cli-reference.md` | When touching agent CLI commands (KB article; `SaveLocker/CLI Reference.md` is a stub pointing here) |
 | `SaveLocker/Backlog.md` | When prioritizing what to work on next |
 | `SaveLocker/tasks/*.md` | Feed one task file at a time — execute only its steps, then stop |
 | `SaveLocker/logs/sessions.md` | When asked about project history |

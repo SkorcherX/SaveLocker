@@ -6,6 +6,7 @@ import globPatterns from './glob-patterns.md?raw';
 import addingGames from './adding-games.md?raw';
 import saveRetention from './save-retention.md?raw';
 import agentUpdate from './agent-update.md?raw';
+import cliReference from './cli-reference.md?raw';
 import troubleshooting from './troubleshooting.md?raw';
 
 export interface Article {
@@ -24,6 +25,7 @@ export const articles: Article[] = [
   { slug: 'adding-games',    title: 'Adding games & mapping save folders',     category: 'Configuration',  content: addingGames },
   { slug: 'save-retention',  title: 'Save retention',                         category: 'Configuration',  content: saveRetention },
   { slug: 'agent-update',    title: 'Agent auto-update & fetching from GitHub','category': 'Maintenance', content: agentUpdate },
+  { slug: 'cli-reference',   title: 'Agent CLI reference',                    category: 'Reference',      content: cliReference },
   { slug: 'troubleshooting', title: 'Troubleshooting',                        category: 'Troubleshooting',content: troubleshooting },
 ];
 
