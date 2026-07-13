@@ -20,10 +20,13 @@ Pre-launch (game starts)
   └─ Pull latest save from server → overwrites local save
 
 Post-exit (game closes)
-  └─ 5 s quiet-period (wait for game to finish writing)
+  └─ Settle gate — wait until the save folder stops changing and
+     nothing is still open for writing (10 s default, 120 s cap)
   └─ Push local save → server checks parent, accepts or conflicts
   └─ Release lease
 ```
+
+The settle gate is what stops a game that keeps flushing after exit from being archived half-written. See **Save-in-use safety** for how to tune it.
 
 ## Push flow
 

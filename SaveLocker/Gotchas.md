@@ -46,5 +46,10 @@ Pin EF Core to **9.0.x**. 10.x requires net10 and won't restore on net9.
 ## PowerShell + native stderr
 Under `$ErrorActionPreference="Stop"`, a native command writing to stderr (e.g. an expected CONFLICT warning) terminates the script. Test scripts use `Continue` and parse output text instead.
 
+## Integration suite needs a fresh server DB
+`tests/run-agent-tests.ps1` re-runs against whatever state the server already has. Wiping `.verify/` (the agents' configs) without also clearing the server DB makes the agents lose their version lineage while the server keeps its head — the "PC initial push" then legitimately reports CONFLICT and four tests fail for reasons that have nothing to do with your change.
+- Run it against an empty `src/Server/localstate/savelocker.db` (delete the `savelocker.db*` files, restart the server, then run) — or don't wipe `.verify/` between runs.
+- The suite also needs `%APPDATA%\LGSTestGame` to exist for the detection check; the script now creates it itself (2026-07-12).
+
 ## Docker DB path on existing deployments
 The server Docker image defaults to `/data/savelocker.db` but existing deployments that were created before the rename may have `/data/localgamesync.db`. If the server fails to find the DB, either rename the file on the unRAID share or set the `Storage__DbPath` env var.

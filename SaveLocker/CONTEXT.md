@@ -23,6 +23,7 @@
 | Per-game exclude globs + 200 MB upload cap (5e) | ✅ v0.1.4; depth-matching fix in v0.1.5 |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 | Console Help KB (8 articles, search, deep-links) | ✅ done (2026-07-11, `be54374`) |
+| Save-in-use safety (settle gate before auto-push) | ✅ built 2026-07-12 — ⏳ not yet device-verified |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 
@@ -30,8 +31,8 @@ Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open wor
 
 ## Active backlog (priority order — see `Backlog.md`)
 1. **Device-verify 5e** on v0.1.5 (add `*.log` to a game → nested + root excluded; log-only change → no version). Both agents must be on the same version for consistent hashing.
-2. Code-sign the exe (SmartScreen warns for unsigned installers)
-3. Save-in-use safety (5 s debounce may be too short for some games)
+2. **Device-verify the settle gate** — exit a slow-flushing game, confirm the agent log shows the wait then `save files settled.` before the push.
+3. Code-sign the exe (SmartScreen warns for unsigned installers)
 
 **Gotcha surfaced 2026-07-12:** with two agents, saves diverge → dashboard conflict when the pushing machine's known head ≠ current server head (another machine advanced it). A "behind" machine keeps conflicting until resolved (dashboard resolve → pull, or tray Force Pull); the agent doesn't auto-advance its parent on conflict. Version/glob skew between agents guarantees this — keep both agents identical. (This is the seed for the Help KB "Understanding conflicts" article.)
 

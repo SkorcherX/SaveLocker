@@ -42,6 +42,7 @@ Hub-and-spoke (not peer-to-peer). See `Decisions.md` for why unRAID is the keyst
 - `CommandPoller.cs` — 20 s poll: (1) reconcile game list (adopt new server games, drop deleted ones); (2) run queued pull/push/sync/scan commands and report results.
 - `ApiClient.cs` — typed HTTP client. `Detection.cs` — Ludusavi manifest wrapper.
 - `Watchers.cs` — debounced `FileSystemWatcher` + process poll (`ProcessWatcher`).
+- `SaveSettler.cs` — settle gate for **automatic** pushes (process-exit, folder-watch). A process exit does not mean the save is on disk, so before archiving it waits for the save folder to hold a stable fingerprint (file set + sizes + write times) with nothing open for writing, for `SettleQuietSeconds` (default 10, set in agent Settings → Sync Safety), capped by `SettleMaxWaitSeconds` (120) after which the push proceeds anyway. Manual/CLI pushes skip the gate. `PushAsync` serialises per game, since the folder watcher can fire while the exit push is still settling.
 - `OfflineQueue.cs` / `OfflineQueueDrainer.cs` — `PushAsync` enqueues to `%PROGRAMDATA%\SaveLocker\offline-queue.json` on `HttpRequestException`; 30 s drain timer retries when the server is reachable.
 - `AgentConfig.cs` — JSON config at `%PROGRAMDATA%\SaveLocker\config.json`. Tracks `SkipVersion` + `LastUpdateCheck` for update-check cooldown.
 
