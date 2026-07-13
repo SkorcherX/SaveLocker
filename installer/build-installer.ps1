@@ -61,7 +61,7 @@ if (-not $iscc) {
 if (-not $iscc) { throw 'ISCC.exe not found. Install Inno Setup 6 (winget install JRSoftware.InnoSetup).' }
 
 if (-not $AppVersion) {
-    $publishExe = Join-Path $repo 'src\Agent\bin\Release\net9.0-windows\win-x64\publish\SaveLocker.Agent.exe'
+    $publishExe = Join-Path $repo 'src\Agent\bin\Release\net10.0-windows\win-x64\publish\SaveLocker.Agent.exe'
     $rawVersion = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($publishExe).FileVersion
     $AppVersion = [System.Version]::Parse($rawVersion).ToString(3)  # major.minor.patch only
 }

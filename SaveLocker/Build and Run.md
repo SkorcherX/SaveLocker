@@ -52,7 +52,7 @@ Server must be running for API calls to work. Two Vite processes will claim port
 ```sh
 dotnet build src/Agent/SaveLocker.Agent.csproj --no-incremental
 # Then launch the built exe, or run via dotnet for console output:
-dotnet src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.dll
+dotnet src/Agent/bin/Debug/net10.0-windows/SaveLocker.Agent.dll
 ```
 
 Agent UI served at http://localhost:5178.

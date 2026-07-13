@@ -8,7 +8,7 @@ COPY web/ ./
 RUN npm run build
 
 # Stage 2: build the .NET server
-FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
 # global.json pins the SDK. Copy it in so the container is held to the SAME toolchain as dev and
@@ -29,7 +29,7 @@ COPY --from=web-build /web/dist/ src/Server/wwwroot/
 RUN dotnet publish src/Server/SaveLocker.Server.csproj -c Release -o /app /p:UseAppHost=false
 
 # Stage 3: runtime image
-FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 WORKDIR /app
 COPY --from=build /app ./
 

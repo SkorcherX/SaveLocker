@@ -10,7 +10,7 @@ SaveLocker/
 │   │   ├── SaveArchive.cs               # Content hashing + atomic zip restore
 │   │   └── ManifestLoader.cs            # Ludusavi manifest downloader + path resolver
 │   │
-│   ├── Server/                          # SaveLocker.Server.csproj (net9.0, Docker)
+│   ├── Server/                          # SaveLocker.Server.csproj (net10.0, Docker)
 │   │   ├── Program.cs                   # ALL minimal-API endpoints + DI wiring
 │   │   ├── Data/
 │   │   │   ├── AppDbContext.cs          # EF Core context
@@ -30,7 +30,7 @@ SaveLocker/
 │   │   ├── appsettings.json             # Storage, Backup, AgentUpdate config sections
 │   │   └── openapi.json                 # Committed OpenAPI snapshot; regenerate after API changes
 │   │
-│   ├── Agent.Core/                      # SaveLocker.Agent.Core.csproj (net9.0 — NO WinForms)
+│   ├── Agent.Core/                      # SaveLocker.Agent.Core.csproj (net10.0 — NO WinForms)
 │   │   │                               # The platform-neutral sync brain. Namespace stays
 │   │   │                               # SaveLocker.Agent.*; the Linux agent will reuse this.
 │   │   ├── SyncEngine.cs                # push / pull / pre-launch / post-exit
@@ -54,7 +54,7 @@ SaveLocker/
 │   │   ├── ScanCandidate.cs             # Discovery DTO (scanning itself is platform-specific)
 │   │   └── Platform.cs                  # IAutoStart, IGameScanner — impls injected by the host
 │   │
-│   ├── Agent/                           # SaveLocker.Agent.csproj (net9.0-windows, WinForms)
+│   ├── Agent/                           # SaveLocker.Agent.csproj (net10.0-windows, WinForms)
 │   │   │                               # Windows host: UI + platform impls. → Agent.Core
 │   │   ├── Program.cs                   # Entry: no args → tray; args → AgentCli
 │   │   ├── TrayApp.cs                   # Tray icon, menu, engine lifecycle; injects the Windows impls
@@ -66,7 +66,7 @@ SaveLocker/
 │   │   └── AppResources.cs             # Embedded icon + asset loader
 │   │
 │   └── Agent.Linux/                     # SaveLocker.Agent.Linux.csproj → binary `savelocker`
-│       │                               # Headless Proton agent (net9.0). No tray, no toast:
+│       │                               # Headless Proton agent (net10.0). No tray, no toast:
 │       │                               # the daemon serves the same React UI on :5178.
 │       ├── Program.cs                   # daemon / run / doctor / autostart, else → AgentCli
 │       ├── Daemon.cs                    # Headless host: API server + poller + drainer + watchers

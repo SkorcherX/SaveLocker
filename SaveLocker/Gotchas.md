@@ -38,7 +38,32 @@ If a game's save folder is inside an OneDrive-managed tree (`C:\Users\<name>\One
 - **Fixed (2026-06-25):** `ShowFolderPickerAsync` spawns a **dedicated STA thread** per call, parents the dialog to `Application.OpenForms[0]`, resolves a `TaskCompletionSource<string?>` when dismissed.
 
 ## EF Core version
-Pin EF Core to **9.0.x**. 10.x requires net10 and won't restore on net9.
+On **net10.0** since 2026-07-13; EF Core tracks the framework at **10.0.x**. (The old rule — "pin EF
+Core to 9.0.x, 10.x requires net10" — is gone: the upgrade removed its reason. See
+`Decisions.md → Runtime: .NET 10 LTS`.)
+
+## The SDK is pinned in `global.json` — bump it and the Dockerfile together
+`dotnet build` silently uses the **newest SDK installed** unless a `global.json` pins it. The CI
+runners preinstall a newer SDK than we target, so before the pin, CI was building the net9.0 targets
+with **SDK 10.0.301** while the dev box used 9.0.315. It worked — but a toolchain that silently
+differs between CI and dev is exactly the sort of thing that makes a real bug unreproducible.
+- `global.json` uses `rollForward: latestFeature`: any `10.0.x` SDK is accepted, but it will never
+  roll forward to 11. A box with only the wrong major now fails **loudly**, which is the point.
+- The Dockerfile **copies `global.json` in**, so the container is held to the same pin. Bump the pin
+  and the `sdk:`/`aspnet:` image tags **together**, or the Docker build fails (loudly — by design).
+
+## Known-vulnerable transitive package: SQLitePCLRaw (pre-existing, not yet fixable)
+`dotnet build` reports **NU1903 High** for `SQLitePCLRaw.lib.e_sqlite3` (CVE-2025-6965 — memory
+corruption in SQLite's aggregate-term handling). **This is not new** and was not introduced by the
+net10 upgrade: net9 shipped 2.1.10 with the same advisory. SDK 10 audits *transitive* packages by
+default, which is why it only started showing up.
+- **There is no patched 2.x release.** The fix needs SQLite ≥ 3.50.2, i.e. SQLitePCLRaw **3.x** — a
+  major bump of the native provider *underneath EF Core*, which EF 10 was not built against.
+- Deliberately **not** bundled into the net10 upgrade: SQLite is the one component where a subtle
+  break silently corrupts save data, and mixing it in would destroy the "if CI goes red we know
+  which change did it" property. Tracked in `Backlog.md` as its own change.
+- Practical exposure here is low: exploitation needs attacker-controlled *query structure*, and all
+  SQL is EF-generated and parameterized — users never submit SQL.
 
 ## Dev server port
 `dotnet run` honours the launch profile (port 5179) unless you pass `--no-launch-profile` and set `ASPNETCORE_URLS` yourself.
@@ -46,10 +71,10 @@ Pin EF Core to **9.0.x**. 10.x requires net10 and won't restore on net9.
 ## PowerShell + native stderr
 Under `$ErrorActionPreference="Stop"`, a native command writing to stderr (e.g. an expected CONFLICT warning) terminates the script. Test scripts use `Continue` and parse output text instead.
 
-## .NET 9 is not in the Ubuntu 24.04 archive (WSL)
-`sudo apt install dotnet-sdk-9.0` fails with **`Unable to locate package dotnet-sdk-9.0`**. .NET 9 was released *between* Ubuntu LTS releases, so it never landed in the 24.04 archive — apt offers only `dotnet-sdk-8.0` and `dotnet-sdk-10.0`. This is not a reason to switch distro (see `Decisions.md` §6: Ubuntu is chosen for CI parity and its older glibc).
-- **Fix (no root):** `bash <(curl -fsSL https://dot.net/v1/dotnet-install.sh) --channel 9.0 --install-dir "$HOME/.dotnet"`, then export `DOTNET_ROOT` + `PATH` in `~/.bashrc`. Also avoids the known packages.microsoft.com ↔ Ubuntu-archive conflict on 24.04.
-- **Apt-managed alternative:** `sudo add-apt-repository ppa:dotnet/backports`.
+## Installing the .NET SDK in WSL (Ubuntu 24.04)
+Use the install script, not apt: `bash <(curl -fsSL https://dot.net/v1/dotnet-install.sh) --channel 10.0 --install-dir "$HOME/.dotnet"`, then export `DOTNET_ROOT` + `PATH` in `~/.bashrc`. No root needed, and it avoids the known packages.microsoft.com ↔ Ubuntu-archive conflict on 24.04.
+- **Historical (net9 era, now moot):** `apt install dotnet-sdk-9.0` used to fail with `Unable to locate package` — .NET 9 shipped *between* Ubuntu LTS releases and never landed in the 24.04 archive, which offered only `dotnet-sdk-8.0` and `dotnet-sdk-10.0`. The old rule "do not install dotnet-sdk-10.0" is **dead**: net10 is now the target. Ubuntu is still the right distro (`Decisions.md` §6: CI parity + older glibc).
+- Both SDKs can coexist; `global.json` decides which one is actually used.
 - **Do not** install `dotnet-sdk-10.0` just because apt offers it — the solution targets `net9.0` and EF Core is pinned to 9.0.x to stay off net10.
 - The install script **does not resolve dependencies**; .NET needs `libicu` (present by default on Ubuntu 24.04, but check on a minimal image).
 
