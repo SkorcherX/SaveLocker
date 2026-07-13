@@ -92,6 +92,16 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      # SaveLocker.Agent.csproj has a BeforeTargets="Build" step that runs `npm run build` in
+      # agent-ui/ (the tray hosts that React app), so building the Windows agent needs Node and
+      # the UI's dependencies installed — even though these tests only drive the CLI.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: agent-ui/package-lock.json
+      - run: npm ci
+        working-directory: agent-ui
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
@@ -146,6 +156,14 @@ jobs:
     needs: crossos-roundtrip
     steps:
       - uses: actions/checkout@v4
+      # Building the Windows agent runs `npm run build` in agent-ui/ — see crossos-author.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: agent-ui/package-lock.json
+      - run: npm ci
+        working-directory: agent-ui
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
