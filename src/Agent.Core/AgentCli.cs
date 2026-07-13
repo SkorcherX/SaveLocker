@@ -13,7 +13,8 @@ public static class AgentCli
     /// <summary>Commands handled here. A host checks this before falling through to its own.</summary>
     public static bool Handles(string command) => command is
         "register" or "set-server" or "whoami" or "search" or "scan" or "resolve" or
-        "add-game" or "list" or "status" or "push" or "pull" or "refresh-manifest" or "log";
+        "add-game" or "list" or "status" or "push" or "pull" or "refresh-manifest" or "log" or
+        "hash";
 
     /// <summary>Run one command. Returns the process exit code.</summary>
     public static async Task<int> RunAsync(
@@ -168,6 +169,24 @@ public static class AgentCli
                         var conflict = s?.HasOpenConflict == true ? "  *** CONFLICT ***" : "";
                         Console.WriteLine($"  {g.Name}: head={head}, {lease}{conflict}");
                     }
+                    break;
+                }
+
+                case "hash":
+                {
+                    // The content hash is what conflict detection compares, so it must be identical
+                    // for the same bytes on Windows and on Linux. Printing it is the only way to
+                    // assert that from outside the process (see tests/cross-os).
+                    if (opts.TryGetValue("dir", out var hashDir) && !string.IsNullOrWhiteSpace(hashDir))
+                    {
+                        var globs = opts.GetValueOrDefault("exclude")?
+                            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                        Console.WriteLine(SaveArchive.HashDirectory(hashDir.Trim(), globs));
+                        break;
+                    }
+
+                    foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
+                        Console.WriteLine($"  {g.Name}: {SaveArchive.HashDirectory(g.SaveDirectory, g.ExcludeGlobs)}");
                     break;
                 }
 

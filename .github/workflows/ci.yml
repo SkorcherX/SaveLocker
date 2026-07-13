@@ -45,3 +45,118 @@ jobs:
         working-directory: agent-ui
       - run: npm run build
         working-directory: agent-ui
+
+  # The agent integration suite, driven against the LINUX agent. Same script that runs on
+  # Windows (PowerShell Core runs on both) — so the shared Agent.Core sync brain is held to
+  # one behavioural contract, not two.
+  agent-tests-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build server + Linux agent
+        run: |
+          dotnet build src/Server/SaveLocker.Server.csproj --no-incremental
+          dotnet build src/Agent.Linux/SaveLocker.Agent.Linux.csproj --no-incremental
+
+      - name: Start server (fresh DB)
+        run: |
+          mkdir -p "$RUNNER_TEMP/state/archives"
+          ASPNETCORE_URLS=http://localhost:5179 \
+          Storage__DbPath="$RUNNER_TEMP/state/savelocker.db" \
+          Storage__ArchiveRoot="$RUNNER_TEMP/state/archives" \
+            dotnet src/Server/bin/Debug/net9.0/SaveLocker.Server.dll > "$RUNNER_TEMP/server.log" 2>&1 &
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:5179/api/admin/status >/dev/null 2>&1 && exit 0
+            sleep 1
+          done
+          echo "Server did not start"; cat "$RUNNER_TEMP/server.log"; exit 1
+
+      - name: Agent integration tests
+        run: pwsh tests/run-agent-tests.ps1
+
+  # ── Cross-OS round-trip ──────────────────────────────────────────────────────────────────
+  # Prove a Windows save and a Proton save are actually interchangeable.
+  #
+  # Runners cannot share a network, so the SERVER'S STATE (SQLite DB + archive store) is handed
+  # between jobs as an artifact and the same server binary is restarted on top of it on the other
+  # OS. One server, two agents, in the only form GitHub Actions permits.
+  #
+  #   crossos-author (win) --push--> [state] --pull--> crossos-roundtrip (linux) --push-->
+  #                                  [state] --pull--> crossos-confirm (win)
+
+  crossos-author:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - name: Build server + Windows agent
+        run: |
+          dotnet build src/Server/SaveLocker.Server.csproj --no-incremental
+          dotnet build src/Agent/SaveLocker.Agent.csproj --no-incremental
+      # Windows PowerShell 5.1 on purpose, not pwsh: it is what a maintainer runs the suite under
+      # locally, so CI exercises the same host the scripts are actually developed against.
+      - name: Author the save and push it
+        shell: powershell
+        run: .\tests\cross-os\crossos.ps1 -Leg author
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crossos-after-windows
+          path: |
+            crossos-work/state
+            crossos-work/expected
+            crossos-work/head-hash.txt
+          retention-days: 1
+
+  crossos-roundtrip:
+    runs-on: ubuntu-latest
+    needs: crossos-author
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: crossos-after-windows
+          path: crossos-work
+      - name: Build server + Linux agent
+        run: |
+          dotnet build src/Server/SaveLocker.Server.csproj --no-incremental
+          dotnet build src/Agent.Linux/SaveLocker.Agent.Linux.csproj --no-incremental
+      - name: Pull the Windows save, byte-compare, assert the hash, push back
+        shell: pwsh
+        run: ./tests/cross-os/crossos.ps1 -Leg roundtrip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crossos-after-linux
+          path: |
+            crossos-work/state
+            crossos-work/expected
+            crossos-work/head-hash.txt
+          retention-days: 1
+
+  crossos-confirm:
+    runs-on: windows-latest
+    needs: crossos-roundtrip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+      - uses: actions/download-artifact@v4
+        with:
+          name: crossos-after-linux
+          path: crossos-work
+      - name: Build server + Windows agent
+        run: |
+          dotnet build src/Server/SaveLocker.Server.csproj --no-incremental
+          dotnet build src/Agent/SaveLocker.Agent.csproj --no-incremental
+      - name: Pull the Linux save and byte-compare
+        shell: powershell
+        run: .\tests\cross-os\crossos.ps1 -Leg confirm

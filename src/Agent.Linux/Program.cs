@@ -126,6 +126,7 @@ static class Program
           add-game --name <n> [--dir <path>] [--appid <id>] [--manifest <key>] [--prefix <compatdata>]
           list                                             Show tracked games
           status                                           Server head / lease / conflicts
+          hash [game] | --dir <path>                       Content hash (what conflict detection compares)
 
         Sync
           push [game|all] [--force]                        Upload saves

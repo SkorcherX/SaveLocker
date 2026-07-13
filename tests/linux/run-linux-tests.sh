@@ -67,8 +67,10 @@ Storage__ArchiveRoot="${server_state}/archives" \
     --no-launch-profile >"${scratch}/server.log" 2>&1 &
 server_pid=$!
 
+# /api/admin/status is the only unauthenticated route. /api/games is an AGENT route and answers
+# 401 without an X-Api-Key, so probing it never succeeds and this loop silently burned all 60s.
 for _ in $(seq 1 60); do
-  curl -sf "${server_url}/api/games" >/dev/null 2>&1 && break
+  curl -sf "${server_url}/api/admin/status" >/dev/null 2>&1 && break
   sleep 1
 done
 

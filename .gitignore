@@ -9,6 +9,7 @@
 
 # Test scratch
 /.verify/
+/crossos-work/
 
 # IDE / user files
 *.user

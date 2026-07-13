@@ -83,5 +83,23 @@ A prefix assignment only applies to a **command**; `A=1 out=$(cmd)` is two plain
 `git fetch /mnt/e/Projects/SaveLocker` from inside WSL fails with **`detected dubious ownership`** (the DrvFs files appear owned by another user).
 - **Fix:** `git config --global --add safe.directory /mnt/e/Projects/SaveLocker/.git`. Fetching *source* across the mount is fine — but the **build and test must still run on ext4** (`~/SaveLocker`), never from `/mnt/*`.
 
+## Never `Path.Combine` a path you are about to persist (archives unreachable cross-OS)
+`ArchiveStore.RelativePath` built the store path with `Path.Combine` — and that string is **saved in the DB** as `SaveVersion.ArchivePath`. A **Windows-hosted** server therefore wrote `gameid\versionid.zip`. On Linux a backslash is a legal *filename character*, not a separator, so the lookup misses, `DownloadVersionAsync` returns null, `/download` 404s, and the agent reports **"server has no saves yet; nothing to pull"** — while `status` cheerfully shows a head. It is silent and it looks exactly like data loss.
+- Production was accidentally safe (the server only ever runs in Docker/Linux, so it is self-consistent), but **the dev workflow runs the server on Windows** — so a DB or backup moved from a Windows-hosted server to the Docker one has unreachable archives.
+- **Fixed (2026-07-13):** the persisted path is always `/`-separated (built by interpolation, never `Path.Combine`); `FullPath` accepts either separator so older Windows-written rows still resolve. Found by the Phase 3 cross-OS round-trip.
+- **Rule:** `Path.Combine` is for touching *this* machine's filesystem *now*. Anything that outlives the process — DB column, JSON config, wire DTO — gets a canonical `/`.
+
+## The server-readiness probe must hit an unauthenticated route
+`GET /api/games` looks like the obvious "is it up?" probe but it is an **agent** route: without `X-Api-Key` it answers **401**, so a `curl -sf` / `Invoke-RestMethod` readiness loop never sees success and silently burns its entire timeout (60 s per run in `tests/linux/run-linux-tests.sh`) before carrying on anyway.
+- Use **`/api/admin/status`** — the only route with no auth filter on it.
+
+## A leaked test server poisons every later run
+If a harness spawns the server and then throws *before* the handle reaches its `finally`, the process keeps running — still holding the port **and the state directory**. The next run's `Remove-Item -Force` on the state dir fails silently (files locked), its own server cannot bind, and its readiness probe succeeds **against the stale server**. Every assertion then runs against another run's state, and the resulting conflict looks like a cross-OS hash bug.
+- `crossos.ps1` now kills what it spawned on the timeout path, refuses to start when the port is already in use, and refuses to proceed if it cannot clear the state dir. Prefer failing loudly over asserting against someone else's server.
+
+## `Copy-Item -Recurse src dst` copies *into* dst when dst exists
+It does not overwrite the destination tree — it nests a copy inside it. A leftover target from a previous run silently accumulates (`local-save/expected/...`), and the test then archives and pushes the polluted tree.
+- Always `Remove-Item -Recurse -Force $dst` first.
+
 ## Docker DB path on existing deployments
 The server Docker image defaults to `/data/savelocker.db` but existing deployments that were created before the rename may have `/data/localgamesync.db`. If the server fails to find the DB, either rename the file on the unRAID share or set the `Storage__DbPath` env var.

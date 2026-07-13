@@ -55,6 +55,7 @@ If you must run the `.exe`, redirect its output to a file:
 | `status` | | Per-game server state: head version and the machine it came from, lease holder, conflict flag. |
 | `push` | `[gameName\|all]`<br>`[--force]` | Archive and upload saves. Skipped when nothing changed. A diverged upload becomes a **conflict** and leaves the head untouched. `--force` overwrites the server head with this machine's copy. |
 | `pull` | `[gameName\|all]`<br>`[--force]` | Download and restore the head. **Guarded:** refuses to overwrite local saves that hold un-pushed changes. `--force` discards the local copy and takes the server's. |
+| `hash` | `[gameName\|all]`<br>`--dir <path>`<br>`[--exclude <a,b>]` | Print the content hash of a save folder — the value the server compares to decide *changed*, *unchanged*, or *conflict*. Use it to check whether two machines really hold the same save. Identical bytes give an identical hash on **any** OS, so a Windows PC and a Steam Deck agree. Local only. |
 | `log` | `[--n <count>]` | Print the last *n* lines of the agent log (default 50). |
 
 Manual `push` and `pull` are **immediate** — they skip the settle gate that delays automatic backups. See **Save-in-use safety**.

@@ -1,8 +1,9 @@
 # Task: Help KB articles for the Linux agent (Steam Deck / Proton)
 
 **Status:** not started. Seeded 2026-07-12, straight after Linux agent Phase 2, while the
-detail was fresh. **Do not start this before the Linux agent actually ships** — Phases 3–6 are
-still open (`tasks/linux-agent.md`), and several answers below change if they land differently.
+detail was fresh. **Do not start this before the Linux agent actually ships** — **Phases 4–6 are
+still open** (`tasks/linux-agent.md`; Phase 3 landed 2026-07-13), and several answers below change
+if they land differently.
 
 ## Why
 
@@ -43,6 +44,12 @@ The single most likely support question is *"why doesn't my Steam game sync?"* A
 - **Native Linux builds are out of scope** and must not be synced into a Windows install — the save
   formats differ. Say this plainly; it is the corruption case the scope avoids.
 - Two save shapes both work: *in-prefix* (inside the Wine prefix) and *portable* (next to the .exe).
+- **A save made on a Windows PC and a save made on the Deck under Proton are the same save.** This is
+  now *proven*, not asserted: Phase 3's CI round-trip pushes a save from a Windows agent, pulls it
+  with the Linux agent, byte-compares the tree, sends it back, and compares again — identical both
+  ways, identical content hash. Worth stating plainly in this article, because "will my PC save work
+  on my Deck?" is the second question every user asks. (Keep it one sentence; do not turn it into a
+  changelog.)
 
 ### 3. `deck-troubleshooting` (category: Troubleshooting) — or fold into `troubleshooting.md`
 Lead with **`savelocker doctor`**: it checks the entire chain (server, Steam roots, shortcuts,
@@ -60,6 +67,10 @@ Paste its output. Then the specific failures:
 ### 4. Updates to EXISTING articles — don't leave these Windows-only
 - **`cli-reference.md`** — add the Linux commands: `run`, `daemon [--lan]`, `doctor`, `autostart`,
   and the new `add-game --appid / --prefix` options. This article is currently Windows-shaped.
+  - ✅ Already added 2026-07-13: **`hash`** (`hash [game] | --dir <path> [--exclude a,b]`) — prints the
+    content hash the server compares to decide changed / unchanged / conflict. Useful in the
+    Troubleshooting article too: it is the direct way to answer "do these two machines actually hold
+    the same save?", and it gives the same answer on Windows and on the Deck.
 - **`save-in-use-safety.md`** — the settle gate behaves differently on Linux and users deserve to
   know: `FileShare` is not enforced by the Linux kernel, so open-file detection is done by walking
   `/proc/*/fd` instead. Where it cannot answer, the gate says so in the log and settles on the file
@@ -73,6 +84,12 @@ Paste its output. Then the specific failures:
 - **Phase 4 (enrollment token)** changes the setup flow — §1 above may become "download a policy
   file from the console and run `savelocker enroll --file …`" instead of `set-server` + `register`.
   **Write §1 last**, or expect to rewrite it.
+- **Phase 3 is no longer a blocker** (landed 2026-07-13). It unblocks the cross-OS claim in §2 above
+  and adds `hash` to §4. It also fixed a bug worth knowing about while writing Troubleshooting: a
+  server whose DB was written by a **Windows-hosted** server stored archive paths with backslashes,
+  which the Docker (Linux) server could not resolve — the agent then said *"server has no saves yet"*
+  while the console still showed a head. Fixed, and old rows still resolve. If a user reports that
+  exact contradiction, it is this, and they need a server new enough to have the fix.
 - **Phase 5 (agent health reporting)** is what makes conflicts visible on a Deck. The
   `conflicts.md` edit above depends on it existing.
 - **No Steam Deck is owned.** Every screenshot-level claim about Game Mode, the Launch Options UI
