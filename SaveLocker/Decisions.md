@@ -38,6 +38,46 @@ The official product/brand name is **SaveLocker**. Rename is complete (2026-07-1
 - **Why an installer:** auto-start writes a registry entry; a manually-deleted exe would orphan it. The uninstaller must own and revert every system change.
 - **Uninstall:** prompts before deleting `%PROGRAMDATA%\SaveLocker` (API key + tracked games config); *No* preserves it for a reinstall.
 
+## Linux agent (locked 2026-07-12)
+
+Decisions taken before writing any Linux code. Execution plan: `tasks/linux-agent.md`.
+
+### 1. Proton-only for v1 — native Linux builds are out of scope
+A Proton game **is a Windows game**: it writes Windows-format saves to Windows paths inside a Wine prefix. A Deck and a Windows PC therefore produce **byte-identical saves**, and the existing content-hash lineage works across them with no conversion, no format translation, no line-ending handling.
+
+All the genuinely hard cross-OS problems (different save formats, different paths, text-mode line endings, case collisions) appear **only** with native Linux builds of a game. Excluding them means v1 needs **zero server schema change** — and Proton *is* the Steam Deck / Steam Machine use case.
+
+Native Linux builds need a save-*variant* model on the server (a version's lineage would only be valid within a platform family). Deferred until there is a reason to build it. **Do not sync a native-Linux save into a Windows install** — that is the corruption case this scoping avoids.
+
+### 2. No native UI on Linux — the daemon serves the existing React UI
+In **Game Mode** (gamescope) there is no system tray and no desktop; a tray icon is invisible and a toast is impossible. In **Desktop Mode** it is just KDE with a browser. So the Linux agent is a **headless daemon** that serves the existing `agent-ui` on `localhost:5178` — the same UI, for free, reachable from a browser or another device on the LAN. No WinForms equivalent, no GTK/Qt, no second frontend.
+
+Consequence, and it is a design obligation rather than a nice-to-have: **a headless spoke cannot tell the user anything.** A conflict that raises a toast on Windows is *silent* on a Deck. The agent must therefore report health and errors to the server so the console can surface them ("Steam Deck: conflict on Hades, 2 days ago"). **The console is the Deck's UI.** This ships *with* the Linux agent, not after it.
+
+### 3. The Steam launch wrapper is the primary trigger — not process polling
+Users add `savelocker run %command%` to a game's Steam launch options. Steam then supplies `STEAM_COMPAT_DATA_PATH` and `SteamAppId` in the environment, which gives:
+- the **exact Wine prefix**, with no compatdata scanning or guessing, and
+- **precise** pre-launch / post-exit hooks, with no polling.
+
+Process-name polling is the fallback for non-Steam launchers (Heroic, Lutris, Bottles), and it is genuinely unpleasant on Linux — `/proc/<pid>/comm` truncates at 15 chars and Proton games hide behind `reaper` / `pv-bwrap` / `wine` wrappers. Prefer the wrapper wherever it is available.
+
+### 4. Enrollment carries a short-lived token, not an API key — and is not signed
+The console generates an enrollment file (server URL + preselected games/globs/settle delay) carrying a **single-use, ~15-minute enrollment token**, which the agent redeems for its real machine API key on first contact. A leaked file then expires on its own and is revocable. A long-lived API key sitting in `~/Downloads` is not.
+
+**The policy file is deliberately not signed.** The threat a forged file poses is not a bogus token — it is being pointed at a **malicious server**, whose *pull* writes files into save directories. Signing cannot fix that, because a fresh agent has no trust anchor and therefore no way to know the right public key; the *user* is the trust anchor (they downloaded the file from their own console). A PKI here would be security theatre. What actually mitigates it, in order: **HTTPS** (already have, via the Tunnel), **hardening the restore path** (see below), and **TOFU-pinning** the server after enrollment.
+
+Detached signing only earns its keep for *offline* policy distribution (bundling a policy into an installer for machines that never contact the console first). Build it then, not now.
+
+### 5. Install to the user's home, never to /usr
+SteamOS's root filesystem is **immutable and wiped on update**. Install to `~/.local/share/SaveLocker` with a `systemd --user` unit, which survives SteamOS updates. This rules out a plain `.deb`/`.rpm` system install. Self-contained publish is mandatory — SteamOS ships no .NET runtime.
+
+### 6. Dev on WSL2, not a VM
+WSL2 (inside the **ext4 home** — never `/mnt/c`, where DrvFs breaks inotify, permissions, case-sensitivity and locking) faithfully reproduces everything that matters: Linux `FileShare` semantics, inotify, `/proc`, case-sensitivity, `systemd --user`, and self-contained publish.
+
+The agent never talks to Steam — it reads two env vars and supervises a child process — so a **fake-game harness** (fixture compatdata tree + a script that writes saves slowly and exits, with the env vars set) exercises the entire code path with no Steam, no Proton and no GPU. That harness is also the CI test.
+
+Not testable without hardware: gamescope/Game Mode, the immutable rootfs, SD-card library paths, suspend/resume. A VM buys only the immutable-rootfs check and makes gamescope worse. **No Deck is owned** — hardware validation is an explicit deferred-risk item, exactly like the existing Windows device-verify pattern.
+
 ## Environment facts (user-provided)
 - Games are **standalone builds**, not bought on Steam/Epic → save locations unpredictable, hence manifest-based detection + manual `--dir` fallback.
 - User has a domain on CloudFlare and uses **CloudFlare Tunnel** for remote access.

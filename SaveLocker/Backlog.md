@@ -10,6 +10,9 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 ## High priority
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
 
+## Planned — large
+- **Linux agent (Proton / Steam Deck)** — design locked in `Decisions.md`; phased execution plan in `tasks/linux-agent.md`. Proton-only for v1 (Proton saves are byte-identical to Windows saves → no schema change), headless daemon serving the existing React UI, Steam launch-option wrapper as the sync trigger. Dev on WSL2 + a fake-game harness; **no Deck owned**, so hardware validation is a deferred risk.
+
 ## Medium priority
 - **Registry-based saves** — the Ludusavi manifest has a `registry:` section; currently only `files:` paths are handled.
 - **Multi-directory saves** — some games list multiple save paths in the manifest. The sync engine tracks one `SaveDirectory` per game; multi-dir support needs a schema change.
