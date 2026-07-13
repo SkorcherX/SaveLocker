@@ -15,10 +15,12 @@
 *.user
 .vs/
 
-# Obsidian per-session UI state (keep app.json / appearance.json / core-plugins.json)
-LocalGameSync/.obsidian/workspace.json
-LocalGameSync/.obsidian/workspace-mobile.json
-LocalGameSync/.obsidian/graph.json
+# Obsidian per-session UI state (keep app.json / appearance.json / core-plugins.json).
+# The vault folder was renamed LocalGameSync -> SaveLocker; these rules still said LocalGameSync,
+# so they matched nothing and workspace.json showed up dirty every single session.
+SaveLocker/.obsidian/workspace.json
+SaveLocker/.obsidian/workspace-mobile.json
+SaveLocker/.obsidian/graph.json
 
 # Secrets — never commit real keys here; appsettings.Development.json is tracked with placeholders
 
