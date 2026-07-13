@@ -57,6 +57,18 @@ Smallest possible step, and it is independently valuable even if the upgrade wer
 **Verify:** `dotnet --version` at the repo root reports the pinned SDK; server + both agents build;
 the Docker image still builds (`docker build -f src/Server/Dockerfile .`). CI green.
 
+### Status: ✅ DONE (2026-07-13)
+`global.json` pins `9.0.100` + `rollForward: latestFeature` — any 9.0.x SDK, never a roll-forward to
+10. The Dockerfile **copies `global.json` in**, so the container is held to the same pin: if the image
+tag and the pin ever disagree the build fails there loudly instead of quietly compiling with a
+different SDK. Proven live — with SDK 10.0.301 installed alongside 9.0.315, `dotnet --version` at the
+repo root still returned **9.0.315**.
+
+**Also closed a CI hole:** `docker-publish.yml` only runs on push-to-main and `ci.yml` never built the
+image, so **a broken Dockerfile was invisible to PRs** — it would first surface as a failed publish
+*after* merge. Added a `docker-build` job (builds, publishes nothing). This upgrade touches the
+Dockerfile twice, so the gap had to close first. CI green, 8/8.
+
 **STOP.**
 
 ---
@@ -80,6 +92,49 @@ the Docker image still builds (`docker build -f src/Server/Dockerfile .`). CI gr
 Windows suite **10/10** → Linux suite **10/10** → fake-game harness **27/27** → cross-OS chain
 green in CI (author → roundtrip → confirm, byte-identical both ways).
 
+### Status: ✅ DONE (2026-07-13)
+
+Solution builds 0 errors. **Windows 10/10, Linux 10/10, fake-game harness 27/27, and the cross-OS
+chain green in CI** — byte-identical both ways, so **.NET 10 did not change how saves hash or
+archive**. That was the thing worth proving.
+
+**The TFM was baked into more than the csproj files** — the publish profile, `SaveLocker.iss`,
+`build-installer.ps1`, and the test scripts' output paths all hardcode it. A missed one fails as
+"agent not built", not as a build error. Moved together.
+
+**Risk #3 (FileSystemGlobbing 10.x) checked explicitly** — nothing in the suites covered globs, and
+the cross-OS fixture deliberately avoids excluded extensions, so this was untested. A bare `*.log`
+still excludes at **every depth** (the v0.1.5 gitignore-style behaviour) and the filtered tree hashes
+identically to one that never had logs. Had this shifted, exclude globs would have changed which
+files get archived → the content hash changes → a PC and a Deck manufacture spurious conflicts.
+
+#### Security: one advisory fixed, one deliberately left
+- **Fixed (introduced by this upgrade):** `Microsoft.AspNetCore.OpenApi` 10.0.9 resolves
+  `Microsoft.OpenApi` **2.0.0**, vulnerable to **CVE-2026-49451** (NU1903 High). Pinned directly to
+  **2.10.0** (patched in 2.7.5+). net9 did not pull this package at all.
+- **NOT fixed, deliberately:** `SQLitePCLRaw.lib.e_sqlite3` — **CVE-2025-6965** (High, memory
+  corruption in SQLite). **Pre-existing**: net9 shipped 2.1.10 with the same advisory. SDK 10 audits
+  *transitive* packages by default, which is the only reason it started appearing. **There is no
+  patched 2.x release** — the fix needs SQLite ≥ 3.50.2, i.e. SQLitePCLRaw **3.x**, a major bump of
+  the native provider under EF Core. SQLite is the one component where a subtle break silently
+  corrupts save data, and bundling it here would destroy the property that makes this upgrade safe:
+  *if CI goes red, we know which change did it*. Tracked in `Backlog.md` as its own change.
+
+#### Two "green means nothing" traps hit along the way
+1. **A false green.** The first Linux run reported a cheerful **27/27** — against the **old net9
+   code**. The WSL clone had a dirty tree, `git checkout` refused, the runner had no `set -e`, and it
+   happily built and tested the wrong commit. The runner now hard-resets and **asserts the TFM is
+   `net10.0` before drawing any conclusion**.
+2. **The `.sh` files were not executable in git** (mode `100644` — they were committed from Windows).
+   `./tests/linux/run-linux-tests.sh` fails `rc=126` on a fresh Linux clone. This also hit
+   **`packaging/linux/install.sh` — the script a Steam Deck user is told to run.** Fixed with
+   `git update-index --chmod=+x`. Nothing to do with net10; found because of it.
+
+**Backlogged, not done:** `SYSLIB0060` — `Rfc2898DeriveBytes`'s constructor is obsolete on net10
+(`Tokens.HashPassword`/`VerifyPassword`). A warning, not an error; the API still works. It is **admin
+password hashing with zero test coverage**, and a subtle mistake locks the user out of their own
+dashboard. Needs a test proving an OLD hash still verifies before the swap — not in a framework PR.
+
 **STOP.**
 
 ---
@@ -97,6 +152,30 @@ per `CLAUDE.md` any API change means regenerating `web/src/api-types.ts` too.
 
 **Verify:** `npm run build` in `web/` and `agent-ui/`; dashboard loads against the server and the
 agent UI still renders on :5178.
+
+### Status: ✅ DONE (2026-07-13)
+
+**No wire-contract change. Zero paths added or removed.** The churn is real but presentational:
+
+- **OpenAPI `3.0.1` → `3.1.1`.** .NET 10 emits 3.1, so `nullable: true` becomes
+  `type: ["null","string"]`. Same meaning — 3.1 aligns nullability with JSON Schema.
+- **The `*Dto2` duplicates are gone** (`SaveVersionDto2`, `ConflictDto2`, `LeaseDto2`, `BackupInfo2`).
+  .NET 9's generator emitted **bogus duplicate schemas** when a type appeared in several contexts;
+  .NET 10 dedupes. That is a **fix**, and nothing in `web/` ever referenced them.
+
+**The one real problem, and why the fix lives in the server.** .NET 10 describes numeric types as a
+union with string — `long` as `["integer","string"]` (an int64 can exceed JS's safe-integer range) and
+`double` as `["number","string"]` (JSON cannot express NaN/Infinity). **Our server never does either**:
+System.Text.Json writes both as JSON numbers, always. Left alone, that fiction propagated a
+`number | string` into the generated TS for every size / byte-count / interval field and broke the
+dashboard in **10 places** with `Operator '>' cannot be applied…`.
+
+The tempting fix — sprinkle `Number(...)` across 10 call sites — would be coercing away a case that
+**cannot occur**, and every future regeneration would reintroduce it. Instead an `AddSchemaTransformer`
+in `Program.cs` strips the string arm, so the document *describes what the server actually sends*. This
+changes only the emitted schema, never serialization.
+
+**Result: the dashboard compiles completely unchanged.** `web` and `agent-ui` both build.
 
 **STOP.**
 
