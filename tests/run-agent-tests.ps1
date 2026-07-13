@@ -9,7 +9,7 @@ $ErrorActionPreference = "Continue"
 
 $root     = Split-Path $PSScriptRoot -Parent
 $dotnet   = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
-$dll      = Join-Path $root "src\Agent\bin\Debug\net9.0-windows\LocalGameSync.Agent.dll"
+$dll      = Join-Path $root "src\Agent\bin\Debug\net9.0-windows\SaveLocker.Agent.dll"
 $fixtures = $PSScriptRoot
 $scratch  = Join-Path $root ".verify"
 
@@ -42,8 +42,12 @@ $detectCfg = Join-Path $scratch "detect-config.json"
     ConvertTo-Json | Set-Content -Path $detectCfg -Encoding utf8
 
 # ---- Detection (Phase 2): resolve a manifest game's save dir on this machine ----
+# `resolve` only reports a directory that actually exists, so the fixture dir the
+# manifest points at has to be there before we ask.
+$expected = Join-Path $env:APPDATA "LGSTestGame"
+New-Item -ItemType Directory -Force $expected | Out-Null
+
 $detectOut = Agent resolve --config $detectCfg --manifest "LGS Test Game"
-$expected  = Join-Path $env:APPDATA "LGSTestGame"
 Check "detection resolved <winAppData> save dir" (($detectOut -join "`n") -like "*$expected*")
 
 # ---- Register two machines ----

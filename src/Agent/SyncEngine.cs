@@ -18,6 +18,7 @@ public sealed class SyncEngine
     private readonly OfflineQueue? _offlineQueue;
     private readonly TimeSpan _leaseRenewInterval = TimeSpan.FromHours(3);
     private readonly Dictionary<Guid, System.Threading.Timer> _leaseTimers = new();
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _pushLocks = new();
 
     /// <param name="log">Routine progress — written to the agent log only.</param>
     /// <param name="notify">User-facing alerts (conflicts, blocks, offline retries). Both notified and logged.</param>
@@ -35,14 +36,36 @@ public sealed class SyncEngine
     /// <summary>An event the user should see as a toast — also written to the log.</summary>
     private void Alert(string msg) { _log(msg); _notify(msg); }
 
-    /// <summary>Upload local saves to the server. Returns the upload outcome.</summary>
-    public async Task<UploadResult?> PushAsync(TrackedGame game, bool force = false, CancellationToken ct = default)
+    /// <summary>
+    /// Upload local saves to the server. Returns the upload outcome.
+    /// <paramref name="settle"/> waits for the game to finish writing before archiving — set it on
+    /// automatic pushes (process-exit, folder-watch), where the save may still be mid-flush. Manual
+    /// pushes leave it off: the user picked the moment and shouldn't wait on a timer.
+    /// </summary>
+    public async Task<UploadResult?> PushAsync(TrackedGame game, bool force = false, bool settle = false, CancellationToken ct = default)
+    {
+        // The exit push now waits for the save to settle, and the folder watcher fires during that
+        // wait — without this, the two would archive and upload the same game concurrently.
+        var gate = _pushLocks.GetOrAdd(game.GameId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        try { return await PushCoreAsync(game, force, settle, ct); }
+        finally { gate.Release(); }
+    }
+
+    private async Task<UploadResult?> PushCoreAsync(TrackedGame game, bool force, bool settle, CancellationToken ct)
     {
         if (!Directory.Exists(game.SaveDirectory))
         {
             _log($"[{game.Name}] save directory missing, nothing to push.");
             return null;
         }
+
+        if (settle)
+            await SaveSettler.WaitForQuietAsync(
+                game.SaveDirectory, game.ExcludeGlobs,
+                TimeSpan.FromSeconds(_config.SettleQuietSeconds),
+                TimeSpan.FromSeconds(_config.SettleMaxWaitSeconds),
+                m => _log($"[{game.Name}] {m}"), ct);
 
         var hash = SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs);
         if (!force && hash == game.LastSyncedHash)
@@ -177,7 +200,7 @@ public sealed class SyncEngine
     public async Task OnGameExitAsync(TrackedGame game, CancellationToken ct = default)
     {
         StopLeaseRenewer(game.GameId);
-        await PushAsync(game, force: false, ct);
+        await PushAsync(game, force: false, settle: true, ct: ct);
         try { await _api.ReleaseLeaseAsync(game.GameId); }
         catch (Exception ex) { _log($"[{game.Name}] lease release failed: {ex.Message}"); }
     }

@@ -192,7 +192,7 @@ internal sealed class TrayContext : ApplicationContext
             var game = g;
             _folderWatchers.Add(new FolderWatcher(game.SaveDirectory, () =>
             {
-                if (!IsRunning(game)) FireAndForget(() => _engine.PushAsync(game));
+                if (!IsRunning(game)) FireAndForget(() => _engine.PushAsync(game, settle: true));
             }));
         }
     }

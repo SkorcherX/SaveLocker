@@ -36,7 +36,7 @@ public static class SaveArchive
             sha.TransformBlock(pathBytes, 0, pathBytes.Length, null, 0);
 
             var full = Path.Combine(sourceDir, rel);
-            using var fs = File.OpenRead(full);
+            using var fs = OpenShared(full);
             var buffer = new byte[81920];
             int read;
             while ((read = fs.Read(buffer, 0, buffer.Length)) > 0)
@@ -79,11 +79,28 @@ public static class SaveArchive
             foreach (var rel in files)
             {
                 var full = Path.Combine(sourceDir, rel.Replace('/', Path.DirectorySeparatorChar));
-                zip.CreateEntryFromFile(full, rel, CompressionLevel.Optimal);
+                var entry = zip.CreateEntry(rel, CompressionLevel.Optimal);
+                entry.LastWriteTime = File.GetLastWriteTime(full);
+
+                // CreateEntryFromFile opens with FileShare.Read, which throws when a game still
+                // holds the save open. Read with a permissive share instead — the agent's settle
+                // gate is what guarantees the writer has actually finished.
+                using var src = OpenShared(full);
+                using var dst = entry.Open();
+                src.CopyTo(dst);
             }
         }
         return HashDirectory(sourceDir, excludeGlobs);
     }
+
+    /// <summary>
+    /// Open a file for reading while tolerating other processes that hold it open for
+    /// writing or pending delete. Without this, a single open handle anywhere in the save
+    /// tree fails the whole push.
+    /// </summary>
+    private static FileStream OpenShared(string path) =>
+        new(path, FileMode.Open, FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
 
     /// <summary>
     /// Restore an archive into <paramref name="targetDir"/>. Staging is done in
@@ -146,6 +163,15 @@ public static class SaveArchive
                 Directory.Delete(stagingDir, true);
         }
     }
+
+    /// <summary>
+    /// The exact file set that <see cref="HashDirectory"/> and <see cref="CreateArchive"/> act on —
+    /// ordered, forward-slash relative paths, excludes applied. Callers that need to inspect the
+    /// same files (e.g. waiting for writes to settle) should use this so they never disagree
+    /// with what actually gets archived.
+    /// </summary>
+    public static IReadOnlyList<string> ListFiles(string root, IEnumerable<string>? excludeGlobs = null) =>
+        Directory.Exists(root) ? EnumerateRelativeFiles(root, excludeGlobs) : Array.Empty<string>();
 
     /// <summary>
     /// Ordered, forward-slash relative paths of the files under <paramref name="root"/>,

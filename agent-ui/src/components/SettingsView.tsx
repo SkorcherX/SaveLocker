@@ -38,6 +38,7 @@ export function SettingsView({ state, onSaved }: Props) {
   const [adminPassword, setAdminPassword] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [startWithWindows, setStartWithWindows] = useState(false)
+  const [settleQuietSeconds, setSettleQuietSeconds] = useState('10')
   const [copied, setCopied] = useState(false)
   const [games, setGames] = useState<TrackedGame[]>([])
   const [selectedGames, setSelectedGames] = useState<Set<string>>(new Set())
@@ -50,6 +51,8 @@ export function SettingsView({ state, onSaved }: Props) {
     if (state) {
       if (!dirtyFields.current.has('serverUrl')) setServerUrl(state.serverUrl)
       if (!dirtyFields.current.has('machineName')) setMachineName(state.machineName)
+      if (!dirtyFields.current.has('settleQuietSeconds'))
+        setSettleQuietSeconds(String(state.settleQuietSeconds))
       setApiKey(state.apiKey)
       setStartWithWindows(state.startWithWindows)
     }
@@ -64,7 +67,12 @@ export function SettingsView({ state, onSaved }: Props) {
   const save = async () => {
     setSaving(true)
     try {
-      await api.saveConfig({ serverUrl, machineName })
+      const seconds = parseInt(settleQuietSeconds, 10)
+      await api.saveConfig({
+        serverUrl,
+        machineName,
+        settleQuietSeconds: Number.isFinite(seconds) ? Math.min(Math.max(seconds, 0), 300) : undefined,
+      })
       dirtyFields.current.clear()
       onSaved()
       setStatus('Saved.')
@@ -210,6 +218,27 @@ export function SettingsView({ state, onSaved }: Props) {
         {status && (
           <div style={{ color: '#9CA3AF', fontSize: 12, marginTop: 8 }}>{status}</div>
         )}
+      </div>
+
+      {/* Sync Safety */}
+      <div>
+        <div style={SECTION_HEADER}>Sync Safety</div>
+        <label style={LABEL}>Wait for saves to settle (seconds)</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <input
+            type="number" min={0} max={300}
+            value={settleQuietSeconds}
+            onChange={e => { dirtyFields.current.add('settleQuietSeconds'); setSettleQuietSeconds(e.target.value) }}
+            style={{ ...INPUT, width: 80, fontSize: 13 }}
+          />
+          <button style={BTN_PRIMARY} onClick={() => void save()} disabled={busy}>Save</button>
+        </div>
+        <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 7, lineHeight: 1.5 }}>
+          After a game closes, SaveLocker waits until its save folder stops changing for this long
+          before backing it up — so a game that keeps writing for a few seconds after exit can't be
+          captured half-finished. Raise it if a game is slow to flush its save. 0 backs up
+          immediately. Manual syncs are never delayed.
+        </div>
       </div>
 
       {/* Tracked Games */}

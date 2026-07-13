@@ -150,6 +150,7 @@ internal sealed class AgentApiServer : IDisposable
                 savesBacked = _config.TotalSavesPushed,
                 lastSyncAgo,
                 leaseWarnings = warnings,
+                settleQuietSeconds = _config.SettleQuietSeconds,
             });
             return;
         }
@@ -199,11 +200,12 @@ internal sealed class AgentApiServer : IDisposable
                 machineName = _config.MachineName,
                 apiKey = _config.ApiKey ?? "",
                 startWithWindows = AutoStart.IsEnabled(),
+                settleQuietSeconds = _config.SettleQuietSeconds,
             });
             return;
         }
 
-        // POST /api/config  { serverUrl?, machineName?, startWithWindows? }
+        // POST /api/config  { serverUrl?, machineName?, startWithWindows?, settleQuietSeconds? }
         if (route == "config" && method == "POST")
         {
             var body = await ReadJsonAsync<ConfigRequest>(req);
@@ -213,6 +215,8 @@ internal sealed class AgentApiServer : IDisposable
                     _config.ServerUrl = body.ServerUrl.Trim().TrimEnd('/');
                 if (!string.IsNullOrWhiteSpace(body.MachineName))
                     _config.MachineName = body.MachineName.Trim();
+                if (body.SettleQuietSeconds.HasValue)
+                    _config.SettleQuietSeconds = Math.Clamp(body.SettleQuietSeconds.Value, 0, 300);
                 _config.Save();
                 if (body.StartWithWindows.HasValue)
                     AutoStart.SetEnabled(body.StartWithWindows.Value);
@@ -463,6 +467,7 @@ internal sealed class AgentApiServer : IDisposable
         public string? ServerUrl { get; set; }
         public string? MachineName { get; set; }
         public bool? StartWithWindows { get; set; }
+        public int? SettleQuietSeconds { get; set; }
     }
     private sealed class RegisterRequest { public string? AdminPassword { get; set; } }
     private sealed class FolderBody { public string? Path { get; set; } }

@@ -22,8 +22,12 @@ export const api = {
   candidates: () => req<Candidate[]>('/api/candidates'),
   rescan: () => post<Candidate[]>('/api/candidates/rescan'),
   enroll: (ids: number[]) => post<{ enrolled: number; skipped: number }>('/api/enroll', { ids }),
-  saveConfig: (body: { serverUrl?: string; machineName?: string; startWithWindows?: boolean }) =>
-    post('/api/config', body),
+  saveConfig: (body: {
+    serverUrl?: string
+    machineName?: string
+    startWithWindows?: boolean
+    settleQuietSeconds?: number
+  }) => post('/api/config', body),
   register: (adminPassword?: string) =>
     post<{ apiKey: string }>('/api/register', adminPassword ? { adminPassword } : undefined),
   games: () => req<TrackedGame[]>('/api/games'),

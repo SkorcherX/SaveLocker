@@ -27,6 +27,15 @@ public sealed class AgentConfig
     public string? SkipVersion { get; set; }
     /// <summary>UTC timestamp of the last update check; used to enforce a 24 h cooldown between background checks.</summary>
     public DateTime? LastUpdateCheck { get; set; }
+    /// <summary>
+    /// Seconds a save folder must be quiet — no file changes, nothing open for writing — before an
+    /// automatic push archives it. Games that keep flushing after exit need a longer wait; 0 disables
+    /// the gate and archives immediately (fast, but can capture a half-written save).
+    /// </summary>
+    public int SettleQuietSeconds { get; set; } = 10;
+    /// <summary>Hard cap on the settle wait. Past this the push proceeds regardless, so a game that
+    /// never goes quiet can't block syncing forever.</summary>
+    public int SettleMaxWaitSeconds { get; set; } = 120;
 
     [JsonIgnore] public string ConfigPath { get; private set; } = DefaultConfigPath;
 

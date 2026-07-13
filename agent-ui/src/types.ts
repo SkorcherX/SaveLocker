@@ -16,6 +16,7 @@ export interface AgentState {
   savesBacked: number
   lastSyncAgo: string
   leaseWarnings: LeaseWarning[]
+  settleQuietSeconds: number
 }
 
 export interface Candidate {
