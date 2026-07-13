@@ -31,6 +31,7 @@ Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open wor
 ---
 
 ## Active backlog (priority order — see `Backlog.md`)
+0. **.NET 10 (LTS) upgrade — IN PROGRESS, has a deadline.** .NET 9 is STS and goes out of support **10 Nov 2026** (already maintenance-only); .NET 10 is LTS to Nov 2028. Locked in `Decisions.md → Runtime: .NET 10 LTS`; phased plan in `tasks/dotnet-10-upgrade.md`. Being done **before** Linux agent Phase 4, while the test net is at its strongest. Own branch, own PR — never mixed with feature work. Also adds a `global.json`: CI was silently building the net9 targets with **SDK 10.0.301** while the dev box used 9.0.315.
 1. **Device-verify 5e** on v0.1.5 (add `*.log` to a game → nested + root excluded; log-only change → no version). Both agents must be on the same version for consistent hashing.
 2. **Device-verify the settle gate** — exit a slow-flushing game, confirm the agent log shows the wait then `save files settled.` before the push.
 3. Code-sign the exe (SmartScreen warns for unsigned installers)
