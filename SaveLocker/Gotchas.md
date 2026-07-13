@@ -46,6 +46,17 @@ Pin EF Core to **9.0.x**. 10.x requires net10 and won't restore on net9.
 ## PowerShell + native stderr
 Under `$ErrorActionPreference="Stop"`, a native command writing to stderr (e.g. an expected CONFLICT warning) terminates the script. Test scripts use `Continue` and parse output text instead.
 
+## .NET 9 is not in the Ubuntu 24.04 archive (WSL)
+`sudo apt install dotnet-sdk-9.0` fails with **`Unable to locate package dotnet-sdk-9.0`**. .NET 9 was released *between* Ubuntu LTS releases, so it never landed in the 24.04 archive — apt offers only `dotnet-sdk-8.0` and `dotnet-sdk-10.0`. This is not a reason to switch distro (see `Decisions.md` §6: Ubuntu is chosen for CI parity and its older glibc).
+- **Fix (no root):** `bash <(curl -fsSL https://dot.net/v1/dotnet-install.sh) --channel 9.0 --install-dir "$HOME/.dotnet"`, then export `DOTNET_ROOT` + `PATH` in `~/.bashrc`. Also avoids the known packages.microsoft.com ↔ Ubuntu-archive conflict on 24.04.
+- **Apt-managed alternative:** `sudo add-apt-repository ppa:dotnet/backports`.
+- **Do not** install `dotnet-sdk-10.0` just because apt offers it — the solution targets `net9.0` and EF Core is pinned to 9.0.x to stay off net10.
+- The install script **does not resolve dependencies**; .NET needs `libicu` (present by default on Ubuntu 24.04, but check on a minimal image).
+
+## PowerShell escapes with a backtick, not a backslash (cost a mis-installed SDK)
+Running WSL commands from PowerShell, `"...\$HOME..."` does **not** escape `$HOME` — backslash is not PowerShell's escape character. PowerShell expands its *own* `$HOME` (`C:\Users\<you>`), eats the backslashes, and bash receives `C:Usersskorc`. This silently installed a .NET SDK into a junk folder **inside the repo** on the Windows drive, with a colon in its name that Windows itself cannot easily delete.
+- **Fix:** pass the command in a **single-quoted** PowerShell string so `$VAR` reaches bash untouched, or (best) write a `.sh` file and run `wsl -- bash /mnt/c/path/to/script.sh`. Avoid inline quoting gymnastics entirely.
+
 ## Integration suite needs a fresh server DB
 `tests/run-agent-tests.ps1` re-runs against whatever state the server already has. Wiping `.verify/` (the agents' configs) without also clearing the server DB makes the agents lose their version lineage while the server keeps its head — the "PC initial push" then legitimately reports CONFLICT and four tests fail for reasons that have nothing to do with your change.
 - Run it against an empty `src/Server/localstate/savelocker.db` (delete the `savelocker.db*` files, restart the server, then run) — or don't wipe `.verify/` between runs.

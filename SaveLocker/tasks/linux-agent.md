@@ -17,9 +17,24 @@ phase. Each phase is independently shippable and independently revertable.
    `Decisions.md` §6: Ubuntu matches CI (`ubuntu-latest` *is* 24.04) and its glibc is
    *older* than SteamOS's, so self-contained builds stay forward-compatible with the Deck.
 2. Enable systemd (`/etc/wsl.conf` → `[boot]\nsystemd=true`), then `wsl --shutdown` and reopen.
-3. Install the .NET 9 SDK **inside WSL** (`sudo apt install -y dotnet-sdk-9.0`) — not the
-   Windows SDK via `/mnt/c`.
-4. Clone the repo into the **WSL ext4 home** (`~/SaveLocker`).
+3. Install the .NET 9 SDK **inside WSL** — not the Windows SDK via `/mnt/c`.
+
+   > **`apt install dotnet-sdk-9.0` DOES NOT WORK on Ubuntu 24.04.** .NET 9 shipped
+   > *between* LTS releases, so it is absent from the 24.04 archive — apt offers only
+   > `dotnet-sdk-8.0` and `dotnet-sdk-10.0`. Use Microsoft's install script (no root, and it
+   > sidesteps the known packages.microsoft.com ↔ Ubuntu-archive conflict on 24.04):
+   >
+   > ```bash
+   > curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh
+   > bash /tmp/dotnet-install.sh --channel 9.0 --install-dir "$HOME/.dotnet"
+   > printf '\n# .NET SDK\nexport DOTNET_ROOT="$HOME/.dotnet"\nexport PATH="$PATH:$DOTNET_ROOT"\n' >> ~/.bashrc
+   > ```
+   >
+   > Apt-managed alternative: `sudo add-apt-repository ppa:dotnet/backports`.
+   > **Do not install `dotnet-sdk-10.0`** just because apt offers it — the solution targets
+   > `net9.0` and EF Core is pinned to 9.0.x precisely to stay off net10.
+
+4. Clone the repo into the **WSL ext4 home** (`~/SaveLocker`). Never `/mnt/c` or `/mnt/e`.
 
 > **Critical:** never run Linux tests from `/mnt/c`. DrvFs breaks inotify, file
 > permissions, case-sensitivity and locking semantics — you would be testing a
@@ -27,6 +42,13 @@ phase. Each phase is independently shippable and independently revertable.
 
 **Verify:** `dotnet build src/Shared/SaveLocker.Shared.csproj` succeeds inside WSL,
 and `touch ~/x && ls ~/X` fails (proving you are on a case-sensitive filesystem).
+
+### Status: ✅ DONE (2026-07-12)
+Ubuntu 24.04.4 LTS on WSL2, systemd 255 up, .NET **9.0.315** in `~/.dotnet` (via the install
+script — apt could not provide it), repo cloned to `~/SaveLocker` on **ext4** (`/dev/sde`,
+case-sensitivity confirmed), `libicu` present, `SaveLocker.Shared` builds clean on Linux.
+Windows host reachable from WSL at `172.26.32.1` (needed for the Phase 3 round-trip).
+Not set: git identity inside the WSL clone — only needed if you intend to commit *from* Linux.
 
 **STOP.**
 
