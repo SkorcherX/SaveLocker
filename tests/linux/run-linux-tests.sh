@@ -164,6 +164,26 @@ check "wrapper pushed a new version on exit" "$(contains "${logtail}" "pushed ne
 check "pushed save contains the writer's final line" \
   "$(grep -q '^done$' "${PREFIX_SAVE}/slot1.sav" && echo 0 || echo 1)"
 
+# ── The /proc lock probe, isolated ───────────────────────────────────────────────────────────
+# The decisive test for the Linux behaviour change. This writer writes ONCE and then holds the
+# file open for writing while staying completely still, so the fingerprint half of the gate goes
+# quiet almost at once. Only a working /proc/*/fd probe can hold the gate closed for the 8s the
+# descriptor stays open.
+#
+# A probe that silently answers "nothing is locked" (what FileShare does on Linux) settles here in
+# ~3s. That is the exact failure the task file said must not pass silently — so it is asserted on.
+echo "==> Lock probe in isolation (silent writer, descriptor held open 8s)"
+export STEAM_COMPAT_DATA_PATH="${PREFIX}"
+export SteamAppId="${PREFIX_APPID}"
+start=$(date +%s)
+out="$(agent run --config "${deck_cfg}" -- "${fixtures}/slow-game.sh" "${PREFIX_SAVE}" 8 0 hold)"
+held_elapsed=$(( $(date +%s) - start ))
+unset STEAM_COMPAT_DATA_PATH SteamAppId
+
+check "/proc probe held the gate for a silent-but-open writer (>=8s, not ~3s)" \
+  "$([ "${held_elapsed}" -ge 8 ] && echo 0 || echo 1)"
+echo "    (settled after ${held_elapsed}s; a broken probe settles in ~3s)"
+
 # ── The save actually round-trips through the server ─────────────────────────────────────────
 # A second machine pulls what the Deck pushed and must get byte-identical content.
 out="$(agent add-game --config "${other_cfg}" --name "Fake Prefix Game" --dir "${scratch}/pulled")"
