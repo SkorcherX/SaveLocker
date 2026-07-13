@@ -236,38 +236,10 @@ internal sealed class TrayContext : ApplicationContext
     private async Task<(int enrolled, int skipped)> EnrollAsync(
         IReadOnlyList<ScanCandidate> candidates, int[] ids)
     {
-        if (string.IsNullOrEmpty(_config.ApiKey))
-            throw new InvalidOperationException("Not registered yet. Open Settings and click Register first.");
-
-        var api = new ApiClient(_config.ServerUrl, _config.ApiKey);
-        var enrolled = 0;
-        var skipped = 0;
-
-        foreach (var id in ids)
-        {
-            if (id < 0 || id >= candidates.Count) continue;
-            var c = candidates[id];
-            if (_config.FindGame(c.Name) is not null) { skipped++; continue; }
-            if (string.IsNullOrEmpty(c.SuggestedSaveDir)) { skipped++; continue; }
-
-            var game = await api.CreateGameAsync(new CreateGameRequest(c.Name, c.ManifestKey, null));
-            _config.Games.Add(new TrackedGame
-            {
-                GameId = game.Id,
-                Name = game.Name,
-                ManifestKey = c.ManifestKey,
-                SaveDirectory = c.SuggestedSaveDir!,
-            });
-            enrolled++;
-        }
-
-        if (enrolled > 0)
-        {
-            _config.Save();
+        var result = await Enroller.EnrollAsync(_config, candidates, ids);
+        if (result.enrolled > 0)
             _ui.Post(_ => { RebuildMenu(); StartFolderWatchers(); }, null);
-        }
-
-        return (enrolled, skipped);
+        return result;
     }
 
     // ─── Tray actions ────────────────────────────────────────────────────────────

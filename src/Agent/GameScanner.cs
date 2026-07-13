@@ -70,30 +70,14 @@ public sealed class GameScanner : IGameScanner
         string steamPath, CancellationToken ct)
     {
         var results = new List<ScanCandidate>();
-        var userdata = Path.Combine(steamPath, "userdata");
-        if (!Directory.Exists(userdata)) return results;
-
-        foreach (var userDir in Directory.EnumerateDirectories(userdata))
+        foreach (var s in await SteamShortcuts.ReadAllAsync(steamPath, ct))
         {
-            var vdf = Path.Combine(userDir, "config", "shortcuts.vdf");
-            if (!File.Exists(vdf)) continue;
-
-            SteamVdf.VdfObject root;
-            try { root = SteamVdf.Parse(await File.ReadAllBytesAsync(vdf, ct)); }
-            catch (InvalidDataException) { continue; } // skip a malformed/empty file
-
-            foreach (var entry in root.Children)
-            {
-                var name = entry.String("AppName") ?? entry.String("appname");
-                if (string.IsNullOrWhiteSpace(name)) continue;
-
-                var startDir = (entry.String("StartDir") ?? entry.String("startdir"))?.Trim('"');
-                var save = await SuggestSaveDirAsync(name, ct);
-                results.Add(new ScanCandidate(
-                    name.Trim(), save, ScanSource.SteamShortcut,
-                    HasSteamCloud: false, ManifestKey: save is null ? null : name.Trim(),
-                    InstallDir: NullIfMissing(startDir)));
-            }
+            var save = await SuggestSaveDirAsync(s.AppName, ct);
+            results.Add(new ScanCandidate(
+                s.AppName, save, ScanSource.SteamShortcut,
+                HasSteamCloud: false, ManifestKey: save is null ? null : s.AppName,
+                InstallDir: NullIfMissing(s.StartDir),
+                SteamAppId: s.AppId));
         }
         return results;
     }
@@ -209,7 +193,7 @@ public sealed class GameScanner : IGameScanner
     /// <summary>Resolve the first existing save dir the manifest knows for a name.</summary>
     private async Task<string?> SuggestSaveDirAsync(string name, CancellationToken ct)
     {
-        var dirs = await _detection.ResolveSaveDirectoriesAsync(name, ct);
+        var dirs = await _detection.ResolveSaveDirectoriesAsync(name, ct: ct);
         return dirs.FirstOrDefault();
     }
 

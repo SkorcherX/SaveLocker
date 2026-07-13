@@ -22,4 +22,6 @@ public sealed record ScanCandidate(
     ScanSource Source,
     bool HasSteamCloud,
     string? ManifestKey = null,
-    string? InstallDir = null);
+    string? InstallDir = null,
+    /// <summary>Unsigned Steam AppID for a non-Steam shortcut — the compatdata folder name.</summary>
+    string? SteamAppId = null);

@@ -39,9 +39,25 @@ public sealed class AgentConfig
 
     [JsonIgnore] public string ConfigPath { get; private set; } = DefaultConfigPath;
 
-    public static string DefaultDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "SaveLocker");
+    /// <summary>
+    /// Agent state root. Windows keeps the machine-wide %PROGRAMDATA%\SaveLocker.
+    /// Linux must NOT: SpecialFolder.CommonApplicationData maps to /usr/share there, which is
+    /// not user-writable and — on SteamOS — is the immutable rootfs, wiped on every update.
+    /// State goes in the user's XDG data dir instead (Decisions.md §5).
+    /// </summary>
+    public static string DefaultDir => Path.Combine(StateRoot(), "SaveLocker");
+
+    private static string StateRoot()
+    {
+        if (OperatingSystem.IsWindows())
+            return Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+
+        var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
+        if (!string.IsNullOrWhiteSpace(xdg)) return xdg;
+
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return Path.Combine(home, ".local", "share");
+    }
 
     public static string DefaultConfigPath => Path.Combine(DefaultDir, "config.json");
 
@@ -87,6 +103,12 @@ public sealed class TrackedGame
     public string SaveDirectory { get; set; } = "";
     /// <summary>Process names (without .exe) that, when running, mean the game is in use.</summary>
     public List<string> ProcessNames { get; set; } = new();
+    /// <summary>
+    /// Steam AppID this game launches under, as the <b>unsigned</b> string Steam uses to name
+    /// <c>compatdata/&lt;appid&gt;/</c>. Set for non-Steam shortcuts on Linux; the launch wrapper
+    /// matches on it to find the game for the prefix Steam handed it. Null on Windows.
+    /// </summary>
+    public string? SteamAppId { get; set; }
     /// <summary>The server version this machine last pulled or pushed (its parent for the next push).</summary>
     public Guid? LastKnownVersionId { get; set; }
     /// <summary>Content hash of the local save at last sync, to detect real changes.</summary>

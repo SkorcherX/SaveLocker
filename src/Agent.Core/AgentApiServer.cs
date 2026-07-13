@@ -38,6 +38,11 @@ public sealed class AgentApiServer : IDisposable
     /// <param name="autoStart">Platform launch-on-login toggle.</param>
     /// <param name="pickFolder">Native folder dialog; null on a headless platform, where the
     /// folder-pick routes return no path and the UI falls back to a typed path.</param>
+    /// <param name="listenOnAllInterfaces">
+    /// Serve on every interface rather than loopback. The headless Linux daemon needs this — a
+    /// Deck in Game Mode has no browser of its own, so its UI is reached from another device on
+    /// the LAN (Decisions.md §2). Off by default: the tray UI is local-only.
+    /// </param>
     public AgentApiServer(
         int port,
         AgentConfig config,
@@ -47,7 +52,8 @@ public sealed class AgentApiServer : IDisposable
         IAutoStart autoStart,
         Func<Task<string?>>? pickFolder = null,
         Action? onRegistered = null,
-        Func<UpdateResult?>? getUpdateResult = null)
+        Func<UpdateResult?>? getUpdateResult = null,
+        bool listenOnAllInterfaces = false)
     {
         Port = port;
         _config = config;
@@ -59,7 +65,7 @@ public sealed class AgentApiServer : IDisposable
         _onRegistered = onRegistered;
         _getUpdateResult = getUpdateResult ?? (() => null);
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
-        _http.Prefixes.Add($"http://localhost:{port}/");
+        _http.Prefixes.Add(listenOnAllInterfaces ? $"http://+:{port}/" : $"http://localhost:{port}/");
     }
 
     public void AddLeaseWarning(string gameName, string holderMachine)

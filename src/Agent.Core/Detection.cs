@@ -1,10 +1,14 @@
-﻿using SaveLocker.Shared;
+using SaveLocker.Shared;
 
 namespace SaveLocker.Agent;
 
 /// <summary>
 /// Save-location detection: manages the cached Ludusavi manifest and resolves
 /// a game's concrete save directories on this machine.
+///
+/// The resolver is injectable because it is not a per-machine constant everywhere: under Proton
+/// the manifest's Windows tokens resolve *inside a game's Wine prefix*, so the map is per-game.
+/// Pass <see cref="PathResolver.Proton"/> for a Proton game; the default is the host's own.
 /// </summary>
 public sealed class Detection
 {
@@ -27,14 +31,28 @@ public sealed class Detection
     }
 
     /// <summary>
-    /// Find candidate save directories for a manifest game name on this machine.
-    /// Empty if the game isn't in the manifest or none of its paths exist here.
+    /// Find candidate save directories for a manifest game name. Empty if the game isn't in the
+    /// manifest or none of its paths exist. On Linux with no <paramref name="resolver"/> this is
+    /// always empty — the host's own paths are meaningless for a Windows game, and guessing would
+    /// be worse than admitting we cannot resolve it.
     /// </summary>
-    public async Task<IReadOnlyList<string>> ResolveSaveDirectoriesAsync(string gameName, CancellationToken ct = default)
+    public async Task<IReadOnlyList<string>> ResolveSaveDirectoriesAsync(
+        string gameName, PathResolver? resolver = null, CancellationToken ct = default)
     {
+        resolver ??= HostResolver();
+        if (resolver is null) return Array.Empty<string>();
+
         var manifest = await GetManifestAsync(ct: ct);
-        return manifest.ResolveSaveDirectories(gameName);
+        return manifest.ResolveSaveDirectories(gameName, resolver);
     }
+
+    /// <summary>
+    /// The resolver for games running natively on this host — Windows only. There is no Linux
+    /// equivalent: a Proton game's paths live in its own prefix (per-game, so the caller must
+    /// supply it), and native-Linux builds are out of scope (Decisions.md §1).
+    /// </summary>
+    public static PathResolver? HostResolver() =>
+        OperatingSystem.IsWindows() ? PathResolver.Windows() : null;
 
     /// <summary>Suggest manifest game names that contain the given substring.</summary>
     public async Task<IReadOnlyList<string>> SearchAsync(string term, int max = 25, CancellationToken ct = default)

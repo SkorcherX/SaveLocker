@@ -1,0 +1,12 @@
+# Fixture manifest for the Linux harness. Mirrors the shape of the real Ludusavi manifest:
+# a Windows game whose save path is a <winAppData> token — which, under Proton, must resolve
+# INSIDE the game's Wine prefix rather than against the host.
+#
+# Only the in-prefix game is here. The portable game is deliberately absent: standalone builds
+# are largely missing from the real manifest, which is exactly why manual --dir is the primary
+# mapping path on Linux (Decisions.md §0).
+Fake Prefix Game:
+  files:
+    <winAppData>/FakePrefixGame:
+      tags:
+        - save

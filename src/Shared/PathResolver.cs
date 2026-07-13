@@ -42,6 +42,40 @@ public sealed class PathResolver
     }
 
     /// <summary>
+    /// Build a resolver for a game running under Proton. The same Windows tokens resolve, but
+    /// <b>inside the Wine prefix</b> rather than against this machine's folders — so unlike
+    /// <see cref="Windows"/> this map is per-game, not per-machine.
+    /// </summary>
+    /// <param name="compatDataPath">
+    /// The game's <c>compatdata/&lt;appid&gt;</c> directory — exactly what Steam passes as
+    /// <c>STEAM_COMPAT_DATA_PATH</c>. The prefix is the <c>pfx</c> subdirectory of it.
+    /// </param>
+    public static PathResolver Proton(string compatDataPath)
+    {
+        // Proton runs every game as the fixed Wine user "steamuser".
+        const string user = "steamuser";
+        var driveC = Path.Combine(compatDataPath, "pfx", "drive_c");
+        var userHome = Path.Combine(driveC, "users", user);
+        var appData = Path.Combine(userHome, "AppData");
+
+        var tokens = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["<winAppData>"] = Path.Combine(appData, "Roaming"),
+            ["<winLocalAppData>"] = Path.Combine(appData, "Local"),
+            ["<winLocalAppDataLow>"] = Path.Combine(appData, "LocalLow"),
+            ["<winDocuments>"] = Path.Combine(userHome, "Documents"),
+            ["<winPublic>"] = Path.Combine(driveC, "users", "Public"),
+            ["<winProgramData>"] = Path.Combine(driveC, "ProgramData"),
+            ["<winDir>"] = Path.Combine(driveC, "windows"),
+            ["<home>"] = userHome,
+            ["<osUserName>"] = user,
+            ["<winSavedGames>"] = Path.Combine(userHome, "Saved Games"),
+        };
+
+        return new PathResolver(tokens);
+    }
+
+    /// <summary>
     /// Expand placeholders in a template and return the deepest directory prefix
     /// that precedes any wildcard. Returns null if a required token is unknown.
     /// </summary>
