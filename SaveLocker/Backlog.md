@@ -19,6 +19,7 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
   - Phase 5 (agent health reporting) **ships with Linux, not after** — a headless spoke cannot surface a conflict, so without it a Deck failure is invisible.
 
 ## Medium priority
+- **`Rfc2898DeriveBytes` is obsolete on net10 (SYSLIB0060)** — `Tokens.HashPassword` / `VerifyPassword` use the obsolete constructor; the replacement is the static `Rfc2898DeriveBytes.Pbkdf2(...)`. Same algorithm, same bytes, so stored `v1:` hashes stay valid — but this is **admin password hashing with no test coverage**, and a subtle mistake locks the user out of their own dashboard. Deliberately left out of the net10 PR (it is a warning, not an error; the API still works on net10). When doing it: add a test that a hash produced by the OLD constructor still verifies under the new code, then swap.
 - **Registry-based saves** — the Ludusavi manifest has a `registry:` section; currently only `files:` paths are handled.
 - **Multi-directory saves** — some games list multiple save paths in the manifest. The sync engine tracks one `SaveDirectory` per game; multi-dir support needs a schema change.
 
