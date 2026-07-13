@@ -15,10 +15,23 @@ public sealed class ArchiveStore
         Directory.CreateDirectory(_root);
     }
 
+    /// <summary>
+    /// The store path persisted in <c>SaveVersion.ArchivePath</c>. Always '/'-separated, never
+    /// Path.Combine: this string goes into the DATABASE, so it outlives the OS that wrote it.
+    /// A Windows-hosted server writing "gameid\versionid.zip" produces rows that the Linux
+    /// (Docker) server cannot resolve — a backslash is a legal filename character there, not a
+    /// separator — and every archive silently becomes undownloadable, which the agent reports
+    /// as the very convincing lie "server has no saves yet".
+    /// </summary>
     public string RelativePath(Guid gameId, Guid versionId) =>
-        Path.Combine(gameId.ToString("N"), $"{versionId:N}.zip");
+        $"{gameId:N}/{versionId:N}.zip";
 
-    public string FullPath(string relativePath) => Path.Combine(_root, relativePath);
+    /// <summary>
+    /// Resolve a stored path against the archive root, accepting either separator: rows written
+    /// by an older Windows-hosted server still carry backslashes.
+    /// </summary>
+    public string FullPath(string relativePath) =>
+        Path.Combine(_root, relativePath.Replace('\\', '/').Replace('/', Path.DirectorySeparatorChar));
 
     /// <summary>Persist an uploaded archive stream and return its relative store path.</summary>
     public async Task<(string relativePath, long size)> SaveAsync(
