@@ -42,6 +42,19 @@ The official product/brand name is **SaveLocker**. Rename is complete (2026-07-1
 
 Decisions taken before writing any Linux code. Execution plan: `tasks/linux-agent.md`.
 
+### 0. The niche is NON-Steam games run under Proton
+Games **bought on Steam already have Steam Cloud** — SaveLocker adds nothing there and should not compete with it. The problem we solve on Linux is the one Steam does not: **non-Steam games added to Steam as shortcuts** (standalone / itch / GOG / DRM-free builds — exactly the "Environment facts" user profile below), launched through Proton.
+
+This is the load-bearing scoping fact, and it shapes everything downstream:
+
+- **Discovery is `shortcuts.vdf`, not `libraryfolders.vdf`.** The `*.acf` / library-root scan (`GameScanner` Source 2) finds *installed Steam games* and is irrelevant here. `GameScanner` already parses `shortcuts.vdf` (Source 1, binary VDF) — but it currently reads only `AppName` / `StartDir` and **must also capture the shortcut's generated AppID**, because that AppID *is* the `compatdata/<appid>/` directory name.
+  - **Trap:** Steam derives that AppID as a **signed** 32-bit value but names the `compatdata` folder with the **unsigned** form. Get this wrong and every prefix lookup silently misses.
+- **Two save shapes, and the simpler one is probably the common one.** A non-Steam Windows game under Proton either writes *into* the prefix (`drive_c/users/steamuser/AppData/…`), **or** writes **portably, next to its .exe** — which is very common for standalone builds. The portable case never touches the prefix: it is a plain Linux path on the native filesystem, needing no prefix resolution at all.
+- **The Ludusavi manifest is much less useful here.** Standalone builds are largely absent from it. On Linux, **manual `--dir` mapping is the primary path**, not the fallback.
+- **Steam Cloud contention is a non-issue.** Non-Steam shortcuts have no Cloud. Likewise SD-card library roots — non-Steam `compatdata` lands in the main Steam root.
+
+The launch wrapper (decision 3) still applies: non-Steam shortcuts have a Launch Options field, `%command%` works, and with "Force compatibility tool" enabled Proton still exports `STEAM_COMPAT_DATA_PATH`.
+
 ### 1. Proton-only for v1 — native Linux builds are out of scope
 A Proton game **is a Windows game**: it writes Windows-format saves to Windows paths inside a Wine prefix. A Deck and a Windows PC therefore produce **byte-identical saves**, and the existing content-hash lineage works across them with no conversion, no format translation, no line-ending handling.
 
@@ -71,8 +84,12 @@ Detached signing only earns its keep for *offline* policy distribution (bundling
 ### 5. Install to the user's home, never to /usr
 SteamOS's root filesystem is **immutable and wiped on update**. Install to `~/.local/share/SaveLocker` with a `systemd --user` unit, which survives SteamOS updates. This rules out a plain `.deb`/`.rpm` system install. Self-contained publish is mandatory — SteamOS ships no .NET runtime.
 
-### 6. Dev on WSL2, not a VM
+### 6. Dev on WSL2 (Ubuntu 24.04 LTS), not a VM, not Arch
 WSL2 (inside the **ext4 home** — never `/mnt/c`, where DrvFs breaks inotify, permissions, case-sensitivity and locking) faithfully reproduces everything that matters: Linux `FileShare` semantics, inotify, `/proc`, case-sensitivity, `systemd --user`, and self-contained publish.
+
+**Distro: Ubuntu 24.04 LTS.** The tempting reasoning — "SteamOS is Arch, so develop on Arch" — is wrong. Everything WSL actually validates (the list above) is **kernel and .NET behaviour, identical on every distro**, while the things that make SteamOS *SteamOS* (gamescope, immutable rootfs) cannot run under WSL on any base. So Arch buys zero extra fidelity and costs the thing that does pay: **CI parity** — GitHub Actions `ubuntu-latest` *is* Ubuntu 24.04, so dev and CI share a glibc, a .NET packaging story and a toolchain.
+
+**glibc, which settles it independently:** self-contained .NET binaries bind to the **host glibc at build time**, and an older-glibc build runs on newer systems but **never the reverse**. Ubuntu 24.04 (glibc 2.39) is *older* than SteamOS (rolling Arch), so Ubuntu → Deck is forward-compatible. Building on Arch and shipping to anything older produces `GLIBC_2.4x not found` on user hardware. **Always build on the oldest glibc you intend to support.**
 
 The agent never talks to Steam — it reads two env vars and supervises a child process — so a **fake-game harness** (fixture compatdata tree + a script that writes saves slowly and exits, with the env vars set) exercises the entire code path with no Steam, no Proton and no GPU. That harness is also the CI test.
 

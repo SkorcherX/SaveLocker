@@ -13,9 +13,13 @@ phase. Each phase is independently shippable and independently revertable.
 
 **Goal:** a Linux box that tells the truth.
 
-1. Install WSL2 + Ubuntu. Enable systemd (`/etc/wsl.conf` → `[boot]\nsystemd=true`), then `wsl --shutdown` and reopen.
-2. Install the .NET 9 SDK **inside WSL** (not the Windows SDK via `/mnt/c`).
-3. Clone the repo into the **WSL ext4 home** (`~/SaveLocker`).
+1. Install WSL2 + **Ubuntu 24.04 LTS** (`wsl --install -d Ubuntu-24.04`). Not Arch — see
+   `Decisions.md` §6: Ubuntu matches CI (`ubuntu-latest` *is* 24.04) and its glibc is
+   *older* than SteamOS's, so self-contained builds stay forward-compatible with the Deck.
+2. Enable systemd (`/etc/wsl.conf` → `[boot]\nsystemd=true`), then `wsl --shutdown` and reopen.
+3. Install the .NET 9 SDK **inside WSL** (`sudo apt install -y dotnet-sdk-9.0`) — not the
+   Windows SDK via `/mnt/c`.
+4. Clone the repo into the **WSL ext4 home** (`~/SaveLocker`).
 
 > **Critical:** never run Linux tests from `/mnt/c`. DrvFs breaks inotify, file
 > permissions, case-sensitivity and locking semantics — you would be testing a
@@ -54,7 +58,11 @@ identically. No new features in this phase.
 
 ## Phase 2 — Linux daemon, CLI, Proton path resolution, launch wrapper
 
-**Goal:** a Deck can sync a Proton game, configured by hand.
+**Goal:** a Deck can sync a **non-Steam** Proton game, configured by hand.
+
+> **Read `Decisions.md` §0 first.** The niche is **non-Steam shortcuts**, not Steam-store
+> games (those already have Steam Cloud). That means discovery is **`shortcuts.vdf`**, and
+> the `libraryfolders.vdf` / `*.acf` scan is **not** the path here.
 
 1. `src/Agent.Linux/SaveLocker.Agent.Linux.csproj` — `net9.0`, `OutputType=Exe`,
    publishes self-contained (`-r linux-x64 --self-contained`; SteamOS has no .NET runtime).
@@ -63,18 +71,34 @@ identically. No new features in this phase.
    (the token-dictionary design already anticipates this). Tokens resolve *inside the
    prefix*: `<winAppData>` → `{prefix}/pfx/drive_c/users/steamuser/AppData/Roaming`, etc.
    On Proton the token map is **per-game**, not per-machine — this is the crux of the port.
+
+   **Handle both save shapes.** A non-Steam Windows game under Proton either writes
+   *in-prefix* (above) **or** writes **portably, next to its .exe** — very common for the
+   standalone builds our users actually have. The portable case needs *no* prefix
+   resolution: it is a plain Linux path on the native filesystem. Do not force everything
+   through the prefix resolver.
 3. **Launch wrapper:** `savelocker run -- %command%`. Reads `STEAM_COMPAT_DATA_PATH`
    (the exact prefix — no compatdata scanning) and `SteamAppId`; runs pre-launch pull,
-   execs the child, waits for exit, runs the settle gate + push. Process polling stays a
-   fallback for non-Steam launchers only.
-4. **Steam library discovery:** reuse `SteamVdf` (pure parsing, ports for free) to read
-   `libraryfolders.vdf`. Probe **multiple Steam roots** — native (`~/.steam/steam`) *and*
-   Flatpak (`~/.var/app/com.valvesoftware.Steam/...`). Games on the **SD card** live under
-   a different library root; missing this means Deck games silently do not resolve.
+   execs the child, waits for exit, runs the settle gate + push. Works for non-Steam
+   shortcuts: they have a Launch Options field, and with "Force compatibility tool"
+   enabled Proton exports the same env vars. Process polling stays a fallback for games
+   launched **outside** Steam (in Game Mode everything goes through Steam, so this is rare).
+4. **Discovery = `shortcuts.vdf`** (NOT `libraryfolders.vdf`). `GameScanner.ScanSteamShortcutsAsync`
+   already parses it via `SteamVdf` (pure parsing — ports for free), but currently reads only
+   `AppName` / `StartDir`. **Extend it to capture the shortcut's generated AppID**, which *is*
+   the `compatdata/<appid>/` directory name.
+   - **Trap:** Steam derives that AppID as a **signed** 32-bit value but names the `compatdata`
+     folder with the **unsigned** form. Get this wrong and every prefix lookup silently misses.
+   - Probe **multiple Steam roots** — native (`~/.steam/steam`) *and* Flatpak
+     (`~/.var/app/com.valvesoftware.Steam/…`).
+   - SD-card library roots are **not** a concern: non-Steam `compatdata` lands in the main
+     Steam root.
+   - The **Ludusavi manifest is much less useful here** — standalone builds are largely absent
+     from it. Manual `--dir` mapping is the *primary* path on Linux, not the fallback.
 5. **`savelocker doctor`** — the single highest-value command on a headless device.
-   Reports: server reachable? Steam roots found? libraries (incl. SD card)? prefixes
-   discovered? games mapped and save dirs present? permissions OK? It answers "why isn't
-   this working" with no UI to look at.
+   Reports: server reachable? Steam roots found (native + Flatpak)? shortcuts parsed, with
+   AppIDs? prefixes resolved? games mapped and save dirs present? permissions OK? It answers
+   "why isn't this working" with no UI to look at.
 6. **`systemd --user` unit** installed to `~/.local/share/SaveLocker`. **Never `/usr`** —
    SteamOS's rootfs is immutable and wiped on update.
 
@@ -94,11 +118,12 @@ we *know* the process exited), but it must be deliberate:
 Silently returning "nothing is locked" on every check is the one outcome that is not acceptable.
 
 **Verify (no Steam, no GPU, no Deck required):** build the **fake-game harness** —
-a fixture `compatdata/<appid>/pfx/drive_c/...` tree plus a script that writes save files
-slowly and then exits, invoked with `STEAM_COMPAT_DATA_PATH`/`SteamAppId` set. The agent
-never talks to Steam (it reads two env vars and supervises a child), so this exercises the
-entire real code path. Assert: prefix resolved, pull-on-launch, settle gate waits out the
-slow writer, push lands.
+a fixture `compatdata/<appid>/pfx/drive_c/...` tree plus a fixture `shortcuts.vdf`, plus a
+script that writes save files slowly and then exits, invoked with
+`STEAM_COMPAT_DATA_PATH`/`SteamAppId` set. The agent never talks to Steam (it reads two env
+vars and supervises a child), so this exercises the entire real code path. Assert: shortcut
++ AppID parsed, prefix resolved, pull-on-launch, settle gate waits out the slow writer, push
+lands. Cover **both** save shapes — in-prefix *and* portable-next-to-exe.
 
 **STOP.**
 
@@ -158,8 +183,10 @@ and the whole feature feels broken.
    should detect and name it.
 3. **Zip-slip:** `ZipFile.ExtractToDirectory` already rejects entries outside the target
    (verified) — keep it that way; do not hand-roll extraction.
-4. **Steam Cloud conflict.** Steam Cloud is on by default and will fight SaveLocker over the
-   same game. `scan --no-cloud` exists; on the Deck this needs to be a loud warning.
+4. **Steam Cloud conflict — mostly moot on Linux.** Non-Steam shortcuts have no Cloud, and
+   Steam-store games (which do) are explicitly not our niche. Keep `scan --no-cloud`, but
+   this is not a Deck hardening item; it only matters if a user enrols a Steam-store game,
+   where the right answer is to tell them Steam Cloud already handles it.
 5. **Suspend/resume.** The Deck suspends constantly, mid-sync. The offline queue covers the
    network drop; ensure the settle gate's max-wait does not count suspended time as elapsed.
 
