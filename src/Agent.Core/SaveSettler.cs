@@ -11,10 +11,11 @@ namespace SaveLocker.Agent;
 ///
 /// The gate waits until BOTH hold for a quiet period:
 ///   • the directory fingerprint (file set + sizes + write times) stops changing, and
-///   • no file in it is still open for writing by another process.
+///   • no file in it is still open for writing by another process (<see cref="FileLockProbe"/>).
 ///
 /// A writer that opened its save with FileShare.ReadWrite is invisible to the lock probe —
-/// the fingerprint is what catches that case, which is why both run together.
+/// the fingerprint is what catches that case, which is why both run together. Where the lock
+/// probe cannot answer at all, the gate says so in the log and settles on the fingerprint.
 /// </summary>
 public static class SaveSettler
 {
@@ -42,13 +43,24 @@ public static class SaveSettler
         string? lastPrint = null;
         var stableSince = DateTime.UtcNow;
         var waited = false;
+        var warnedNoLockProbe = false;
 
         while (true)
         {
             ct.ThrowIfCancellationRequested();
 
             var print = Fingerprint(directory, globs);
-            var locked = FirstLockedFile(directory, globs);
+            var probe = FileLockProbe.FirstWriter(directory, SaveArchive.ListFiles(directory, globs));
+            var locked = probe.LockedFile;
+
+            // A probe that cannot answer must not read as "quiet" — say so once, then lean on the
+            // fingerprint alone (the load-bearing half) rather than pretending we checked.
+            if (!probe.Supported && !warnedNoLockProbe)
+            {
+                warnedNoLockProbe = true;
+                log?.Invoke("open-file detection unavailable on this platform — " +
+                            "settling on the file fingerprint alone.");
+            }
 
             if (locked is null && print == lastPrint)
             {
@@ -98,31 +110,5 @@ public static class SaveSettler
             }
         }
         return sb.ToString();
-    }
-
-    /// <summary>
-    /// The first file another process still has open for writing, or null. Requesting
-    /// FileShare.Read denies writers, so the open fails while any handle holds write access
-    /// — which is exactly the condition we must not archive through.
-    /// </summary>
-    private static string? FirstLockedFile(string directory, IEnumerable<string>? excludeGlobs)
-    {
-        foreach (var rel in SaveArchive.ListFiles(directory, excludeGlobs))
-        {
-            var full = Path.Combine(directory, rel.Replace('/', Path.DirectorySeparatorChar));
-            try
-            {
-                using var _ = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
-            }
-            catch (IOException)
-            {
-                return rel;
-            }
-            catch (UnauthorizedAccessException)
-            {
-                // Permissions, not a writer. Not something waiting will fix.
-            }
-        }
-        return null;
     }
 }

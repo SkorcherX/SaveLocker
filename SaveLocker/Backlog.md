@@ -12,6 +12,9 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 
 ## Planned — large
 - **Linux agent (Proton / Steam Deck)** — design locked in `Decisions.md`; phased execution plan in `tasks/linux-agent.md`. Proton-only for v1 (Proton saves are byte-identical to Windows saves → no schema change), headless daemon serving the existing React UI, Steam launch-option wrapper as the sync trigger. Dev on WSL2 + a fake-game harness; **no Deck owned**, so hardware validation is a deferred risk.
+  - **Phases 0–3 done.** "Proton saves are byte-identical to Windows saves" is no longer an assumption — Phase 3 proves it in CI, round-tripping a save Windows→Linux→Windows byte-for-byte with matching hashes.
+  - **Next: Phase 4** — enrollment token + policy import (single-use ~15-min token, `savelocker enroll --file <policy>`; no signing, TOFU-pin the server).
+  - Phase 5 (agent health reporting) **ships with Linux, not after** — a headless spoke cannot surface a conflict, so without it a Deck failure is invisible.
 
 ## Medium priority
 - **Registry-based saves** — the Ludusavi manifest has a `registry:` section; currently only `files:` paths are handled.

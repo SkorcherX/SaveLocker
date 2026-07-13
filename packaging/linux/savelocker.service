@@ -1,0 +1,15 @@
+[Unit]
+Description=SaveLocker agent (headless save sync)
+Documentation=https://github.com/SkorcherX/SaveLocker
+After=network-online.target
+
+[Service]
+Type=simple
+# %h is the user's home: this is a --user unit, installed under ~/.local/share.
+# Never /usr — SteamOS's rootfs is immutable and is wiped on every system update.
+ExecStart=%h/.local/share/SaveLocker/savelocker daemon
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

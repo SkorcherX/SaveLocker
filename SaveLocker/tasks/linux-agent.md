@@ -74,6 +74,28 @@ Not set: git identity inside the WSL clone — only needed if you intend to comm
 **10/10** (server on :5179, fresh DB — see `Gotchas.md`). The Windows agent must behave
 identically. No new features in this phase.
 
+### Status: ✅ DONE (2026-07-12)
+`src/Agent.Core/SaveLocker.Agent.Core.csproj` (net9.0) now holds `SyncEngine`, `SaveSettler`,
+`ApiClient`, `CommandPoller`, `OfflineQueue`, `OfflineQueueDrainer`, `AgentConfig`,
+`AgentApiServer`, `Detection`, `AgentLogger` and `UpdateChecker` — moved with `git mv`, namespace
+unchanged (`SaveLocker.Agent.*`), so no call site churned. Windows keeps `TrayApp`, `AgentWindow`,
+`AutoStart`, `GameScanner`, `AppResources`, `Program`, `Watchers`, `SteamVdf`/`SteamTextVdf`.
+
+Three Windows leaks in the moved files, extracted behind interfaces in `Agent.Core/Platform.cs`:
+- `AgentApiServer` called `AutoStart` statics (registry) → `IAutoStart`, injected from `TrayApp`.
+  `AutoStart` went from a static class to `sealed class AutoStart : IAutoStart`.
+- `AgentApiServer` hosted a WinForms `FolderBrowserDialog` → extracted to `Agent/FolderPicker.cs`
+  and injected as `Func<Task<string?>>? pickFolder`. **Null on a headless platform** — the
+  folder-pick routes then return no path, which is the correct Linux behaviour.
+- `CommandPoller` constructed `GameScanner` directly → `IGameScanner`, injected.
+- `ScanCandidate`/`ScanSource` moved out of `GameScanner.cs` into `Agent.Core/ScanCandidate.cs`
+  (Core consumes the candidates; only discovery is platform-specific).
+- `AgentApiServer`, `UpdateChecker` and `UpdateResult` went `internal` → `public` (cross-assembly).
+
+**Verified:** `dotnet build --no-incremental` succeeds, 0 errors; `.\tests\run-agent-tests.ps1`
+**10/10** against a fresh DB. The one warning (MSB3277 WindowsBase/WebView2) is **pre-existing** —
+confirmed by building HEAD in a throwaway worktree, not introduced by the split.
+
 **STOP.**
 
 ---
@@ -147,6 +169,46 @@ vars and supervises a child), so this exercises the entire real code path. Asser
 + AppID parsed, prefix resolved, pull-on-launch, settle gate waits out the slow writer, push
 lands. Cover **both** save shapes — in-prefix *and* portable-next-to-exe.
 
+### Status: ✅ DONE (2026-07-12)
+
+`src/Agent.Linux/` → binary **`savelocker`**. All six items done, plus the settle-gate item.
+
+- **`PathResolver.Proton(compatDataPath)`** (Shared) — Windows tokens resolve *inside* the prefix.
+  Per-game, not per-machine, as anticipated.
+- **`SteamShortcuts`** (Core) — one shortcuts.vdf reader for both hosts. `CompatDataId()` is the
+  single place the **signed → unsigned AppID** trap is handled. The Windows `GameScanner` now uses
+  it too, so the two cannot drift.
+- **`LinuxGameScanner`** — discovery is `shortcuts.vdf` across native *and* Flatpak Steam roots
+  (symlinks resolved so a root isn't counted twice). No `libraryfolders`/`*.acf` scan. Handles
+  **both save shapes**: in-prefix (manifest + Proton resolver) and portable-next-to-the-exe
+  (a plain Linux path; no prefix resolution). Only claims a portable dir when unambiguous.
+- **`ProtonRun`** — `savelocker run -- %command%`. Reads the two env vars, pulls, supervises the
+  child, then settles + pushes. **Returns the game's own exit code**, and a sync failure never
+  blocks the game launching.
+- **`Doctor`** — server, Steam roots, shortcuts, AppIDs, prefixes, save dirs, writability, lock
+  probe. The only diagnostic a headless box has.
+- **`Daemon` + `systemd --user`** — serves the same React agent UI on :5178 (`--lan` to reach it
+  from another device, per §2). Installs to `~/.local/share/SaveLocker`; **never `/usr`**.
+
+**Settle gate — handled, not silently degraded.** `FileLockProbe` now walks `/proc/*/fd` for write
+descriptors into the save dir (what `lsof` does), reading the **octal** `flags` from `fdinfo`.
+Where it cannot answer it returns `Unavailable`, which the gate **logs**; it never claims a false
+all-clear. The harness pins this with a writer that writes once then holds the descriptor open in
+silence — the fingerprint goes quiet immediately, so a broken probe settles in ~3 s where a working
+one waits the full 8 s (observed: **12 s**).
+
+**Two cross-cutting bugs surfaced and fixed** (neither was in this plan):
+1. `AgentConfig.DefaultDir` used `CommonApplicationData` = **`/usr/share`** on Linux — unwritable,
+   and wiped by SteamOS updates. Now XDG.
+2. `Detection` hardcoded `PathResolver.Windows()`. The resolver is injected now, and on Linux
+   resolves **nothing** rather than inventing host paths for a Windows game.
+
+**Verified:** `tests/linux/run-linux-tests.sh` — **27/27** in WSL on ext4 (fake HOME, fresh server,
+fixture `shortcuts.vdf` with a deliberately negative AppID). Windows agent still **10/10**.
+
+**Deferred to Phase 5, as planned:** the daemon's "notify" is a log line. A headless spoke cannot
+tell the user anything — that is health reporting, and faking it here would hide the gap.
+
 **STOP.**
 
 ---
@@ -166,6 +228,58 @@ lands. Cover **both** save shapes — in-prefix *and* portable-next-to-exe.
    divergence here silently manufactures conflicts (see the two-agent gotcha in `CONTEXT.md`).
 
 **Verify:** CI green on both runners; round-trip byte-identical.
+
+### Status: ✅ DONE (2026-07-13)
+
+**It found a real bug on its first honest run — see below. That is the whole point of the phase.**
+
+1. **`tests/run-agent-tests.ps1` now runs on both OSes** (PowerShell Core runs on Linux). It picks the
+   host binary per OS and is driven against `Agent.Linux` on `ubuntu-latest` in the new `agent-tests-linux`
+   job. **10/10 on Windows, 10/10 on Linux.** The one check that *must* differ is explicit rather than
+   skipped: on Windows the manifest's `<winAppData>` resolves against the host; on Linux it must resolve to
+   **nothing** (Phase 2's deliberate refusal to invent a host path for a Windows game), so Linux asserts the
+   refusal. A resolver that guessed there would silently sync the wrong directory.
+2. **Cross-OS round-trip in CI** — `tests/cross-os/crossos.ps1`, three chained jobs. GitHub runners
+   cannot share a network, so "one server, two agents" is realized by carrying **the server's own state**
+   (SQLite DB + archive store — the entirety of what it knows) between jobs as an artifact and restarting
+   the same server binary on top of it on the other OS:
+   `crossos-author` (win, push) → `crossos-roundtrip` (linux, pull + compare + push) → `crossos-confirm`
+   (win, pull + compare). Fixture is a torture tree: nested depth, spaces in file *and* directory names, a
+   non-ASCII filename, CRLF vs LF, no-trailing-newline, and a 256-byte binary file with NULs.
+3. **Hashes match cross-OS** — asserted two ways. Explicitly, via a new `hash` CLI command (`hash --dir`),
+   recomputed on the *other* OS and compared to the head hash. And on the real code path: a pull stores the
+   head hash (computed on the *other* OS) as `LastSyncedHash`, so a subsequent push reporting **"no local
+   changes since last sync"** is the agent itself confirming the two OSes hashed the same bytes identically.
+   Divergence would surface as a spurious upload or a phantom CONFLICT. Neither happened.
+
+**Verified:** author 3/3, roundtrip 6/6, confirm 4/4 — **byte-identical in both directions**, Windows→Linux
+(8 files) and Linux→Windows (9 files). Run for real across Windows and WSL-on-ext4, handing the artifact
+across by hand exactly as CI does. Windows suite still 10/10; Phase 2 harness still 27/27.
+
+#### 🐛 The bug this phase existed to catch: `ArchiveStore` persisted an OS-specific separator
+
+`ArchiveStore.RelativePath` built the archive's store path with **`Path.Combine`** — and that string is
+persisted in the DB as `SaveVersion.ArchivePath`. A **Windows-hosted** server therefore wrote
+`gameid\versionid.zip`. On Linux a backslash is a legal *filename character*, not a separator, so
+`_store.Exists()` missed, `DownloadVersionAsync` returned null, the endpoint 404'd — and the agent
+reported the very convincing lie **"server has no saves yet; nothing to pull"** while `status` happily
+showed a head. Silent, and indistinguishable from data loss.
+
+Production was accidentally safe (the server only ever runs in Docker/Linux, so it is self-consistent),
+but **the documented dev workflow runs the server on Windows** — so any DB or backup moved from a
+Windows-hosted server to the Docker one has unreachable archives. Fixed: the stored path is now always
+`/`-separated (never `Path.Combine`), and `FullPath` accepts either separator so rows written by an older
+Windows-hosted server still resolve. The hash was never wrong; the *path* was.
+
+**Two harness bugs also fixed, both of the "green means nothing" kind:**
+- The server-readiness probe polled `/api/games`, which is an **agent** route: it answers 401 without an
+  API key, so the loop never saw success and silently burned its full 60 s timeout on every run. It is
+  `/api/admin/status` (the only unauthenticated route) now — in `tests/linux/run-linux-tests.sh` too, where
+  this had been costing a minute per run.
+- `crossos.ps1` leaked its server process when the readiness probe timed out (the handle had not reached
+  the caller's `finally`), so the next run silently talked to a **stale server holding stale state** and the
+  resulting conflict looked like a cross-OS hash bug. It now kills what it spawned, refuses to start if the
+  port is already in use, and refuses to proceed if it cannot clear the state dir.
 
 **STOP.**
 

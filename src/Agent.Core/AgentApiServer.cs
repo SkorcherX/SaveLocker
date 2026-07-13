@@ -2,7 +2,6 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using System.Windows.Forms;
 
 namespace SaveLocker.Agent;
 
@@ -10,13 +9,15 @@ namespace SaveLocker.Agent;
 /// Minimal HTTP server that drives the SaveLocker Agent UI (React app in WebView2).
 /// Serves the bundled agent-ui/dist/ folder alongside the exe and exposes /api/* routes.
 /// </summary>
-internal sealed class AgentApiServer : IDisposable
+public sealed class AgentApiServer : IDisposable
 {
     private readonly HttpListener _http = new();
     private readonly AgentConfig _config;
     private readonly SynchronizationContext _ui;
     private readonly Func<Task<IReadOnlyList<ScanCandidate>>> _doScan;
     private readonly Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> _enroll;
+    private readonly IAutoStart _autoStart;
+    private readonly Func<Task<string?>> _pickFolder;
     private readonly Action? _onRegistered;
     private readonly Func<UpdateResult?> _getUpdateResult;
     private readonly string _uiRoot;
@@ -34,24 +35,37 @@ internal sealed class AgentApiServer : IDisposable
 
     public int Port { get; }
 
+    /// <param name="autoStart">Platform launch-on-login toggle.</param>
+    /// <param name="pickFolder">Native folder dialog; null on a headless platform, where the
+    /// folder-pick routes return no path and the UI falls back to a typed path.</param>
+    /// <param name="listenOnAllInterfaces">
+    /// Serve on every interface rather than loopback. The headless Linux daemon needs this — a
+    /// Deck in Game Mode has no browser of its own, so its UI is reached from another device on
+    /// the LAN (Decisions.md §2). Off by default: the tray UI is local-only.
+    /// </param>
     public AgentApiServer(
         int port,
         AgentConfig config,
         SynchronizationContext ui,
         Func<Task<IReadOnlyList<ScanCandidate>>> doScan,
         Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> enroll,
+        IAutoStart autoStart,
+        Func<Task<string?>>? pickFolder = null,
         Action? onRegistered = null,
-        Func<UpdateResult?>? getUpdateResult = null)
+        Func<UpdateResult?>? getUpdateResult = null,
+        bool listenOnAllInterfaces = false)
     {
         Port = port;
         _config = config;
         _ui = ui;
         _doScan = doScan;
         _enroll = enroll;
+        _autoStart = autoStart;
+        _pickFolder = pickFolder ?? (() => Task.FromResult<string?>(null));
         _onRegistered = onRegistered;
         _getUpdateResult = getUpdateResult ?? (() => null);
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
-        _http.Prefixes.Add($"http://localhost:{port}/");
+        _http.Prefixes.Add(listenOnAllInterfaces ? $"http://+:{port}/" : $"http://localhost:{port}/");
     }
 
     public void AddLeaseWarning(string gameName, string holderMachine)
@@ -144,7 +158,7 @@ internal sealed class AgentApiServer : IDisposable
                 machineName = _config.MachineName,
                 serverUrl = _config.ServerUrl,
                 apiKey = _config.ApiKey ?? "",
-                startWithWindows = AutoStart.IsEnabled(),
+                startWithWindows = _autoStart.IsEnabled(),
                 currentVersion = UpdateChecker.CurrentVersion.ToString(3),
                 gamesTracked = _config.Games.Count,
                 savesBacked = _config.TotalSavesPushed,
@@ -199,7 +213,7 @@ internal sealed class AgentApiServer : IDisposable
                 serverUrl = _config.ServerUrl,
                 machineName = _config.MachineName,
                 apiKey = _config.ApiKey ?? "",
-                startWithWindows = AutoStart.IsEnabled(),
+                startWithWindows = _autoStart.IsEnabled(),
                 settleQuietSeconds = _config.SettleQuietSeconds,
             });
             return;
@@ -219,7 +233,7 @@ internal sealed class AgentApiServer : IDisposable
                     _config.SettleQuietSeconds = Math.Clamp(body.SettleQuietSeconds.Value, 0, 300);
                 _config.Save();
                 if (body.StartWithWindows.HasValue)
-                    AutoStart.SetEnabled(body.StartWithWindows.Value);
+                    _autoStart.SetEnabled(body.StartWithWindows.Value);
             }
             await WriteJsonAsync(res, new { ok = true });
             return;
@@ -284,10 +298,10 @@ internal sealed class AgentApiServer : IDisposable
             return;
         }
 
-        // POST /api/folder-pick  → open native OS folder dialog on the STA thread
+        // POST /api/folder-pick  → open native OS folder dialog
         if (route == "folder-pick" && method == "POST")
         {
-            var path = await ShowFolderPickerAsync();
+            var path = await _pickFolder();
             await WriteJsonAsync(res, new { path });
             return;
         }
@@ -302,7 +316,7 @@ internal sealed class AgentApiServer : IDisposable
                 await WriteJsonAsync(res, new { error = "Invalid candidate id" });
                 return;
             }
-            var pickedPath = await ShowFolderPickerAsync();
+            var pickedPath = await _pickFolder();
             if (pickedPath is not null)
             {
                 // Rebuild the immutable record with the new save dir.
@@ -353,35 +367,6 @@ internal sealed class AgentApiServer : IDisposable
             hasSteamCloud = c.HasSteamCloud,
             path = c.SuggestedSaveDir ?? "",
         }).ToArray();
-
-    /// <summary>Open a Windows folder-picker on a dedicated STA thread and return the chosen path.</summary>
-    private static Task<string?> ShowFolderPickerAsync()
-    {
-        var tcs = new TaskCompletionSource<string?>();
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                using var dlg = new FolderBrowserDialog
-                {
-                    Description = "Select save folder",
-                    UseDescriptionForTitle = true,
-                };
-                // Parent to the first open form so the dialog appears in front of the agent window.
-                var owner = Application.OpenForms.Count > 0 ? Application.OpenForms[0] : null;
-                var chosen = dlg.ShowDialog(owner) == DialogResult.OK ? dlg.SelectedPath : null;
-                tcs.SetResult(chosen);
-            }
-            catch (Exception ex)
-            {
-                tcs.SetException(ex);
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.IsBackground = true;
-        thread.Start();
-        return tcs.Task;
-    }
 
     // ─── Static file server ──────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\SaveLocker.Shared.csproj" />
+    <ProjectReference Include="..\Agent.Core\SaveLocker.Agent.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

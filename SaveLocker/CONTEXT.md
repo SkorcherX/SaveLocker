@@ -8,7 +8,7 @@
 
 ---
 
-## Status (2026-07-12)
+## Status (2026-07-13)
 
 | Area | State |
 |------|-------|
@@ -24,6 +24,7 @@
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 | Console Help KB (8 articles, search, deep-links) | ✅ done (2026-07-11, `be54374`) |
 | Save-in-use safety (settle gate before auto-push) | ✅ built 2026-07-12 — ⏳ not yet device-verified |
+| Cross-OS round-trip in CI (Windows agent ↔ Linux agent) | ✅ done 2026-07-13 — byte-identical both ways |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 
@@ -33,9 +34,12 @@ Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open wor
 1. **Device-verify 5e** on v0.1.5 (add `*.log` to a game → nested + root excluded; log-only change → no version). Both agents must be on the same version for consistent hashing.
 2. **Device-verify the settle gate** — exit a slow-flushing game, confirm the agent log shows the wait then `save files settled.` before the push.
 3. Code-sign the exe (SmartScreen warns for unsigned installers)
-4. **Linux agent (Proton / Steam Deck)** — design locked in `Decisions.md`, phased plan in `tasks/linux-agent.md`. **Phase 0 (WSL2 dev env) is ✅ done** — Ubuntu 24.04 + .NET 9.0.315 in `~/.dotnet`, repo at `~/SaveLocker` on ext4, Shared builds clean. **Next: Phase 1** — split `Agent.Core` out of the WinForms project (pure refactor; verify the Windows agent still passes 10/10). One phase at a time.
+4. **Linux agent (Proton / Steam Deck)** — design locked in `Decisions.md`, phased plan in `tasks/linux-agent.md`. **Phases 0–3 ✅ done.** Phase 0: WSL2 (Ubuntu 24.04, .NET 9.0.315 in `~/.dotnet`, repo at `~/SaveLocker` on ext4). Phase 1: `Agent.Core` split — sync brain is net9.0 and platform-neutral. Phase 2: `src/Agent.Linux` → binary **`savelocker`** — shortcuts.vdf discovery, Proton prefix resolution, `run -- %command%` launch wrapper, `doctor`, headless daemon + `systemd --user` (27/27). Phase 3 (2026-07-13): **cross-OS round-trip in CI** — a Windows save and a Proton save are now *proven* interchangeable, byte-identical in both directions, hashes identical. **Next: Phase 4** (enrollment token + policy import). One phase at a time.
+   - ⚠️ **Built ≠ verified on hardware.** No Steam Deck is owned. WSL + the harness cover everything *except* gamescope, the immutable rootfs, SD-card paths and suspend/resume — track this like the Windows device-verify items.
 
 **Gotcha surfaced 2026-07-12:** with two agents, saves diverge → dashboard conflict when the pushing machine's known head ≠ current server head (another machine advanced it). A "behind" machine keeps conflicting until resolved (dashboard resolve → pull, or tray Force Pull); the agent doesn't auto-advance its parent on conflict. Version/glob skew between agents guarantees this — keep both agents identical. (This is the seed for the Help KB "Understanding conflicts" article.)
+
+**🐛 Real bug fixed 2026-07-13 (found by the Phase 3 cross-OS test):** `ArchiveStore` persisted the archive's store path into the DB using `Path.Combine`, so a **Windows-hosted server wrote `gameid\versionid.zip`**. On Linux a backslash is a filename character, not a separator — the archive becomes unreachable, `/download` 404s, and the agent reports **"server has no saves yet"** while `status` still shows a head. Production is fine (server only runs in Docker/Linux) but **the dev workflow runs the server on Windows**, so a DB or backup carried from a dev box to Docker has unreachable archives. Fixed: canonical `/` on write, either separator tolerated on read. Rule: `Path.Combine` is for *this* machine *now* — anything persisted gets a `/`. See `Gotchas.md`.
 
 See `Backlog.md` for the full list.
 
@@ -49,7 +53,10 @@ See `Backlog.md` for the full list.
 | Run dashboard | `cd web && npm run dev` → http://localhost:5173 |
 | Build agent | `dotnet build src/Agent/SaveLocker.Agent.csproj --no-incremental` |
 | Build installer | `.\installer\build-installer.ps1` |
-| Run tests | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
+| Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
+| Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
+| Linux fake-game harness | `tests/linux/run-linux-tests.sh` (27 checks; starts its own server) |
+| Cross-OS round-trip | `tests/cross-os/crossos.ps1 -Leg author\|roundtrip\|confirm` — one leg per OS; CI chains them by passing the server's state as an artifact |
 
 **Always use `--no-incremental` for server builds** — stale DLL reuse has masked changes before. Stop the running agent/server first (they lock the DLLs).
 

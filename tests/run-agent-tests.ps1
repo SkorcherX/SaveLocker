@@ -1,22 +1,50 @@
-# Agent integration tests — 10 checks.
+# Agent integration tests — 10 checks. Runs on BOTH Windows and Linux.
+#
+#   Windows: Windows PowerShell 5.1 or pwsh, drives src/Agent (net9.0-windows).
+#   Linux:   pwsh (PowerShell Core), drives src/Agent.Linux (net9.0).
+#
+# The sync brain under test is the same Agent.Core on both — that is the point. Only the
+# host binary and the save-detection expectation differ, and both differences are explicit
+# below rather than being quietly skipped.
+#
 # Prerequisites: server running on http://localhost:5179, agent built in Debug.
-# Usage:  .\tests\run-agent-tests.ps1
+# Usage:  .\tests\run-agent-tests.ps1   /   pwsh tests/run-agent-tests.ps1
 #
 # Scratch state (generated configs, save dirs) is written to .verify/ (git-ignored).
 # Fixture files (manifest.yaml) live alongside this script in tests/.
 
 $ErrorActionPreference = "Continue"
 
+# $IsWindows is auto-defined by PowerShell Core but NOT by Windows PowerShell 5.1,
+# where its absence is itself the signal that we are on Windows.
+$onWindows = if ($null -eq $IsWindows) { $true } else { $IsWindows }
+
 $root     = Split-Path $PSScriptRoot -Parent
-$dotnet   = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
-$dll      = Join-Path $root "src\Agent\bin\Debug\net9.0-windows\SaveLocker.Agent.dll"
 $fixtures = $PSScriptRoot
 $scratch  = Join-Path $root ".verify"
 
+if ($onWindows) {
+    # `dotnet` is not always on PATH in an open shell after a winget install (see Gotchas.md),
+    # so prefer the known install location and fall back to PATH.
+    $inProgramFiles = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
+    $dotnet = if (Test-Path $inProgramFiles) { $inProgramFiles } else { "dotnet" }
+    $dll    = Join-Path $root "src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.dll"
+} else {
+    # AssemblyName is 'savelocker' (the command users type), not the project name.
+    $dotnet = "dotnet"
+    $dll    = Join-Path $root "src/Agent.Linux/bin/Debug/net9.0/savelocker.dll"
+}
+
+if (-not (Test-Path $dll)) {
+    Write-Host "Agent not built: $dll"
+    Write-Host "Build it first, then re-run."
+    exit 2
+}
+
 New-Item -ItemType Directory -Force $scratch | Out-Null
 
-$pcCfg  = Join-Path $scratch "pc-config.json"
-$lapCfg = Join-Path $scratch "laptop-config.json"
+$pcCfg   = Join-Path $scratch "pc-config.json"
+$lapCfg  = Join-Path $scratch "laptop-config.json"
 $pcSave  = Join-Path $scratch "pc_save"
 $lapSave = Join-Path $scratch "laptop_save"
 
@@ -30,25 +58,37 @@ function Check($name, $cond) {
 }
 function Agent { & $dotnet $dll @args 2>&1 }
 
+$manifest = Join-Path $fixtures "manifest.yaml"
+
 # Fresh agent configs pointing at local server and fixture manifest.
 foreach ($c in @($pcCfg, $lapCfg)) {
-    @{ ServerUrl = "http://localhost:5179"; ManifestCachePath = "$fixtures\manifest.yaml"; Games = @() } |
+    @{ ServerUrl = "http://localhost:5179"; ManifestCachePath = $manifest; Games = @() } |
         ConvertTo-Json | Set-Content -Path $c -Encoding utf8
 }
 
 # Detect-config written to scratch so the ManifestCachePath resolves correctly.
 $detectCfg = Join-Path $scratch "detect-config.json"
-@{ ServerUrl = "http://localhost:5179"; MachineName = "DetectTest"; ManifestCachePath = "$fixtures\manifest.yaml"; Games = @() } |
+@{ ServerUrl = "http://localhost:5179"; MachineName = "DetectTest"; ManifestCachePath = $manifest; Games = @() } |
     ConvertTo-Json | Set-Content -Path $detectCfg -Encoding utf8
 
-# ---- Detection (Phase 2): resolve a manifest game's save dir on this machine ----
-# `resolve` only reports a directory that actually exists, so the fixture dir the
-# manifest points at has to be there before we ask.
-$expected = Join-Path $env:APPDATA "LGSTestGame"
-New-Item -ItemType Directory -Force $expected | Out-Null
+# ---- Detection: resolve a manifest game's save dir on this machine ----
+# The manifest's paths are WINDOWS paths (<winAppData>). On Windows they resolve against the
+# host. On Linux they deliberately resolve to NOTHING: a Proton game's paths live inside its own
+# Wine prefix (per-game, so the caller must pass --prefix), and inventing a host path for a
+# Windows game would be worse than admitting we cannot resolve it. Asserting the Linux refusal
+# is the point — a resolver that guessed here would silently sync the wrong directory.
+if ($onWindows) {
+    # `resolve` only reports a directory that actually exists, so create it before asking.
+    $expected = Join-Path $env:APPDATA "LGSTestGame"
+    New-Item -ItemType Directory -Force $expected | Out-Null
 
-$detectOut = Agent resolve --config $detectCfg --manifest "LGS Test Game"
-Check "detection resolved <winAppData> save dir" (($detectOut -join "`n") -like "*$expected*")
+    $detectOut = Agent resolve --config $detectCfg --manifest "LGS Test Game"
+    Check "detection resolved <winAppData> save dir" (($detectOut -join "`n") -like "*$expected*")
+} else {
+    $detectOut = Agent resolve --config $detectCfg --manifest "LGS Test Game"
+    Check "detection refuses to invent a host path for a Windows game" `
+        (($detectOut -join "`n") -like "*no existing save directory found*")
+}
 
 # ---- Register two machines ----
 $pcReg  = Agent register --config $pcCfg  --name PC
