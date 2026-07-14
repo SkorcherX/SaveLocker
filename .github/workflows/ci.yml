@@ -64,6 +64,35 @@ jobs:
           test -f artifacts/linux/SaveLocker/agent-ui/index.html \
             || { echo "agent-ui was not packaged — the daemon would serve a blank page"; exit 1; }
 
+      # THE check that protects Steam Decks, and the one nobody can run locally.
+      #
+      # A self-contained .NET app does NOT bind to the build host's glibc: libcoreclr.so and friends
+      # are prebuilt by Microsoft against an old baseline and copied in, and our C# becomes IL. The
+      # measured floor today is GLIBC_2.27 (2018), while SteamOS 3 ships >= 2.33 — a wide margin,
+      # which is WHY building on Ubuntu 24.04 (glibc 2.39) is safe despite the host being newer.
+      #
+      # But that floor is a property of the toolchain, not a law. Turning on NativeAOT, or pulling in
+      # a natively-compiled dependency, would raise it silently — and the failure lands as
+      # "GLIBC_2.3x not found" on a USER'S DECK, which is un-reproducible on any machine we own. So
+      # assert it instead of trusting it.
+      - name: Assert the glibc floor still clears SteamOS
+        run: |
+          max_required="$(find artifacts/linux/SaveLocker -type f \( -name '*.so' -o -name 'savelocker' \) -print0 \
+            | xargs -0 -I{} sh -c "objdump -T '{}' 2>/dev/null | grep -o 'GLIBC_[0-9]\+\.[0-9]\+'" \
+            | sort -u -V | tail -1)"
+          echo "highest glibc symbol required by the package: ${max_required:-none}"
+
+          # 2.31 (Ubuntu 20.04) is comfortably below SteamOS's >= 2.33 and leaves headroom.
+          limit="GLIBC_2.31"
+          highest="$(printf '%s\n%s\n' "$max_required" "$limit" | sort -V | tail -1)"
+          if [ "$highest" != "$limit" ]; then
+            echo "::error::The Linux package now requires ${max_required}, above the ${limit} floor."
+            echo "SteamOS 3 ships glibc ~2.33. A binary needing more than that fails on a user's Deck"
+            echo "with 'GLIBC_x.y not found' — and it CANNOT be reproduced on a newer dev box."
+            echo "Did something enable NativeAOT or add a native dependency?"
+            exit 1
+          fi
+
   build-web:
     runs-on: ubuntu-latest
     steps:
