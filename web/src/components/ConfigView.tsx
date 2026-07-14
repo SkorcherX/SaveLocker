@@ -1,18 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, setPassword } from '../api';
-import type { GameSummary, Machine, Settings, AgentInstallerStatus, Enrollment } from '../types';
+import type { GameSummary, Machine, Settings, AgentInstallerStatus, Enrollment, AgentHealth } from '../types';
 
 interface Props {
   games: GameSummary[];
   machines: Machine[];
   settings: Settings;
+  health: AgentHealth[];
   onRefresh: () => void;
 }
 
 const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
 const when = (t: string | null | undefined) => t ? new Date(asUtc(t)).toLocaleString() : '—';
 
-export function ConfigView({ games, machines, settings, onRefresh }: Props) {
+export function ConfigView({ games, machines, settings, health, onRefresh }: Props) {
+  const healthByMachine = new Map(health.map(h => [h.machineId, h]));
   const [sgdbInput, setSgdbInput] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -606,36 +608,73 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
       {/* ── Machines / API Keys ── */}
       <div style={{ ...card, marginBottom: 24 }}>
         <div style={cardHeader}>
-          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Machines / API keys</span>
-          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>delete unwanted users/keys</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Machines</span>
+          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>agent health, versions, and keys</span>
         </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#222d34', borderBottom: '1px solid #494949' }}>
               <th style={thStyle}>Machine</th>
-              <th style={thStyle}>Registered</th>
-              <th style={thStyle}>Last seen</th>
+              <th style={thStyle}>Agent</th>
+              <th style={thStyle}>Status</th>
+              <th style={thStyle}>Last sync</th>
+              <th style={thStyle}>Games</th>
               <th style={{ ...thStyle, textAlign: 'right' }}></th>
             </tr>
           </thead>
           <tbody>
             {machines.length === 0
-              ? <tr><td colSpan={4} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No machines registered.</td></tr>
-              : machines.map(m => (
-                  <tr key={m.id} style={rowSep}>
-                    <td style={tdStyle}>{m.name}</td>
-                    <td style={tdMono}>{when(m.createdAt)}</td>
-                    <td style={tdMono}>{when(m.lastSeen)}</td>
-                    <td style={{ padding: '11px 18px', textAlign: 'right' }}>
-                      <button
-                        onClick={() => handleDeleteMachine(m.id, m.name)}
-                        style={{ padding: '4px 10px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))
+              ? <tr><td colSpan={6} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No machines registered.</td></tr>
+              : machines.map(m => {
+                  const h = healthByMachine.get(m.id);
+                  const problems = h?.openEvents.length ?? 0;
+
+                  // Never reported at all is its own state, and a meaningful one: a machine that was
+                  // enrolled but whose agent has never run looks nothing like one that went offline.
+                  const status = !h
+                    ? { text: 'never reported', color: '#556070' }
+                    : h.online
+                      ? { text: 'online', color: '#129271' }
+                      : { text: `offline since ${when(h.lastHeartbeat)}`, color: '#f4a60d' };
+
+                  return (
+                    <tr key={m.id} style={rowSep}>
+                      <td style={tdStyle}>
+                        {m.name}
+                        {problems > 0 && (
+                          <span style={{ marginLeft: 8, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, color: '#e5534b', border: '1px solid #e5534b' }}>
+                            {problems} problem{problems > 1 ? 's' : ''}
+                          </span>
+                        )}
+                        {(h?.offlineQueueDepth ?? 0) > 0 && (
+                          <span style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, color: '#f4a60d', border: '1px solid #f4a60d' }}>
+                            {h!.offlineQueueDepth} queued
+                          </span>
+                        )}
+                      </td>
+                      <td style={tdMono}>
+                        {h?.agentVersion ? `v${h.agentVersion}` : '—'}
+                        {h?.platform ? <span style={{ color: '#556070' }}> · {h.platform}</span> : null}
+                      </td>
+                      <td style={{ ...tdMono, color: status.color }}>{status.text}</td>
+                      <td style={tdMono}>{when(h?.lastSyncTime)}</td>
+                      <td style={tdMono}>
+                        {h ? `${h.trackedGames}` : '—'}
+                        {(h?.unmappedGames ?? 0) > 0 && (
+                          <span style={{ color: '#f4a60d' }}> ({h!.unmappedGames} unmapped)</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '11px 18px', textAlign: 'right' }}>
+                        <button
+                          onClick={() => handleDeleteMachine(m.id, m.name)}
+                          style={{ padding: '4px 10px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
             }
           </tbody>
         </table>

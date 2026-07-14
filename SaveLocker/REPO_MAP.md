@@ -7,6 +7,7 @@ SaveLocker/
 ├── src/
 │   ├── Shared/                          # SaveLocker.Shared.csproj
 │   │   ├── Contracts.cs                 # Wire DTOs — shared by server + agent
+│   │   ├── AgentEventCodes.cs           # The fixed vocabulary of agent event codes (dedupe keys)
 │   │   ├── SaveArchive.cs               # Content hashing + atomic zip restore
 │   │   └── ManifestLoader.cs            # Ludusavi manifest downloader + path resolver
 │   │
@@ -20,6 +21,7 @@ SaveLocker/
 │   │   ├── Services/
 │   │   │   ├── SyncService.cs           # Core: lease, upload, conflict, prune, resolve
 │   │   │   ├── EnrollmentService.cs     # Single-use enrollment tokens → machine API key
+│   │   │   ├── HealthService.cs         # Agent heartbeats + events; dedupes and auto-resolves
 │   │   │   ├── ArchiveStore.cs          # {root}/{gameId}/{versionId}.zip on disk
 │   │   │   ├── ArtService.cs            # SteamGridDB fetch + cache to /data/art/
 │   │   │   ├── BackupService.cs         # Nightly VACUUM INTO SQLite snapshots + retention
@@ -39,6 +41,8 @@ SaveLocker/
 │   │   ├── ApiClient.cs                 # Typed HTTP client for server API. ApiClient.For(config)
 │   │   │                               #   is the one every caller uses — it carries the TOFU pin
 │   │   ├── ServerTrust.cs               # TOFU pin of the server's TLS key: warn, never block
+│   │   ├── HealthReporter.cs            # Durable pending events + heartbeat. A headless box cannot
+│   │   │                               #   toast, so failures go to the console (Decisions §2)
 │   │   ├── CommandPoller.cs             # 20 s poll: reconcile game list + run commands
 │   │   ├── AgentApiServer.cs            # HttpListener on :5178 — JSON API + agent-ui static files
 │   │   ├── AgentConfig.cs               # JSON config at %PROGRAMDATA%\SaveLocker\config.json
@@ -117,6 +121,9 @@ SaveLocker/
 │   ├── run-agent-tests.ps1             # 10 integration checks. Runs on BOTH OSes: PowerShell Core
 │   │                                   #   runs on Linux, so the same script drives the Windows
 │   │                                   #   agent and the Linux agent. Needs a server on :5179.
+│   ├── run-health-tests.ps1            # 17 checks: heartbeat, real conflict, dedupe, self-healing,
+│   │                                   #   and a push while the server is STOPPED (the durable
+│   │                                   #   report). Owns its server on :5181 — it must stop it.
 │   ├── run-enrollment-tests.ps1        # 16 checks: mint → enroll → single-use / revoked / expired /
 │   │                                   #   forged all refused. Runs on both OSes; in CI.
 │   ├── run-enrollment-tls-tests.ps1    # 6 checks: the TOFU pin, over a real HTTPS server it starts

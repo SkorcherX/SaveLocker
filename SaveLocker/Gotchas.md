@@ -105,6 +105,21 @@ Running WSL commands from PowerShell, `"...\$HOME..."` does **not** escape `$HOM
 - Ordering matters when chaining suites: run `run-agent-tests.ps1` (which wants a fresh DB) **before** `run-enrollment-tests.ps1` (which adds a game and a machine to it).
 - The suite also needs `%APPDATA%\LGSTestGame` to exist for the detection check; the script now creates it itself (2026-07-12).
 
+## `dotnet ef` tools must match the EF runtime major — or `migrations remove` eats the WRONG migration
+The tool is installed globally and does **not** track the project. With `dotnet-ef` **9.x** against EF Core **10.x** (2026-07-14):
+- `migrations add` "succeeds" but writes a model snapshot the runtime rejects. The server then refuses to boot with **`PendingModelChangesWarning`** — the new migration exists, yet the model "has pending changes".
+- The recovery reflex, `dotnet ef migrations remove`, then **deleted a different, already-committed migration** (`AddEnrollmentTokens`) instead of the one just added, leaving its table uncreated. Every enrollment endpoint began returning **500 `no such table: EnrollmentTokens`** — a failure that looks nothing like its cause.
+- **Fix:** `dotnet tool update --global dotnet-ef --version "10.*"` **first**. Then `git status src/Server/Migrations/` before and after any `migrations remove` — if a file you did not create shows as deleted, restore it (`git checkout --`) and regenerate yours on top.
+
+## Running the server DLL directly ignores `launchSettings.json`
+`dotnet run` reads `Properties/launchSettings.json`; **`dotnet bin/.../SaveLocker.Server.dll` does not.** Launching the DLL therefore binds Kestrel's default **:5000** (not :5179) and loads the **Production** config (`Storage:DbPath = /data/savelocker.db`, not `localstate/`). The symptom is a test suite whose every check fails on "connection refused" while a server is plainly running.
+- A script that starts the server itself must pass both explicitly: `ASPNETCORE_URLS`, and either `ASPNETCORE_ENVIRONMENT=Development` or the `Storage__*` variables. This is what CI already does.
+- A test that needs to **restart** the server must **own** it (its own port + state dir, as `run-health-tests.ps1` does). You cannot correctly restart a server someone else started: its storage path is not knowable from the outside, and guessing it silently brings the server back on an **empty database**.
+
+## PowerShell `.Count` on a single object can hit a DTO field named `count`
+`AgentEventDto` has a `count` field (the dedupe counter). Property lookup is case-insensitive, so `$events.Count` on a **single** result returns **the event's dedupe count**, not the number of events — an assertion that then measures the wrong number and can pass while proving nothing.
+- Always force a real collection: `@($x | Where-Object {...}).Length`.
+
 ## A green pin/TLS test can be green because it never connected
 Verifying TOFU pinning taught this twice (2026-07-13). Plain **http has no server identity to pin**, so an http harness can only assert the agent records *nothing* — every interesting pin assertion passes **vacuously**. And on an https harness, a `status` run against a server with **no games** iterates an empty list, makes **no HTTP request**, completes **no TLS handshake**, and the pin check passes without ever running.
 - **Rule:** a test of a connection-time behaviour must assert that a connection actually happened. Give the fixture server a game, and prove the negative case fails (tamper the pin and require the warning).

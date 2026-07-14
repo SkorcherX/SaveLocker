@@ -35,6 +35,7 @@ internal sealed class TrayContext : ApplicationContext
     private readonly CommandPoller _commandPoller;
     private readonly AgentApiServer _apiServer;
     private readonly OfflineQueue _offlineQueue = new();
+    private readonly HealthReporter _health = new();
     private readonly OfflineQueueDrainer _drainer;
     private AgentWindow? _window;
     private ProcessWatcher _processWatcher;
@@ -94,7 +95,9 @@ internal sealed class TrayContext : ApplicationContext
             _detection,
             _scanner,
             Notify,
-            onGamesChanged: () => _ui.Post(_ => { RebuildMenu(); StartFolderWatchers(); }, null));
+            onGamesChanged: () => _ui.Post(_ => { RebuildMenu(); StartFolderWatchers(); }, null),
+            health: _health,
+            offlineQueue: _offlineQueue);
         _commandPoller.Start();
 
         // 24 h periodic update check. First tick fires after 5 s so the tray is fully
@@ -133,7 +136,10 @@ internal sealed class TrayContext : ApplicationContext
     private void RebuildEngine()
     {
         var api = ApiClient.For(_config);
-        _engine = new SyncEngine(_config, api, log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue);
+        // Windows toasts AND reports: the tray tells the user in front of it, health reporting tells
+        // the console. One dashboard then shows the whole fleet, Deck and PC alike.
+        _engine = new SyncEngine(_config, api, log: AgentLogger.Log, notify: Notify,
+            offlineQueue: _offlineQueue, health: _health);
     }
 
     private void RebuildMenu()

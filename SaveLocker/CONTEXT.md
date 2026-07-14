@@ -27,24 +27,38 @@
 | Cross-OS round-trip in CI (Windows agent ↔ Linux agent) | ✅ done 2026-07-13 — byte-identical both ways |
 | **Runtime: .NET 10 (LTS)** | ✅ merged 2026-07-13 (PR #2). net9 was STS, EOL 10 Nov 2026 |
 | **Known vulnerabilities** | ✅ **none** — `dotnet build` reports no NU1903 (PR #3) |
-| Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS |
+| Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS (PR #4, merged) |
+| Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: Linux agent **Phase 5** — agent health reporting
+## ▶ NEXT ACTION: Linux agent **Phase 6** — hardening
 
-**This is the phase that makes the Deck usable, not a nice-to-have.** After Phase 4 a Deck can be
-enrolled with one file and will sync — but it **still cannot tell anyone when that goes wrong**. A
-conflict that raises a toast on Windows is *silent* on a headless box. Until the agent reports
-health/errors to the server and the console surfaces them ("Steam Deck: conflict on Hades, 2 days
-ago"), a Deck failure is invisible and the whole feature feels broken.
+The Deck is now functionally complete: it enrols with one file (Phase 4), syncs Proton saves proven
+byte-identical to Windows ones (Phase 3), and **reports its failures to the console** (Phase 5).
+What is left is the security/robustness pass.
 
-- **Plan:** `tasks/linux-agent.md` → Phase 5. **Design is locked** in `Decisions.md` §2 — the console *is* the Deck's UI.
-- **Phases 0–4 are done.** Phase 1 split the platform-neutral `Agent.Core`; Phase 2 built `src/Agent.Linux` → binary **`savelocker`** (shortcuts.vdf discovery, Proton prefix resolution, `run -- %command%` launch wrapper, `doctor`, headless daemon + `systemd --user`); Phase 3 proved a Windows save and a Proton save are **byte-identical**, in CI; Phase 4 added **enrollment** (below).
+- **Plan:** `tasks/linux-agent.md` → Phase 6.
+- **Item 1 is a real bug and it affects Windows too:** `Directory.EnumerateFiles(..., AllDirectories)` **follows symlinks**, and a Wine prefix is full of them — a save folder containing a link to `/etc` or `$HOME` gets sucked into the archive. Don't follow symlinks when archiving; don't restore them. (Junctions are the Windows equivalent.)
+- Also: prefix-root sanity check in `doctor` (a mis-set path archives the whole multi-GB prefix), and the settle gate's max-wait must not count **suspended** time as elapsed (a Deck suspends constantly, mid-sync).
 - ⚠️ **Built ≠ verified on hardware.** No Steam Deck is owned. WSL + the harness cover everything *except* gamescope, the immutable rootfs, SD-card paths and suspend/resume.
+
+### Phase 5, shipped 2026-07-14 — how a Deck's failures reach you
+
+**The console is the Deck's UI** (`Decisions.md` §2). A headless box cannot toast, so the agent
+reports to the server and the dashboard surfaces it: a **problem badge** in the NavBar (absent when
+the fleet is healthy) opening a list of events with Dismiss, plus per-machine health on the Machines
+card — online / offline / **never reported**, agent version, platform, last sync, unmapped games,
+queued pushes.
+
+- **Scope, and it matters:** the server already knows what happens *server-side* (a conflict is a `ConflictFlag` the moment the upload lands). Agents report only what the server **cannot infer** — blocked pull, missing save folder, rejected upload, settle timeout, unreachable server. The conflict event exists solely to name **which machine is stuck**.
+- **Events deduplicate** on (machine, game, code) while open — a persistent fault bumps a count, it does not write a row every 20 s. A game that **syncs cleanly auto-closes** that machine's events for it, so a Deck that recovers leaves no stale alarm.
+- **Pending events persist to disk**, because the most important thing to report — "I cannot reach the server" — happens precisely when reporting is impossible. It is delivered on the first contact after the network returns.
+- **Every sync path reports**, not just the daemon: the launch wrapper (`ProtonRun`) *is* the Deck's Proton sync path and has no poller, so it flushes before exiting; one-shot `push`/`pull` do too.
+- The Windows tray **also** reports (it toasts *and* reports), so the console is one honest view of the whole fleet.
 
 ### Phase 4, shipped 2026-07-13 — how enrollment works now
 
@@ -87,6 +101,7 @@ See `Backlog.md` for the full list.
 | Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
+| Health tests | `.\tests\run-health-tests.ps1` (17 checks). **Starts and stops its own server on :5181** — it has to, since one check pushes while the server is *down*. Needs nothing running |
 | TOFU pin tests (TLS) | `.\tests\run-enrollment-tls-tests.ps1` (6 checks; starts its own HTTPS server on :5443). Needs `dotnet dev-certs https --trust` — local only, not in CI |
 | Linux fake-game harness | `tests/linux/run-linux-tests.sh` (27 checks; starts its own server) |
 | Cross-OS round-trip | `tests/cross-os/crossos.ps1 -Leg author\|roundtrip\|confirm` — one leg per OS; CI chains them by passing the server's state as an artifact |
@@ -94,7 +109,7 @@ See `Backlog.md` for the full list.
 
 **Always use `--no-incremental` for server builds** — stale DLL reuse has masked changes before. Stop the running agent/server first (they lock the DLLs).
 
-**CI (`ci.yml`) runs 8 jobs on every PR:** `build-dotnet`, `build-web`, `build-agent-ui`, `docker-build` (builds the server image — publishes nothing), `agent-tests-linux` (agent suite **+ enrollment suite**), and the chained `crossos-author → crossos-roundtrip → crossos-confirm`. The cross-OS chain is the one that matters: it hands the **server's own state** (SQLite DB + archive store) between a Windows and an Ubuntu runner as an artifact, because runners cannot share a network.
+**CI (`ci.yml`) runs 8 jobs on every PR:** `build-dotnet`, `build-web`, `build-agent-ui`, `docker-build` (builds the server image — publishes nothing), `agent-tests-linux` (agent suite **+ enrollment + health**), and the chained `crossos-author → crossos-roundtrip → crossos-confirm`. The cross-OS chain is the one that matters: it hands the **server's own state** (SQLite DB + archive store) between a Windows and an Ubuntu runner as an artifact, because runners cannot share a network.
 
 ### Toolchain (installed 2026-07-13 — a fresh session does not need to redo this)
 

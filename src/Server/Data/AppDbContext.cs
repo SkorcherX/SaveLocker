@@ -16,6 +16,8 @@ public class AppDbContext : DbContext
     public DbSet<AppSetting> Settings => Set<AppSetting>();
     public DbSet<MachineSavePath> MachineSavePaths => Set<MachineSavePath>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
+    public DbSet<AgentHealth> AgentHealth => Set<AgentHealth>();
+    public DbSet<AgentEvent> AgentEvents => Set<AgentEvent>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -36,5 +38,24 @@ public class AppDbContext : DbContext
 
         // Redeem looks a token up by hash; unique so a hash can never map to two rows.
         b.Entity<EnrollmentToken>().HasIndex(t => t.TokenHash).IsUnique();
+
+        // One health row per machine, and it dies with the machine.
+        b.Entity<AgentHealth>().HasKey(h => h.MachineId);
+        b.Entity<AgentHealth>()
+            .HasOne(h => h.Machine).WithOne()
+            .HasForeignKey<AgentHealth>(h => h.MachineId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        // The dedupe lookup on every heartbeat: this machine's open event for this code+game.
+        b.Entity<AgentEvent>().HasIndex(e => new { e.MachineId, e.Code, e.GameId, e.ResolvedAt });
+        b.Entity<AgentEvent>()
+            .HasOne(e => e.Machine).WithMany()
+            .HasForeignKey(e => e.MachineId)
+            .OnDelete(DeleteBehavior.Cascade);
+        // A deleted game must not drag its events' machine rows down with it — null the link instead.
+        b.Entity<AgentEvent>()
+            .HasOne(e => e.Game).WithMany()
+            .HasForeignKey(e => e.GameId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

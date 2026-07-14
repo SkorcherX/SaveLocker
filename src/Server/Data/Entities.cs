@@ -166,6 +166,59 @@ public class EnrollmentToken
     public Guid? RedeemedByMachineId { get; set; }
 }
 
+/// <summary>
+/// The last heartbeat an agent sent (one row per machine). This is what makes an agent's silence
+/// readable: without it, a Deck that never started and a Deck with nothing to report look the same.
+/// </summary>
+public class AgentHealth
+{
+    public Guid MachineId { get; set; }
+    public Machine? Machine { get; set; }
+
+    public DateTime LastHeartbeat { get; set; }
+    public string? AgentVersion { get; set; }
+    public string? Platform { get; set; }
+
+    /// <summary>The agent's own last successful sync — not the server's view of it.</summary>
+    public DateTime? LastSyncTime { get; set; }
+
+    public int TrackedGames { get; set; }
+    /// <summary>Tracked games with no save folder on this machine: silently skipped, so worth naming.</summary>
+    public int UnmappedGames { get; set; }
+    /// <summary>Pushes waiting on the network. A number that only grows means this machine is stranded.</summary>
+    public int OfflineQueueDepth { get; set; }
+}
+
+/// <summary>
+/// A problem an agent reported that the server could not have inferred on its own. Deduplicated on
+/// (MachineId, GameId, Code) while open: a condition that persists updates <see cref="LastSeen"/>
+/// and <see cref="Count"/> rather than filling the table with a row every poll.
+/// </summary>
+public class AgentEvent
+{
+    public Guid Id { get; set; }
+
+    public Guid MachineId { get; set; }
+    public Machine? Machine { get; set; }
+
+    public Guid? GameId { get; set; }
+    public Game? Game { get; set; }
+
+    /// <summary>Stable condition id from <see cref="SaveLocker.Shared.AgentEventCodes"/>.</summary>
+    public string Code { get; set; } = "";
+    public AgentEventSeverity Severity { get; set; }
+    public string Message { get; set; } = "";
+
+    public DateTime FirstSeen { get; set; }
+    public DateTime LastSeen { get; set; }
+    /// <summary>How many times this condition has been reported since it opened.</summary>
+    public int Count { get; set; } = 1;
+
+    /// <summary>Set when the condition cleared — either the agent synced that game cleanly, or an
+    /// admin dismissed it. Non-null means it no longer shows as an open problem.</summary>
+    public DateTime? ResolvedAt { get; set; }
+}
+
 /// <summary>A persisted server setting (key/value), e.g. the SteamGridDB API key.
 /// DB values override <c>IConfiguration</c> (appsettings/env) so admins can manage
 /// settings from the dashboard without editing config files.</summary>

@@ -440,6 +440,28 @@
         }
       }
     },
+    "/api/agent/health": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentHeartbeat"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/agent/latest": {
       "get": {
         "tags": [
@@ -1246,6 +1268,73 @@
         }
       }
     },
+    "/api/admin/health": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentHealthDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/health/events": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AgentEventDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/health/events/{id}/dismiss": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/admin/enrollments": {
       "post": {
         "tags": [
@@ -1460,6 +1549,237 @@
           "Sync",
           "Scan"
         ]
+      },
+      "AgentEventDto": {
+        "required": [
+          "id",
+          "machineId",
+          "machineName",
+          "gameId",
+          "gameName",
+          "severity",
+          "code",
+          "message",
+          "firstSeen",
+          "lastSeen",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "machineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "gameId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "gameName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AgentEventSeverity"
+          },
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "firstSeen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "lastSeen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
+          }
+        }
+      },
+      "AgentEventReport": {
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "severity": {
+            "$ref": "#/components/schemas/AgentEventSeverity"
+          },
+          "message": {
+            "type": "string"
+          },
+          "gameId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AgentEventSeverity": {
+        "enum": [
+          "Info",
+          "Warning",
+          "Error"
+        ]
+      },
+      "AgentHealthDto": {
+        "required": [
+          "machineId",
+          "machineName",
+          "online",
+          "lastHeartbeat",
+          "agentVersion",
+          "platform",
+          "lastSyncTime",
+          "trackedGames",
+          "unmappedGames",
+          "offlineQueueDepth",
+          "openEvents"
+        ],
+        "type": "object",
+        "properties": {
+          "machineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "lastHeartbeat": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "agentVersion": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "platform": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastSyncTime": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "trackedGames": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "unmappedGames": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "offlineQueueDepth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "openEvents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AgentEventDto"
+            }
+          }
+        }
+      },
+      "AgentHeartbeat": {
+        "required": [
+          "agentVersion",
+          "platform"
+        ],
+        "type": "object",
+        "properties": {
+          "agentVersion": {
+            "type": "string"
+          },
+          "platform": {
+            "type": "string"
+          },
+          "lastSyncTime": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "trackedGames": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "unmappedGames": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "offlineQueueDepth": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
+          },
+          "events": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AgentEventReport"
+            }
+          },
+          "resolvedGameIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
       },
       "AgentInstallerStatus": {
         "required": [

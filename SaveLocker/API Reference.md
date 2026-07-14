@@ -59,6 +59,17 @@ Server endpoints (`src/Server/Program.cs`).
 - `POST /api/admin/backup` → `BackupResult { ok, message, backup, totalBackups }`. Take an immediate SQLite snapshot.
 - `GET /api/admin/backups` → `BackupInfo[]` `{ fileName, sizeBytes, createdAt }`, newest first.
 
+## Agent health (agent-auth)
+- `POST /api/agent/health` body `AgentHeartbeat { agentVersion, platform, lastSyncTime?, trackedGames, unmappedGames, offlineQueueDepth, events?, resolvedGameIds? }` → 200. Piggybacks the existing ~20 s poll, so it adds no schedule. **This is the only way a headless agent can tell anyone anything** (`Decisions.md` §2 — the console is the Deck's UI).
+  - `events[]` = `{ code, severity, message, gameId?, occurredAt? }`. Codes are the fixed vocabulary in `src/Shared/AgentEventCodes.cs`. They carry only what the server **cannot infer** — a blocked pull, a missing save folder, a rejected upload, a settle-gate timeout, an unreachable server. (A *conflict* the server already knows about; the event ties it to the machine that is **stuck**.)
+  - **Deduplicated** on (machine, game, code) while open: a persistent fault bumps `lastSeen`/`count` instead of adding a row every poll.
+  - `resolvedGameIds[]` = games that just synced cleanly. Their open events **auto-close**, so a machine that recovers does not leave a stale alarm on the console.
+
+## Agent health (admin)
+- `GET /api/admin/health` → `AgentHealthDto[]` — every machine, **including ones that have never sent a heartbeat** (an agent enrolled but never run is exactly the case worth seeing). `online` is computed against a **5-minute** staleness window (`HealthService.StaleAfter`), which tolerates a few missed 20 s beats.
+- `GET /api/admin/health/events` → open `AgentEventDto[]`, worst first.
+- `POST /api/admin/health/events/{id}/dismiss` → 204 / 404. **Dismiss is not resolve**: it does not fix the condition, and if the condition still holds the agent's next report reopens it.
+
 ## Enrollment (admin)
 - `POST /api/admin/enrollments` `{ machineName?, ttlMinutes?, serverUrl?, gameIds?, settleQuietSeconds?, settleMaxWaitSeconds? }` → `CreateEnrollmentResponse { id, policy }`. Mints a single-use token (default TTL **15 min**, max 24 h) and returns the **policy file** the agent consumes. **The raw token is in this response and nowhere else** — the server stores only its hash, so a policy that isn't saved here is unrecoverable. `serverUrl` defaults to the URL the console was reached on; override it when the admin is on the LAN but the agent must use the public tunnel. `gameIds` null = every enabled game.
 - `GET /api/admin/enrollments` → `EnrollmentDto[]` (100 newest) `{ id, machineName, createdAt, expiresAt, redeemedAt, redeemedByMachineName }`.

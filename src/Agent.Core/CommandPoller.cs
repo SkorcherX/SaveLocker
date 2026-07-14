@@ -24,6 +24,8 @@ public sealed class CommandPoller : IDisposable
     private readonly IGameScanner _scanner;
     private readonly Action<string> _notify;
     private readonly Action _onGamesChanged;
+    private readonly HealthReporter? _health;
+    private readonly OfflineQueue? _offlineQueue;
     private readonly System.Timers.Timer _timer;
     private int _busy; // 0/1 guard so slow ticks don't overlap
 
@@ -35,7 +37,9 @@ public sealed class CommandPoller : IDisposable
         IGameScanner scanner,
         Action<string> notify,
         Action onGamesChanged,
-        double pollMs = 20000)
+        double pollMs = 20000,
+        HealthReporter? health = null,
+        OfflineQueue? offlineQueue = null)
     {
         _config = config;
         _api = api;
@@ -44,6 +48,8 @@ public sealed class CommandPoller : IDisposable
         _scanner = scanner;
         _notify = notify;
         _onGamesChanged = onGamesChanged;
+        _health = health;
+        _offlineQueue = offlineQueue;
         _timer = new System.Timers.Timer(pollMs) { AutoReset = true };
         _timer.Elapsed += (_, _) => _ = TickAsync();
     }
@@ -66,6 +72,12 @@ public sealed class CommandPoller : IDisposable
         }
         finally
         {
+            // Outside the try, and last: the heartbeat must go out even when reconcile or a command
+            // threw — a tick that failed is precisely the tick the console needs to hear about.
+            // HealthReporter.SendAsync never throws.
+            if (_health is not null)
+                await _health.SendAsync(_api(), _config, _offlineQueue);
+
             Interlocked.Exchange(ref _busy, 0);
         }
     }

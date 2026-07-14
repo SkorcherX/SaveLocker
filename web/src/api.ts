@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse, AgentHealth } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -80,6 +80,15 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
     }),
+
+  // Every machine's health, including ones that have never sent a heartbeat — an agent that was
+  // enrolled and never actually ran is exactly the case worth seeing.
+  health: () => request<AgentHealth[]>('/admin/health'),
+
+  // Dismiss does not fix the condition; if it is still true the agent's next report reopens it.
+  dismissEvent: (id: string) =>
+    fetch(`/api/admin/health/events/${id}/dismiss`, { method: 'POST', headers: headers() })
+      .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
 
   enrollments: () => request<Enrollment[]>('/admin/enrollments'),
 

@@ -16,6 +16,7 @@ public sealed class Daemon : IAsyncDisposable
     private readonly Detection _detection;
     private readonly LinuxGameScanner _scanner;
     private readonly OfflineQueue _offlineQueue = new();
+    private readonly HealthReporter _health = new();
     private readonly List<FolderWatcher> _folderWatchers = new();
 
     private AgentApiServer? _apiServer;
@@ -33,12 +34,13 @@ public sealed class Daemon : IAsyncDisposable
 
     private SyncEngine BuildEngine() =>
         new(_config, ApiClient.For(_config),
-            log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue);
+            log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue, health: _health);
 
     /// <summary>
-    /// There is nobody to notify on a headless box — a toast is impossible in Game Mode — so
-    /// "notifications" are log lines. The console is the Deck's UI, and surfacing these to it is
-    /// agent health reporting (Phase 5), not something to fake here.
+    /// There is nobody here to notify — a toast is impossible in Game Mode — so locally a
+    /// "notification" is only a log line. What makes these visible is <see cref="HealthReporter"/>:
+    /// the same alerts go to the server, and the console shows them. The console is the Deck's UI
+    /// (Decisions.md §2).
     /// </summary>
     private static void Notify(string message) => AgentLogger.Log(message);
 
@@ -73,7 +75,9 @@ public sealed class Daemon : IAsyncDisposable
             _detection,
             _scanner,
             Notify,
-            onGamesChanged: StartFolderWatchers);
+            onGamesChanged: StartFolderWatchers,
+            health: _health,
+            offlineQueue: _offlineQueue);
         _commandPoller.Start();
 
         StartFolderWatchers();

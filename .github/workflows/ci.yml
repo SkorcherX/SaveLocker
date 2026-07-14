@@ -98,6 +98,12 @@ jobs:
       - name: Enrollment integration tests
         run: pwsh tests/run-enrollment-tests.ps1
 
+      # Health reporting lives in Agent.Core, so driving it from the Linux host exercises the same
+      # code the Windows tray runs. It goes LAST: it stops and restarts the server to prove that a
+      # failure occurring while the server is unreachable still reaches the console afterwards.
+      - name: Agent health reporting tests
+        run: pwsh tests/run-health-tests.ps1
+
   # ── Cross-OS round-trip ──────────────────────────────────────────────────────────────────
   # Prove a Windows save and a Proton save are actually interchangeable.
   #
