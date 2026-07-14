@@ -1,9 +1,26 @@
 # Task: Help KB articles for the Linux agent (Steam Deck / Proton)
 
-**Status:** not started. Seeded 2026-07-12, straight after Linux agent Phase 2, while the
-detail was fresh. **Do not start this before the Linux agent actually ships** — **Phases 4–6 are
-still open** (`tasks/linux-agent.md`; Phase 3 landed 2026-07-13), and several answers below change
-if they land differently.
+**Status:** ✅ **UNBLOCKED — this is the next action.** Seeded 2026-07-12 after Linux agent Phase 2.
+It was gated on Phases 4–6, and **all six phases shipped 2026-07-14**
+(`logs/2026-07-14_linux-agent.md`).
+
+**Two answers below changed, exactly as this file warned they might** — read these before writing:
+
+1. **§1 setup is now the ENROLLMENT flow**, not `set-server` + `register`. The console mints a
+   single-use, 15-minute policy file; the user copies it over and runs
+   `savelocker enroll --file <policy>`. **No API key is ever copied by hand.** It sets the server URL,
+   trades the token for the machine's key, TOFU-pins the server, and pre-seeds the games. Keep
+   `register` in the KB as the manual fallback, not the headline. (`trust` / `trust --accept` is worth
+   a line: the agent *warns* — never blocks — if the server's TLS key changes, which happens on a
+   routine certificate renewal.)
+2. **§4's `conflicts.md` edit is now the opposite of what this file predicted.** Phase 5 landed agent
+   health reporting, so a Deck conflict is **no longer silent**: the console shows a problem badge and
+   per-machine health (online / offline / never-reported, agent version, last sync). Say that a Deck
+   reports its failures to the console — not that they are invisible.
+
+Also worth folding into Troubleshooting (§3): **`savelocker doctor` now names a save path that is
+really a Wine prefix** ("that is a Wine PREFIX, not a save folder") instead of letting it fail later
+as a baffling *"your save is too big"*.
 
 ## Why
 
@@ -79,19 +96,20 @@ Paste its output. Then the specific failures:
   (linux-agent Phase 5), the console is the only place a Deck conflict is visible. Say so.
 - **`adding-games.md`** — mention `--dir` mapping is normal on Linux.
 
-## Blocked on / check before writing
+## Check before writing (nothing blocks this any more)
 
-- **Phase 4 (enrollment token)** changes the setup flow — §1 above may become "download a policy
-  file from the console and run `savelocker enroll --file …`" instead of `set-server` + `register`.
-  **Write §1 last**, or expect to rewrite it.
+- ~~**Phase 4 (enrollment token)** changes the setup flow~~ — **it did.** See the status note at the
+  top: §1 is the `enroll --file` flow now. Write it that way from the start.
+- ~~**Phase 5** is what makes conflicts visible on a Deck~~ — **it landed.** The `conflicts.md` edit
+  now says the console *does* surface a Deck's conflicts.
 - **Phase 3 is no longer a blocker** (landed 2026-07-13). It unblocks the cross-OS claim in §2 above
   and adds `hash` to §4. It also fixed a bug worth knowing about while writing Troubleshooting: a
   server whose DB was written by a **Windows-hosted** server stored archive paths with backslashes,
   which the Docker (Linux) server could not resolve — the agent then said *"server has no saves yet"*
   while the console still showed a head. Fixed, and old rows still resolve. If a user reports that
   exact contradiction, it is this, and they need a server new enough to have the fix.
-- **Phase 5 (agent health reporting)** is what makes conflicts visible on a Deck. The
-  `conflicts.md` edit above depends on it existing.
 - **No Steam Deck is owned.** Every screenshot-level claim about Game Mode, the Launch Options UI
   and Desktop Mode is currently *from documentation, not observation*. Flag anything unverified
-  rather than writing it confidently — or get it checked by a Deck owner first.
+  rather than writing it confidently — or get it checked by a Deck owner first. **This is the one
+  risk that did not go away**, and a support article that confidently describes a UI nobody has seen
+  is worse than one that says "we have not verified this on hardware".

@@ -63,7 +63,8 @@ The official product/brand name is **SaveLocker**. Rename is complete (2026-07-1
 
 ## Linux agent (locked 2026-07-12)
 
-Decisions taken before writing any Linux code. Execution plan: `tasks/linux-agent.md`.
+Decisions taken before writing any Linux code. All six phases shipped 2026-07-12 → 2026-07-14; the
+execution plan and its outcomes are archived at `logs/2026-07-14_linux-agent.md`.
 
 ### 0. The niche is NON-Steam games run under Proton
 Games **bought on Steam already have Steam Cloud** — SaveLocker adds nothing there and should not compete with it. The problem we solve on Linux is the one Steam does not: **non-Steam games added to Steam as shortcuts** (standalone / itch / GOG / DRM-free builds — exactly the "Environment facts" user profile below), launched through Proton.

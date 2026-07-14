@@ -36,14 +36,28 @@ Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: **Validate on real hardware** — the Linux agent plan is otherwise complete
+## ▶ NEXT ACTION: **Linux Help-KB articles** — `tasks/linux-kb-articles.md` (now UNBLOCKED)
 
-**All six phases of `tasks/linux-agent.md` are done.** The remaining risk is not code, it is the
-absence of a device. WSL + CI cover everything *except* the four things that make a Deck a Deck:
-**gamescope / Game Mode, the immutable rootfs, SD-card library paths, and suspend/resume.**
+**All six phases of the Linux agent are done** (archived: `logs/2026-07-14_linux-agent.md`). The KB
+task was explicitly blocked on Phases 4–6 and is now the natural next step — and it is **not
+documentation-as-nicety**: a Deck is headless by design, so **the console + KB are its only support
+surface**. A Windows user who hits a problem gets a balloon; a Deck user sees nothing.
 
-- Validate on a **borrowed or used Deck**, or on **Bazzite** (the practical SteamOS stand-in), or recruit a Deck-owning beta tester. Treat it exactly like the Windows device-verify items: **built ≠ verified**.
-- Other open work is in `Backlog.md` — the device-verify items (5e globs, settle gate), code-signing the exe, and deploying the net10 server to unRAID.
+Write it against what actually shipped, which changed two of its assumptions:
+- **§1 setup is now the enrollment flow** — *download a policy file from the console → `savelocker enroll --file <policy>`* — **not** `set-server` + `register` (Phase 4).
+- **§4's `conflicts.md` edit can now say conflicts ARE visible** on a Deck: Phase 5 landed health reporting, so the console shows a problem badge and per-machine health.
+
+### ⚠️ Standing deferred risk: NO HARDWARE
+
+Everything above is verified in WSL + CI and has **never run on a Steam Deck**. **gamescope / Game
+Mode, the immutable rootfs, SD-card library paths and suspend/resume cannot be proven any other way.**
+Validate on a borrowed/used Deck or on **Bazzite** (the practical SteamOS stand-in), or recruit a
+Deck-owning beta tester, **before shipping to real users**. Same rule as the Windows device-verify
+items: **built ≠ verified.** Any KB claim about Game Mode or the Launch Options UI is currently *from
+documentation, not observation* — flag those rather than writing them confidently.
+
+Other open work is in `Backlog.md` — the device-verify items (5e globs, settle gate), code-signing
+the exe, and deploying the net10 server to unRAID.
 
 ### 🐛 Phase 6 fixed a REAL data-loss bug (2026-07-14) — worth knowing about
 
