@@ -20,12 +20,23 @@ public static class Tokens
         return Convert.ToHexString(bytes).ToLowerInvariant();
     }
 
-    /// <summary>PBKDF2-SHA256 hash of a user-chosen password, suitable for storage.</summary>
+    // PBKDF2 parameters. These are part of the ON-DISK format ("v1:salt:hash") — changing any of
+    // them invalidates every stored password. Bump the version tag if they ever have to move.
+    private const int Iterations = 100_000;
+    private const int SaltBytes = 16;
+    private const int HashBytes = 32;
+    private static readonly HashAlgorithmName Algorithm = HashAlgorithmName.SHA256;
+
+    /// <summary>
+    /// PBKDF2-SHA256 hash of a user-chosen password, suitable for storage.
+    /// Uses the static <c>Pbkdf2</c> API — the <c>Rfc2898DeriveBytes</c> constructors are obsolete
+    /// (SYSLIB0060). Same algorithm, same inputs, same bytes: hashes written by the old constructor
+    /// still verify, which <c>tests/verify-password-compat.ps1</c> proves end to end.
+    /// </summary>
     public static string HashPassword(string password)
     {
-        var salt = RandomNumberGenerator.GetBytes(16);
-        using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100_000, HashAlgorithmName.SHA256);
-        var hash = pbkdf2.GetBytes(32);
+        var salt = RandomNumberGenerator.GetBytes(SaltBytes);
+        var hash = Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, Algorithm, HashBytes);
         return $"v1:{Convert.ToBase64String(salt)}:{Convert.ToBase64String(hash)}";
     }
 
@@ -38,8 +49,8 @@ public static class Tokens
         {
             var salt = Convert.FromBase64String(parts[1]);
             var expected = Convert.FromBase64String(parts[2]);
-            using var pbkdf2 = new Rfc2898DeriveBytes(password, salt, 100_000, HashAlgorithmName.SHA256);
-            return CryptographicOperations.FixedTimeEquals(pbkdf2.GetBytes(32), expected);
+            var actual = Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, Algorithm, expected.Length);
+            return CryptographicOperations.FixedTimeEquals(actual, expected);
         }
         catch { return false; }
     }
