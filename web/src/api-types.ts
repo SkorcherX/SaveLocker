@@ -591,6 +591,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AgentHeartbeat"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/latest": {
         parameters: {
             query?: never;
@@ -1648,6 +1685,111 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/health": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentHealthDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/health/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["AgentEventDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/health/events/{id}/dismiss": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/enrollments": {
         parameters: {
             query?: never;
@@ -1870,6 +2012,78 @@ export interface components {
         };
         /** @enum {unknown} */
         AgentCommandType: "Pull" | "Push" | "Sync" | "Scan";
+        AgentEventDto: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            machineId: string;
+            machineName: string;
+            /** Format: uuid */
+            gameId: null | string;
+            gameName: null | string;
+            severity: components["schemas"]["AgentEventSeverity"];
+            code: string;
+            message: string;
+            /** Format: date-time */
+            firstSeen: string;
+            /** Format: date-time */
+            lastSeen: string;
+            /** Format: int32 */
+            count: number;
+        };
+        AgentEventReport: {
+            code: string;
+            severity: components["schemas"]["AgentEventSeverity"];
+            message: string;
+            /** Format: uuid */
+            gameId?: null | string;
+            /** Format: date-time */
+            occurredAt?: null | string;
+        };
+        /** @enum {unknown} */
+        AgentEventSeverity: "Info" | "Warning" | "Error";
+        AgentHealthDto: {
+            /** Format: uuid */
+            machineId: string;
+            machineName: string;
+            online: boolean;
+            /** Format: date-time */
+            lastHeartbeat: null | string;
+            agentVersion: null | string;
+            platform: null | string;
+            /** Format: date-time */
+            lastSyncTime: null | string;
+            /** Format: int32 */
+            trackedGames: number;
+            /** Format: int32 */
+            unmappedGames: number;
+            /** Format: int32 */
+            offlineQueueDepth: number;
+            openEvents: components["schemas"]["AgentEventDto"][];
+        };
+        AgentHeartbeat: {
+            agentVersion: string;
+            platform: string;
+            /** Format: date-time */
+            lastSyncTime?: null | string;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            trackedGames: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            unmappedGames: number;
+            /**
+             * Format: int32
+             * @default 0
+             */
+            offlineQueueDepth: number;
+            events?: null | components["schemas"]["AgentEventReport"][];
+            resolvedGameIds?: null | string[];
+        };
         AgentInstallerStatus: {
             version: string;
             fileName: string;

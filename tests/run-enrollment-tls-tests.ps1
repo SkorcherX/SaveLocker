@@ -51,7 +51,12 @@ $env:Storage__DbPath         = Join-Path $state "savelocker.db"
 $env:Storage__ArchiveRoot    = Join-Path $state "archives"
 $env:Backup__Enabled         = "false"
 
-$proc = Start-Process -FilePath $dotnet -ArgumentList $serverDll -PassThru -WindowStyle Hidden
+# -WindowStyle is unsupported on PowerShell Core on Linux, and there is no window to hide there.
+$proc = if ($onWindows) {
+    Start-Process -FilePath $dotnet -ArgumentList $serverDll -PassThru -WindowStyle Hidden
+} else {
+    Start-Process -FilePath $dotnet -ArgumentList $serverDll -PassThru
+}
 
 try {
     $up = $false

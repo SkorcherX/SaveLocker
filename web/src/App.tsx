@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, getPassword } from './api';
-import type { GameSummary, Machine, Command, Conflict, Settings } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, AgentHealth } from './types';
 import { NavBar } from './components/NavBar';
 import { GamesView } from './components/GamesView';
 import { ConfigView } from './components/ConfigView';
@@ -15,6 +15,7 @@ interface AppData {
   commands: Command[];
   conflicts: Conflict[];
   settings: Settings;
+  health: AgentHealth[];
 }
 
 function getInitialView(): View {
@@ -38,10 +39,10 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const [games, conflicts, machines, commands, settings] = await Promise.all([
-        api.overview(), api.conflicts(), api.machines(), api.commands(), api.settings(),
+      const [games, conflicts, machines, commands, settings, health] = await Promise.all([
+        api.overview(), api.conflicts(), api.machines(), api.commands(), api.settings(), api.health(),
       ]);
-      setData({ games, machines, commands, conflicts, settings });
+      setData({ games, machines, commands, conflicts, settings, health });
     } catch (e) {
       const msg = (e as Error).message;
       setError(msg.startsWith('401') ? 'Wrong password — enter it in the nav bar and click Connect.' : 'Failed to load: ' + msg);
@@ -86,6 +87,18 @@ export default function App() {
     } catch (e) { alert('Add game failed: ' + (e as Error).message); }
   }
 
+  async function handleDismissProblem(id: string) {
+    try { await api.dismissEvent(id); await load(); }
+    catch (e) { alert('Dismiss failed: ' + (e as Error).message); }
+  }
+
+  // Errors before warnings: an agent that is not syncing outranks one that synced with a caveat.
+  const problems = (data?.health ?? [])
+    .flatMap(h => h.openEvents)
+    .sort((a, b) =>
+      (a.severity === b.severity ? 0 : a.severity === 'Error' ? -1 : 1) ||
+      (new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime()));
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
       <NavBar
@@ -93,6 +106,8 @@ export default function App() {
         onViewChange={v => { setView(v); if (!data && v !== 'help') load(); }}
         onConnect={load}
         onRefresh={load}
+        problems={problems}
+        onDismissProblem={handleDismissProblem}
       />
 
       {error && (
@@ -134,6 +149,7 @@ export default function App() {
                 games={data.games}
                 machines={data.machines}
                 settings={data.settings}
+                health={data.health}
                 onRefresh={load}
               />
           }

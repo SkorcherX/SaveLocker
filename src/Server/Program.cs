@@ -46,6 +46,7 @@ builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ArtService>();
 builder.Services.AddScoped<EnrollmentService>();
+builder.Services.AddScoped<HealthService>();
 
 // SteamGridDB client (artwork). The Bearer key is attached per request by ArtService
 // (resolved from SettingsService) so it can be set/changed from the dashboard at runtime.
@@ -318,6 +319,15 @@ agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http,
     return Results.Ok();
 });
 
+// ---- Agent health (agent) ----
+// Piggybacks the existing ~20 s poll, so it costs no new schedule. This is the channel that makes a
+// headless spoke visible at all: the Deck cannot toast, so it tells the server and the console shows it.
+agent.MapPost("/agent/health", async (AgentHeartbeat beat, HttpContext http, HealthService health) =>
+{
+    await health.RecordHeartbeatAsync(http.CurrentMachine().Id, beat);
+    return Results.Ok();
+});
+
 agent.MapGet("/agent/latest", (IConfiguration cfg, AgentInstallerService installer, HttpContext ctx) =>
 {
     // Locally hosted installer takes precedence over the config-based URL.
@@ -501,6 +511,20 @@ admin.MapGet("/admin/backups", (BackupService backup) =>
 admin.MapPost("/admin/backup", async (BackupService backup, CancellationToken ct) =>
     Results.Ok(await backup.BackupAsync(ct)))
     .Produces<BackupResult>();
+
+// ---- Agent health (admin) ----
+admin.MapGet("/admin/health", async (HealthService health) =>
+    Results.Ok(await health.ListAsync()))
+    .Produces<List<AgentHealthDto>>();
+
+admin.MapGet("/admin/health/events", async (HealthService health) =>
+    Results.Ok(await health.ListOpenEventsAsync()))
+    .Produces<List<AgentEventDto>>();
+
+// Dismissing does not fix the condition. If it is still true, the agent's next report reopens it —
+// which is the honest behaviour, and the reason this is not called "resolve".
+admin.MapPost("/admin/health/events/{id:guid}/dismiss", async (Guid id, HealthService health) =>
+    await health.DismissAsync(id) ? Results.NoContent() : Results.NotFound());
 
 // ---- Enrollment tokens (admin) ----
 // Minting returns the policy file, raw token included. That token is not stored and cannot be

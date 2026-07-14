@@ -113,6 +113,16 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// Report this machine's health. Piggybacks the existing poll, so it adds no new schedule — and
+    /// it is the only way a headless agent can tell anyone anything (Decisions.md §2).
+    /// </summary>
+    public async Task ReportHealthAsync(AgentHeartbeat beat, CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync("/api/agent/health", beat, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>Agent command channel: claim this machine's pending commands.</summary>
     public async Task<List<AgentCommandDto>> GetAgentCommandsAsync(CancellationToken ct = default) =>
         await _http.GetFromJsonAsync<List<AgentCommandDto>>("/api/agent/commands", ct) ?? new();

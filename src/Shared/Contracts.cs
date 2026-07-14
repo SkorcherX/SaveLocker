@@ -252,6 +252,84 @@ public record RedeemEnrollmentRequest(string Token, string? MachineName = null);
 /// <summary>The machine identity the redeemed token bought.</summary>
 public record RedeemEnrollmentResponse(Guid MachineId, string ApiKey, string MachineName);
 
+// ----- Agent health (Phase 5) -----
+
+/// <summary>
+/// How loud an agent event is. <see cref="Error"/> means this machine is <i>not syncing</i> and a
+/// human must act; <see cref="Warning"/> means it synced but something is off.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<AgentEventSeverity>))]
+public enum AgentEventSeverity
+{
+    Info,
+    Warning,
+    Error
+}
+
+/// <summary>
+/// One thing the agent needs a human to know. <paramref name="Code"/> is the stable identity used
+/// to <b>deduplicate</b> — the same code for the same machine+game coalesces into one open event
+/// with a count, instead of a new row every twenty seconds.
+/// </summary>
+public record AgentEventReport(
+    string Code,
+    AgentEventSeverity Severity,
+    string Message,
+    Guid? GameId = null,
+    DateTime? OccurredAt = null);
+
+/// <summary>
+/// What the agent tells the server on every poll. This exists because a headless spoke cannot tell
+/// the user anything itself (Decisions.md §2) — <b>the console is the Deck's UI</b>.
+/// <para>
+/// The heartbeat half is what makes silence readable: without it, an agent that never started and
+/// an agent with nothing to report look identical. <see cref="ResolvedGameIds"/> carries the games
+/// that just synced cleanly, so the machine's own open events for them close automatically — a Deck
+/// that fixes itself should not leave a stale alarm on the console.
+/// </para>
+/// </summary>
+public record AgentHeartbeat(
+    string AgentVersion,
+    string Platform,
+    DateTime? LastSyncTime = null,
+    int TrackedGames = 0,
+    int UnmappedGames = 0,
+    int OfflineQueueDepth = 0,
+    AgentEventReport[]? Events = null,
+    Guid[]? ResolvedGameIds = null);
+
+/// <summary>An open (or dismissed) agent event as the console shows it.</summary>
+public record AgentEventDto(
+    Guid Id,
+    Guid MachineId,
+    string MachineName,
+    Guid? GameId,
+    string? GameName,
+    AgentEventSeverity Severity,
+    string Code,
+    string Message,
+    DateTime FirstSeen,
+    DateTime LastSeen,
+    int Count);
+
+/// <summary>
+/// A machine's health as the console shows it. <paramref name="Online"/> is computed from the last
+/// heartbeat against the staleness window — an agent that stopped reporting is the single most
+/// important thing this endpoint exists to surface.
+/// </summary>
+public record AgentHealthDto(
+    Guid MachineId,
+    string MachineName,
+    bool Online,
+    DateTime? LastHeartbeat,
+    string? AgentVersion,
+    string? Platform,
+    DateTime? LastSyncTime,
+    int TrackedGames,
+    int UnmappedGames,
+    int OfflineQueueDepth,
+    AgentEventDto[] OpenEvents);
+
 // ----- Agent update channel -----
 
 /// <summary>Latest available agent version info, served by the SaveLocker server.</summary>

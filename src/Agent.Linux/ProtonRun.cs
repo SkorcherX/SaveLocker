@@ -38,7 +38,14 @@ public static class ProtonRun
         Log($"launch: appid={appId ?? "(none)"} prefix={prefix ?? "(none)"}");
 
         var api = ApiClient.For(config);
-        var engine = new SyncEngine(config, api, log: Log, notify: Log, offlineQueue: new OfflineQueue());
+        var offlineQueue = new OfflineQueue();
+
+        // The launch wrapper IS the sync path for a Proton game, so it is where a Deck's conflicts
+        // and blocked pulls actually happen. Without a reporter here the console would never hear
+        // about the failures that matter most (Decisions.md §2).
+        var health = new HealthReporter();
+        var engine = new SyncEngine(config, api, log: Log, notify: Log,
+            offlineQueue: offlineQueue, health: health);
 
         // The game must be found before launch, but a failure here must never stop it starting:
         // a save-sync tool that prevents you playing is worse than one that misses a sync.
@@ -64,6 +71,12 @@ public static class ProtonRun
             try { await engine.OnGameExitAsync(game); }
             catch (Exception ex) { Log($"post-exit sync failed: {ex.Message}"); }
         }
+
+        // This process is about to die and it has no poller, so anything it just learned has to go
+        // out now. What it cannot send survives on disk: the events file is shared with the daemon,
+        // which drains it on its next heartbeat — and the server deduplicates, so an event sent
+        // twice costs nothing while an event lost costs the user a silent failure.
+        await health.SendAsync(api, config, offlineQueue);
 
         return exitCode;
     }

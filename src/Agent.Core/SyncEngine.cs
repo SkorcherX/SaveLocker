@@ -14,6 +14,7 @@ public sealed class SyncEngine
     private readonly ApiClient _api;
     private readonly Action<string> _log;
     private readonly Action<string> _notify;
+    private readonly HealthReporter? _health;
     private readonly string _tempDir;
     private readonly OfflineQueue? _offlineQueue;
     private readonly TimeSpan _leaseRenewInterval = TimeSpan.FromHours(3);
@@ -22,12 +23,19 @@ public sealed class SyncEngine
 
     /// <param name="log">Routine progress — written to the agent log only.</param>
     /// <param name="notify">User-facing alerts (conflicts, blocks, offline retries). Both notified and logged.</param>
-    public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, Action<string>? notify = null, OfflineQueue? offlineQueue = null)
+    /// <param name="health">
+    /// Reports the same alerts to the server. On Windows <paramref name="notify"/> raises a toast;
+    /// on a headless Deck it can only write a log line nobody reads — so the console has to be told
+    /// (Decisions.md §2). Both hosts report, so the console is one honest view of the whole fleet.
+    /// </param>
+    public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, Action<string>? notify = null,
+        OfflineQueue? offlineQueue = null, HealthReporter? health = null)
     {
         _config = config;
         _api = api;
         _log = log ?? (_ => { });
         _notify = notify ?? (_ => { });
+        _health = health;
         _offlineQueue = offlineQueue;
         _tempDir = Path.Combine(AgentConfig.DefaultDir, "tmp");
         Directory.CreateDirectory(_tempDir);
@@ -35,6 +43,23 @@ public sealed class SyncEngine
 
     /// <summary>An event the user should see as a toast — also written to the log.</summary>
     private void Alert(string msg) { _log(msg); _notify(msg); }
+
+    /// <summary>
+    /// An event the user must see, on <i>any</i> host: toasted where a toast is possible, logged
+    /// always, and reported to the console — which is the only place a Deck's owner will ever see it.
+    /// </summary>
+    private void Alert(string msg, string code, AgentEventSeverity severity, Guid? gameId)
+    {
+        Alert(msg);
+        _health?.Report(code, severity, msg, gameId);
+    }
+
+    /// <summary>A condition worth reporting that was never worth a toast (it is not a user action).</summary>
+    private void ReportOnly(string msg, string code, AgentEventSeverity severity, Guid? gameId)
+    {
+        _log(msg);
+        _health?.Report(code, severity, msg, gameId);
+    }
 
     /// <summary>
     /// Upload local saves to the server. Returns the upload outcome.
@@ -56,16 +81,28 @@ public sealed class SyncEngine
     {
         if (!Directory.Exists(game.SaveDirectory))
         {
-            _log($"[{game.Name}] save directory missing, nothing to push.");
+            // Not a toast — but on a headless box this is the difference between "syncing fine" and
+            // "silently syncing nothing", so the console must hear about it.
+            ReportOnly($"[{game.Name}] save directory missing, nothing to push.",
+                AgentEventCodes.SaveDirMissing, AgentEventSeverity.Warning, game.GameId);
             return null;
         }
 
         if (settle)
-            await SaveSettler.WaitForQuietAsync(
+        {
+            var quiet = await SaveSettler.WaitForQuietAsync(
                 game.SaveDirectory, game.ExcludeGlobs,
                 TimeSpan.FromSeconds(_config.SettleQuietSeconds),
                 TimeSpan.FromSeconds(_config.SettleMaxWaitSeconds),
                 m => _log($"[{game.Name}] {m}"), ct);
+
+            // The gate gave up and pushed anyway: the snapshot may be mid-write. It still uploads
+            // (a stale-but-complete version beats none), but the user deserves to know it happened.
+            if (!quiet)
+                ReportOnly($"[{game.Name}] save never went quiet within {_config.SettleMaxWaitSeconds}s — " +
+                           "archived anyway; the snapshot may be mid-write.",
+                    AgentEventCodes.SettleTimeout, AgentEventSeverity.Warning, game.GameId);
+        }
 
         var hash = SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs);
         if (!force && hash == game.LastSyncedHash)
@@ -88,31 +125,52 @@ public sealed class SyncEngine
                     _config.TotalSavesPushed++;
                     _config.LastSyncTime = DateTime.UtcNow;
                     _log($"[{game.Name}] pushed new version.");
+                    _health?.MarkSynced(game.GameId);
                     break;
                 case UploadStatus.NoChange:
                     game.LastKnownVersionId = result.Version?.Id ?? game.LastKnownVersionId;
                     game.LastSyncedHash = hash;
                     _config.LastSyncTime = DateTime.UtcNow;
                     _log($"[{game.Name}] server already had this content.");
+                    _health?.MarkSynced(game.GameId);
                     break;
                 case UploadStatus.Conflict:
+                    // The server already recorded the ConflictFlag, so the dashboard knows a conflict
+                    // exists. What it cannot know is WHICH machine is stuck behind it — that is this.
                     Alert($"[{game.Name}] CONFLICT: your save diverged from the server. " +
-                         "Resolve it in the dashboard.");
+                         "Resolve it in the dashboard.",
+                        AgentEventCodes.Conflict, AgentEventSeverity.Error, game.GameId);
                     break;
             }
             _config.Save();
             return result;
         }
+        // A non-null StatusCode means the server ANSWERED and rejected us (e.g. 413: the save blew
+        // past the upload cap). That is not a network drop, and queueing it for retry would loop
+        // forever on a request that can never succeed — so it is reported, not queued. This clause
+        // must come first: HttpRequestException covers both cases, and the drop clause below would
+        // otherwise swallow rejections and mislabel them "server unreachable".
+        catch (HttpRequestException ex) when (ex.StatusCode is not null && !ct.IsCancellationRequested)
+        {
+            Alert($"[{game.Name}] push rejected by the server ({(int)ex.StatusCode}): {ex.Message}",
+                AgentEventCodes.PushFailed, AgentEventSeverity.Error, game.GameId);
+            return null;
+        }
         catch (HttpRequestException ex) when (!ct.IsCancellationRequested)
         {
-            Alert($"[{game.Name}] server unreachable — queued for retry. ({ex.Message})");
+            // Reporting this NOW is impossible — the server is the thing we cannot reach. It is
+            // persisted and goes out on the first heartbeat after contact returns. That round trip
+            // is the whole reason HealthReporter writes to disk.
+            Alert($"[{game.Name}] server unreachable — queued for retry. ({ex.Message})",
+                AgentEventCodes.ServerUnreachable, AgentEventSeverity.Error, game.GameId);
             _offlineQueue?.Enqueue(game.GameId, game.Name, force);
             return null;
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
             // HttpClient internal timeout fired (not a user cancellation).
-            Alert($"[{game.Name}] upload timed out — queued for retry.");
+            Alert($"[{game.Name}] upload timed out — queued for retry.",
+                AgentEventCodes.ServerUnreachable, AgentEventSeverity.Error, game.GameId);
             _offlineQueue?.Enqueue(game.GameId, game.Name, force);
             return null;
         }
@@ -143,6 +201,7 @@ public sealed class SyncEngine
                 game.LastSyncedHash = headHash;
                 _config.Save();
                 _log($"[{game.Name}] already up to date.");
+                _health?.MarkSynced(game.GameId);
                 return false;
             }
 
@@ -153,9 +212,12 @@ public sealed class SyncEngine
             var hasUnsyncedLocal = HasLocalData(game.SaveDirectory) && localHash != game.LastSyncedHash;
             if (hasUnsyncedLocal && !force)
             {
+                // The machine is now stuck: it will not pull, and it cannot push without conflicting.
+                // On a Deck nobody is being told that — this event is the only thing that says so.
                 Alert($"[{game.Name}] BLOCKED pull: local saves have changes not yet pushed and " +
                      "would be overwritten. Push first (your progress becomes the server version), " +
-                     "or force-pull to discard local and take the server copy.");
+                     "or force-pull to discard local and take the server copy.",
+                    AgentEventCodes.PullBlocked, AgentEventSeverity.Error, game.GameId);
                 return false;
             }
 
@@ -165,6 +227,7 @@ public sealed class SyncEngine
             _config.LastSyncTime = DateTime.UtcNow;
             _config.Save();
             _log($"[{game.Name}] restored latest save from server.");
+            _health?.MarkSynced(game.GameId);
             return true;
         }
         finally
@@ -188,7 +251,8 @@ public sealed class SyncEngine
         {
             var holder = lease.Lease.HolderMachineName;
             Alert($"[{game.Name}] WARNING: saves are checked out by '{holder}'. " +
-                 "Launched without pulling — a conflict may occur on exit.");
+                 "Launched without pulling — a conflict may occur on exit.",
+                AgentEventCodes.LeaseHeldElsewhere, AgentEventSeverity.Warning, game.GameId);
             return (false, holder);
         }
         StartLeaseRenewer(game);

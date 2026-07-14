@@ -27,7 +27,12 @@ public static class AgentCli
     {
         ApiClient Api() => ApiClient.For(config);
         void Log(string msg) { Console.WriteLine(msg); AgentLogger.Log(msg); }
-        SyncEngine Engine() => new(config, Api(), Log);
+
+        // A one-shot `push`/`pull` can hit a conflict or a blocked pull just as the daemon can, and
+        // on a headless box the console is the only place anyone would ever see it. The command
+        // flushes the reporter before it exits (see below) — there is no poller in this process.
+        var health = new HealthReporter();
+        SyncEngine Engine() => new(config, Api(), Log, health: health);
         var detection = new Detection(config);
 
         try
@@ -239,6 +244,7 @@ public static class AgentCli
                     var force = opts.ContainsKey("force");
                     foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
                         await engine.PushAsync(g, force);
+                    await health.SendAsync(Api(), config, null);
                     break;
                 }
 
@@ -248,6 +254,7 @@ public static class AgentCli
                     var force = opts.ContainsKey("force");
                     foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
                         await engine.PullAsync(g, force);
+                    await health.SendAsync(Api(), config, null);
                     break;
                 }
 

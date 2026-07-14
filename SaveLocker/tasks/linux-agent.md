@@ -1,9 +1,12 @@
 # Task: Linux agent (Proton / Steam Deck)
 
-> ## ▶ START HERE: **Phases 0–4 are DONE. Next is Phase 5** (agent health reporting).
+> ## ▶ START HERE: **Phases 0–5 are DONE. Next is Phase 6** (hardening).
 >
-> Phase 5 is not optional polish: an enrolled Deck can now sync, but it still cannot *tell* anyone
-> when that goes wrong. Until health reporting lands, a Deck failure is invisible.
+> The Deck is now functionally complete: it enrols with one file, syncs Proton saves that are
+> byte-identical to Windows ones, and **reports its failures to the console**. Phase 6 is the
+> security/robustness pass — the symlink escape in item 1 is a **real bug that affects Windows too**.
+>
+> ⚠️ **Still no hardware.** Everything above is verified in WSL + CI, never on a Deck.
 >
 > **The runtime moved to .NET 10 after Phase 3** (`Decisions.md → Runtime: .NET 10 LTS`;
 > `logs/2026-07-13_dotnet-10-upgrade.md`). The phase write-ups below still *say* `net9.0` — that is
@@ -356,6 +359,47 @@ A headless spoke **cannot tell the user anything** — a conflict that toasts on
 silent on a Deck. Add an agent→server health/error report so the console can surface
 "Steam Deck: conflict on Hades, 2 days ago". Without this, failures on the Deck are invisible
 and the whole feature feels broken.
+
+### Status: ✅ DONE (2026-07-14)
+
+**Scope, corrected early:** the server already knows everything that happens *server-side* — a
+conflict is a `ConflictFlag` the moment the upload lands, and the dashboard already showed it. What
+it **cannot infer** is what happened on a machine it never heard from. So the reported vocabulary
+(`src/Shared/AgentEventCodes.cs`) is exactly that: blocked pull, missing save folder, rejected
+upload, settle-gate timeout, unreachable server, lease held elsewhere. The conflict event is kept
+for one reason only — it names **which machine is stuck** behind the conflict.
+
+- **The hook already existed.** `SyncEngine.Alert()` was the deliberate "the user must see this"
+  channel; it toasts on Windows and, on a Deck, wrote a log line nobody reads. Phase 5 is mostly
+  "give `Alert` a second destination" rather than a parallel event system.
+- **`HealthReporter`** (Agent.Core) — pending events **persist to disk**, because the single most
+  important thing to report ("I cannot reach the server") happens exactly when reporting is
+  impossible. It goes out on the first contact after the network returns.
+- **Heartbeat on the existing 20 s poll** — agent version, platform, last sync, tracked/unmapped
+  counts, offline-queue depth. This is what makes *silence* readable: without it, an agent that
+  never started and an agent with nothing to say are identical. `online` is computed server-side
+  against a 5-minute staleness window.
+- **Dedupe + self-healing** — events coalesce on (machine, game, code) while open, so a persistent
+  fault bumps a count instead of writing a row every 20 s (~4,300/day otherwise). A game that syncs
+  cleanly **auto-closes** that machine's events for it, so a Deck that recovers leaves no stale alarm.
+- **Every sync path reports, not just the daemon.** The launch wrapper (`ProtonRun`) *is* the Proton
+  sync path on a Deck and is a short-lived process with no poller, so it flushes the reporter before
+  it exits; one-shot `push`/`pull` do the same. Wiring only the daemon would have left the Deck's
+  main flow silent — which was very nearly the bug this phase shipped with.
+- **Console** — a problem badge in the NavBar (absent when the fleet is healthy) opening a panel of
+  events with Dismiss, plus per-machine health on the Machines card: online/offline/never-reported,
+  agent version, platform, last sync, unmapped-game and queued-push counts.
+
+**Verified:** `tests/run-health-tests.ps1` — **17/17**, driving *real* failures (a real conflict, a
+real blocked pull, a real push against a **stopped server**) rather than POSTing synthetic
+heartbeats, which would only prove the endpoint parses JSON. It owns its own server on **:5181** so
+it can stop and restart it. Agent suite still **10/10**, enrollment **16/16**, TLS pin **6/6**. In CI.
+
+**Three traps this phase produced, all now in `Gotchas.md`:** `dotnet ef` 9.x tools against the EF 10
+runtime deleted a **committed** migration on `migrations remove` (enrollment then 500'd with *no such
+table*); launching the server **DLL** ignores `launchSettings.json` and silently binds :5000 with the
+production config; and PowerShell's `.Count` resolved to the DTO's own `count` field, so a dedupe
+assertion measured the wrong number.
 
 **STOP.**
 

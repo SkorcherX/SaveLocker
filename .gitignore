@@ -46,4 +46,5 @@ web/node_modules/
 # Built installer binaries
 installer/dist/
 .verify-linux/
+.verify-health/
 artifacts/
