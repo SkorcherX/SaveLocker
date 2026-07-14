@@ -30,30 +30,30 @@
 | Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS (PR #4, merged) |
 | Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
 | Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
-| **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ⏳ still needs device-verify on v0.1.7 |
+| **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)** — the regression path. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: **Device-verify the installer GUI enrollment (v0.1.6)** — built, not yet proven
+## ▶ NEXT ACTION: **Finish device-verifying the fresh-install enroll path (v0.1.7)**
 
-The installer wizard page + de-elevated post-install enroll shipped in `installer/SaveLocker.iss`
-(built 2026-07-14, ISCC compiles). It is **not device-verified**. Run the five scenarios in the
-archived task (`logs/2026-07-14_installer-enrollment.md`), the last one **first** if time is short:
+The 🚨 silent-upgrade regression — the one that could have broken every Windows machine — is **done**:
+a silent auto-update of an already-enrolled agent to v0.1.7 completed cleanly on device (2026-07-14),
+no prompt, config intact. What's left is the **fresh-install** side of the wizard (scenarios in the
+archived task `logs/2026-07-14_installer-enrollment.md`):
 
-- 🚨 **The silent-upgrade regression — the one that could break every Windows machine in the field.**
-  Install + enrol, then re-run the new installer with `/SILENT /FORCECLOSEAPPLICATIONS /NORESTART`
-  (what auto-update does). Assert: no prompt, API key **unchanged**, tracked games **intact**, no
-  token burnt server-side, agent comes back up enrolled. Guarded in code by `ResolveEnrollFile`
-  returning `''` under `/SILENT` **and** `IsAlreadyEnrolled` (config already holds `"ApiKey"`).
-- ⚠️ **The ACL trap:** after a happy-path enrol on a machine where `%PROGRAMDATA%\SaveLocker` did not
-  previously exist, `icacls "%PROGRAMDATA%\SaveLocker"` — the interactive user needs **Modify**. The
-  enroll runs via `ExecAsOriginalUser` precisely so the config dir is created de-elevated.
-- Also verify: happy path (page shows the right server + machine name, machine goes online),
-  expired-token (says so on the page, install still succeeds), skip path (installs unenrolled).
-- New unattended switch: `Setup.exe /SILENT /ENROLL="C:\path\policy.json"`.
+- **Happy path:** on a machine where `%PROGRAMDATA%\SaveLocker` does *not* exist, run the installer,
+  choose an enrollment file → the page shows the right server + machine name → install → the machine
+  appears in **Configuration → Machines**, **online**, with its version.
+- ⚠️ **The ACL trap** (verify right after the happy path): `icacls "%PROGRAMDATA%\SaveLocker"` — the
+  interactive user needs **Modify**. The enroll runs via `ExecAsOriginalUser` precisely so the config
+  dir is created de-elevated by the user that later rewrites it.
+- Also: expired-token (page says so, install still succeeds), skip path (installs unenrolled), and the
+  unattended switch `Setup.exe /SILENT /ENROLL="C:\path\policy.json"`.
+
+**Do not host v0.1.6 for auto-update** — it aborts under /SILENT. Host **v0.1.7** or newer.
 
 ## Also queued: **Linux Help-KB articles** — `tasks/linux-kb-articles.md` (UNBLOCKED)
 
