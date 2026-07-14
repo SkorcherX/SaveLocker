@@ -36,7 +36,22 @@ Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: **Linux Help-KB articles** — `tasks/linux-kb-articles.md` (now UNBLOCKED)
+## ▶ NEXT ACTION: **Enroll from the Windows installer (GUI)** — `tasks/installer-enrollment.md`
+
+Enrollment shipped (Phase 4), but on Windows it is **command-line only**: a user installs from a GUI
+and is then told to open a terminal and type a path. That is the *first* thing a new user does, and
+it is the worst seam in the product. Add a wizard page: *"Enrol this machine now?"* → browse to the
+policy file → the machine is online in the console before the installer closes.
+
+- **Plan + the traps:** `tasks/installer-enrollment.md`. Read the traps before writing code.
+- 🚨 **The one that could break the fleet:** the agent's **auto-update runs the installer with `/SILENT`** — a reinstall over an already-enrolled agent. The post-install enrol step must be a **no-op** when no file was chosen or a key already exists. Never re-enrol (it rotates the machine's key), never touch the existing config (it holds the API key, the TOFU pin, and every save-dir mapping).
+- ⚠️ **The ACL trap:** the installer is **elevated**, the tray agent is **not** (that is why `[Run]` uses `runasoriginaluser`). If the elevated installer creates `%PROGRAMDATA%\SaveLocker` first, the agent may not be able to write its own config afterwards — which looks like *"enrollment worked, then the agent forgot everything"*.
+
+## Also queued: **Linux Help-KB articles** — `tasks/linux-kb-articles.md` (UNBLOCKED)
+
+The "Installing the agent" article shipped 2026-07-14 (Windows + Linux + Deck, `Getting started`),
+which covers that task's §1. What remains is `deck-supported-games`, `deck-troubleshooting`, and the
+edits to the existing articles.
 
 **All six phases of the Linux agent are done** (archived: `logs/2026-07-14_linux-agent.md`). The KB
 task was explicitly blocked on Phases 4–6 and is now the natural next step — and it is **not
