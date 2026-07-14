@@ -117,9 +117,11 @@ static class Program
         savelocker — SaveLocker agent for Linux (Proton / Steam Deck)
 
         Setup
-          register --name <name> [--admin-password <pw>]   Register this machine with the server
+          enroll --file <policy.json> [--name <name>]      Set up from a console enrollment file (start here)
+          register --name <name> [--admin-password <pw>]   Register this machine by hand instead
           set-server --url <url>                           Point the agent at a server
-          doctor                                           Diagnose the whole chain (start here)
+          trust [--accept]                                 Show the pinned server TLS key, or re-pin it
+          doctor                                           Diagnose the whole chain
 
         Games
           scan                                             Find non-Steam shortcuts and their prefixes

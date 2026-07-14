@@ -32,7 +32,7 @@ public sealed class Daemon : IAsyncDisposable
     }
 
     private SyncEngine BuildEngine() =>
-        new(_config, new ApiClient(_config.ServerUrl, _config.ApiKey),
+        new(_config, ApiClient.For(_config),
             log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue);
 
     /// <summary>
@@ -68,7 +68,7 @@ public sealed class Daemon : IAsyncDisposable
 
         _commandPoller = new CommandPoller(
             _config,
-            () => new ApiClient(_config.ServerUrl, _config.ApiKey),
+            () => ApiClient.For(_config),
             () => _engine,
             _detection,
             _scanner,

@@ -109,6 +109,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/enroll": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RedeemEnrollmentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedeemEnrollmentResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/installer/download": {
         parameters: {
             query?: never;
@@ -1609,6 +1648,99 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/enrollments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["EnrollmentDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateEnrollmentRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CreateEnrollmentResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/enrollments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/agent-installer": {
         parameters: {
             query?: never;
@@ -1804,6 +1936,22 @@ export interface components {
         };
         /** @enum {unknown} */
         ConflictStatus: "Open" | "Resolved";
+        CreateEnrollmentRequest: {
+            machineName?: null | string;
+            /** Format: int32 */
+            ttlMinutes?: null | number;
+            serverUrl?: null | string;
+            gameIds?: null | string[];
+            /** Format: int32 */
+            settleQuietSeconds?: null | number;
+            /** Format: int32 */
+            settleMaxWaitSeconds?: null | number;
+        };
+        CreateEnrollmentResponse: {
+            /** Format: uuid */
+            id: string;
+            policy: components["schemas"]["EnrollmentPolicy"];
+        };
         CreateGameRequest: {
             name: string;
             manifestKey: null | string;
@@ -1817,6 +1965,40 @@ export interface components {
             gameId: null | string;
             type: components["schemas"]["AgentCommandType"];
             force: boolean;
+        };
+        EnrollmentDto: {
+            /** Format: uuid */
+            id: string;
+            machineName: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+            /** Format: date-time */
+            redeemedAt: null | string;
+            redeemedByMachineName: null | string;
+        };
+        EnrollmentGame: {
+            /** Format: uuid */
+            gameId: string;
+            name: string;
+            manifestKey?: null | string;
+            suggestedSaveDir?: null | string;
+            excludeGlobs?: null | string[];
+        };
+        EnrollmentPolicy: {
+            /** Format: int32 */
+            version: number;
+            serverUrl: string;
+            token: string;
+            /** Format: date-time */
+            expiresAt: string;
+            machineName?: null | string;
+            /** Format: int32 */
+            settleQuietSeconds?: null | number;
+            /** Format: int32 */
+            settleMaxWaitSeconds?: null | number;
+            games?: null | components["schemas"]["EnrollmentGame"][];
         };
         GameDto: {
             /** Format: uuid */
@@ -1883,6 +2065,16 @@ export interface components {
             machineId: string;
             machineName: string;
             savePath: string;
+        };
+        RedeemEnrollmentRequest: {
+            token: string;
+            machineName?: null | string;
+        };
+        RedeemEnrollmentResponse: {
+            /** Format: uuid */
+            machineId: string;
+            apiKey: string;
+            machineName: string;
         };
         SaveVersionDto: {
             /** Format: uuid */

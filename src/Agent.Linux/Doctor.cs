@@ -120,7 +120,7 @@ public static class Doctor
     {
         try
         {
-            var api = new ApiClient(config.ServerUrl, config.ApiKey);
+            var api = ApiClient.For(config);
             var games = await api.ListGamesAsync();
             Check("server reachable", true, "");
             Info("games on server", games.Count.ToString());

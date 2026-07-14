@@ -89,7 +89,7 @@ internal sealed class TrayContext : ApplicationContext
 
         _commandPoller = new CommandPoller(
             _config,
-            () => new ApiClient(_config.ServerUrl, _config.ApiKey),
+            () => ApiClient.For(_config),
             () => _engine,
             _detection,
             _scanner,
@@ -132,7 +132,7 @@ internal sealed class TrayContext : ApplicationContext
 
     private void RebuildEngine()
     {
-        var api = new ApiClient(_config.ServerUrl, _config.ApiKey);
+        var api = ApiClient.For(_config);
         _engine = new SyncEngine(_config, api, log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue);
     }
 

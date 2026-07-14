@@ -21,7 +21,7 @@ public static class Enroller
         if (string.IsNullOrEmpty(config.ApiKey))
             throw new InvalidOperationException("Not registered yet. Open Settings and click Register first.");
 
-        var api = new ApiClient(config.ServerUrl, config.ApiKey);
+        var api = ApiClient.For(config);
         var enrolled = 0;
         var skipped = 0;
 

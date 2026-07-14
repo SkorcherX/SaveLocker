@@ -27,22 +27,37 @@
 | Cross-OS round-trip in CI (Windows agent ↔ Linux agent) | ✅ done 2026-07-13 — byte-identical both ways |
 | **Runtime: .NET 10 (LTS)** | ✅ merged 2026-07-13 (PR #2). net9 was STS, EOL 10 Nov 2026 |
 | **Known vulnerabilities** | ✅ **none** — `dotnet build` reports no NU1903 (PR #3) |
+| Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: Linux agent **Phase 4** — enrollment token + policy import
+## ▶ NEXT ACTION: Linux agent **Phase 5** — agent health reporting
 
-Everything else is either shipped or a device-verify item that needs hardware.
+**This is the phase that makes the Deck usable, not a nice-to-have.** After Phase 4 a Deck can be
+enrolled with one file and will sync — but it **still cannot tell anyone when that goes wrong**. A
+conflict that raises a toast on Windows is *silent* on a headless box. Until the agent reports
+health/errors to the server and the console surfaces them ("Steam Deck: conflict on Hades, 2 days
+ago"), a Deck failure is invisible and the whole feature feels broken.
 
-- **Plan:** `tasks/linux-agent.md` → Phase 4. **Design is locked** in `Decisions.md` §4 — read it first; do not re-litigate the no-signing call.
-- Console mints a **single-use, ~15-min enrollment token** (never a raw API key in a file); the agent redeems it for its machine key. `savelocker enroll --file <policy>`. The policy carries the server URL plus preselected games / exclude globs / settle delay. **No signing** (see the decision for why it would be theatre). **TOFU-pin** the server after enrollment and warn if its identity changes.
-- **Phases 0–3 are done.** Phase 1 split the platform-neutral `Agent.Core`; Phase 2 built `src/Agent.Linux` → binary **`savelocker`** (shortcuts.vdf discovery, Proton prefix resolution, `run -- %command%` launch wrapper, `doctor`, headless daemon + `systemd --user`); Phase 3 proved a Windows save and a Proton save are **byte-identical**, in CI.
-- **Phase 5 (agent health reporting) ships WITH Linux, not after** — a headless Deck cannot surface a conflict, so without it a Deck failure is invisible.
+- **Plan:** `tasks/linux-agent.md` → Phase 5. **Design is locked** in `Decisions.md` §2 — the console *is* the Deck's UI.
+- **Phases 0–4 are done.** Phase 1 split the platform-neutral `Agent.Core`; Phase 2 built `src/Agent.Linux` → binary **`savelocker`** (shortcuts.vdf discovery, Proton prefix resolution, `run -- %command%` launch wrapper, `doctor`, headless daemon + `systemd --user`); Phase 3 proved a Windows save and a Proton save are **byte-identical**, in CI; Phase 4 added **enrollment** (below).
 - ⚠️ **Built ≠ verified on hardware.** No Steam Deck is owned. WSL + the harness cover everything *except* gamescope, the immutable rootfs, SD-card paths and suspend/resume.
-- Note the API change rule in `CLAUDE.md`: enrollment adds endpoints → **regenerate `web/src/api-types.ts` and commit the updated `src/Server/openapi.json`**.
+
+### Phase 4, shipped 2026-07-13 — how enrollment works now
+
+A machine is set up with **one file and one command**, and **no API key is ever copied by hand**:
+Console → *Configuration → Enroll a machine* mints a **single-use, 15-min token** wrapped in a
+policy file (server URL + games + settle delay); the agent runs `enroll --file <policy>` and trades
+the token for its own machine key. The token's **raw value exists only in that one download** — the
+server stores a hash.
+
+- **Unsigned, on purpose** (`Decisions.md` §4) — the threat is a *malicious server URL*, not a bogus token, and a fresh agent has no trust anchor to check a signature against. Do not "fix" this with a PKI.
+- **TOFU pin:** the agent pins the server's TLS public key at enrollment and **warns (never blocks)** if it changes — a hard fail would take a headless Deck offline on a routine cert renewal. `trust` shows it; `trust --accept` re-pins.
+- A token minted **for a machine name binds it** — `--name` cannot override it. Redeeming an existing name **rotates** that machine's key: that is the re-enrollment path for a wiped device.
+- `enroll` lives in **`Agent.Core`**, so Windows and Linux run the same implementation.
 
 ---
 
@@ -71,13 +86,15 @@ See `Backlog.md` for the full list.
 | Build installer | `.\installer\build-installer.ps1` |
 | Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
+| Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
+| TOFU pin tests (TLS) | `.\tests\run-enrollment-tls-tests.ps1` (6 checks; starts its own HTTPS server on :5443). Needs `dotnet dev-certs https --trust` — local only, not in CI |
 | Linux fake-game harness | `tests/linux/run-linux-tests.sh` (27 checks; starts its own server) |
 | Cross-OS round-trip | `tests/cross-os/crossos.ps1 -Leg author\|roundtrip\|confirm` — one leg per OS; CI chains them by passing the server's state as an artifact |
 | Password-hash compat | `.\tests\verify-password-compat.ps1` — builds a server from an older git ref, has it hash an admin password, then asserts the current code still verifies it |
 
 **Always use `--no-incremental` for server builds** — stale DLL reuse has masked changes before. Stop the running agent/server first (they lock the DLLs).
 
-**CI (`ci.yml`) runs 8 jobs on every PR:** `build-dotnet`, `build-web`, `build-agent-ui`, `docker-build` (builds the server image — publishes nothing), `agent-tests-linux`, and the chained `crossos-author → crossos-roundtrip → crossos-confirm`. The cross-OS chain is the one that matters: it hands the **server's own state** (SQLite DB + archive store) between a Windows and an Ubuntu runner as an artifact, because runners cannot share a network.
+**CI (`ci.yml`) runs 8 jobs on every PR:** `build-dotnet`, `build-web`, `build-agent-ui`, `docker-build` (builds the server image — publishes nothing), `agent-tests-linux` (agent suite **+ enrollment suite**), and the chained `crossos-author → crossos-roundtrip → crossos-confirm`. The cross-OS chain is the one that matters: it hands the **server's own state** (SQLite DB + archive store) between a Windows and an Ubuntu runner as an artifact, because runners cannot share a network.
 
 ### Toolchain (installed 2026-07-13 — a fresh session does not need to redo this)
 

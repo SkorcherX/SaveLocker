@@ -144,6 +144,28 @@ public class MachineSavePath
     public string SavePath { get; set; } = "";
 }
 
+/// <summary>
+/// A single-use, short-lived token the console mints so a new agent can trade it for a real
+/// machine API key (Decisions.md §4). Only the hash is stored — the raw token exists solely in
+/// the policy file the admin downloads.
+/// </summary>
+public class EnrollmentToken
+{
+    public Guid Id { get; set; }
+    public string TokenHash { get; set; } = "";
+
+    /// <summary>Machine name this token was minted for. When set, it is binding: the enrolling
+    /// agent cannot claim a different identity. Null lets the agent supply its own hostname.</summary>
+    public string? MachineName { get; set; }
+
+    public DateTime CreatedAt { get; set; }
+    public DateTime ExpiresAt { get; set; }
+
+    /// <summary>Set the moment the token is spent. Non-null = burnt; a second redeem is refused.</summary>
+    public DateTime? RedeemedAt { get; set; }
+    public Guid? RedeemedByMachineId { get; set; }
+}
+
 /// <summary>A persisted server setting (key/value), e.g. the SteamGridDB API key.
 /// DB values override <c>IConfiguration</c> (appsettings/env) so admins can manage
 /// settings from the dashboard without editing config files.</summary>
