@@ -20,6 +20,17 @@ The agent is a WinExe (GUI subsystem). Launching the installed `.exe` from Power
 - **Redirect to file:** `"C:\Program Files\SaveLocker Agent\SaveLocker.Agent.exe" <cmd> > C:\temp\sl.txt 2>&1`
 - **Read the log** (preferred): `%PROGRAMDATA%\SaveLocker\agent.log` — rolling 1 MB, keeps one `.old`. Tail it with the `log` CLI sub-command: `SaveLocker.Agent.exe log > C:\temp\sl.txt 2>&1`
 
+## `FileVersionInfo` returns NULL on Linux — the agent reported a fake version for its whole life
+Fixed 2026-07-14. `UpdateChecker.CurrentVersion` read the exe's **Win32 version resource** via `FileVersionInfo.GetVersionInfo(Environment.ProcessPath)`. The published `savelocker` is a **native ELF apphost**, which has no such resource: `FileVersion` is `null`, so it silently fell back to the hard-coded `new Version(0, 1, 0)`.
+- Consequence: **every Steam Deck reported `v0.1.0` to the console forever**, whatever it was actually running — and Phase 5's heartbeat sends that version to the dashboard, so it was a lie in the UI, not just a cosmetic default.
+- **Fix:** try the version resource first (unchanged on Windows, where it is proven), then fall back to the managed **`AssemblyFileVersion` attribute**, which is the value the Win32 resource is generated from and is readable on every platform.
+- `savelocker doctor` now prints the version, which is how this is verified end-to-end in CI: `package-linux` installs the tarball and greps for the version it stamped.
+
+## Shell scripts must be LF — a CRLF `install.sh` breaks every Deck
+There was **no `.gitattributes`** until 2026-07-14; Git happened to store `packaging/linux/*.sh` as LF, by luck rather than rule. A `.sh` committed with CRLF from a Windows checkout fails on Linux with `bad interpreter: /usr/bin/env bash^M`, and systemd refuses to parse a CRLF unit file.
+- `.gitattributes` now pins `*.sh` and `*.service` to `eol=lf`.
+- Note the Windows **working tree** is still CRLF (that is correct, and Git converts on commit) — so **copying a `.sh` straight from `E:\` into WSL gives you a CRLF file that bash rejects.** Strip it (`sed -i 's/\r$//'`) when hand-copying for a local test. CI checks out LF and is unaffected.
+
 ## Never skip files by `FileAttributes.ReparsePoint` — OneDrive placeholders are reparse points too
 The archiver must not follow symlinks (see below). The obvious implementation — skip any entry with `FileAttributes.ReparsePoint` — is **a silent data-loss bug**: OneDrive **files-on-demand placeholders are also reparse points**, so that check would quietly stop archiving every save in a OneDrive folder, and the user would never be told.
 - **Use `FileSystemInfo.LinkTarget is not null`** (`SaveArchive.IsLink`). It is non-null only for the *symlink* and *junction* reparse tags — exactly the set we mean — and null for cloud placeholders.

@@ -150,7 +150,23 @@ See `Backlog.md` for the full list.
 
 ## Deployment
 - **unRAID:** Docker on port 5080. `git push main` → Actions build → GHCR. To deploy: `docker compose pull && docker compose up -d`.
-- **Tag a release:** `git tag v0.2.0 && git push origin v0.2.0` → `release.yml` builds installer → GitHub Release.
+- **Tag a release:** `git tag v0.2.0 && git push origin v0.2.0` → `release.yml` builds **both** agents → GitHub Release:
+  - **Windows:** `SaveLocker-Agent-Setup-<ver>.exe` (Inno Setup, built on `windows-latest`).
+  - **Linux / Steam Deck:** `savelocker-<ver>-linux-x64.tar.gz` (self-contained, built on **`ubuntu-latest`** — see below).
+
+### How a Steam Deck user installs the agent
+```
+tar -xzf savelocker-<ver>-linux-x64.tar.gz
+./SaveLocker/install.sh
+savelocker enroll --file <policy.json>      # from the console: Configuration → Enroll a machine
+savelocker doctor
+```
+Installs to `~/.local/share/SaveLocker`, symlinks `~/.local/bin/savelocker`, enables a `systemd --user`
+unit. **Never `/usr`** — SteamOS's rootfs is immutable and wiped on update (`Decisions.md` §5).
+
+- ⚠️ **The Linux tarball MUST be built on `ubuntu-latest`.** A self-contained .NET binary binds to the **build host's glibc**, and an older-glibc build runs on newer systems but *never the reverse*. Ubuntu 24.04 (glibc 2.39) is older than SteamOS's rolling Arch, so Ubuntu → Deck is forward-compatible. Build it on anything newer and users get `GLIBC_2.4x not found` — an error you cannot reproduce on the machine that built it.
+- CI's **`package-linux`** job builds the tarball on every PR and *installs it into a throwaway HOME*, so packaging cannot rot silently between releases (it is otherwise only exercised on a tag — i.e. too late).
+- **Linux has no auto-update** (deliberate, not shipped). The update channel is installer-shaped and Windows-only; a Deck user re-runs `install.sh` from a newer tarball. See `Backlog.md`.
 
 ---
 

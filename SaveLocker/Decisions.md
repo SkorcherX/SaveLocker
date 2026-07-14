@@ -113,7 +113,16 @@ WSL2 (inside the **ext4 home** — never `/mnt/c`, where DrvFs breaks inotify, p
 
 **Distro: Ubuntu 24.04 LTS.** The tempting reasoning — "SteamOS is Arch, so develop on Arch" — is wrong. Everything WSL actually validates (the list above) is **kernel and .NET behaviour, identical on every distro**, while the things that make SteamOS *SteamOS* (gamescope, immutable rootfs) cannot run under WSL on any base. So Arch buys zero extra fidelity and costs the thing that does pay: **CI parity** — GitHub Actions `ubuntu-latest` *is* Ubuntu 24.04, so dev and CI share a glibc, a .NET packaging story and a toolchain.
 
-**glibc, which settles it independently:** self-contained .NET binaries bind to the **host glibc at build time**, and an older-glibc build runs on newer systems but **never the reverse**. Ubuntu 24.04 (glibc 2.39) is *older* than SteamOS (rolling Arch), so Ubuntu → Deck is forward-compatible. Building on Arch and shipping to anything older produces `GLIBC_2.4x not found` on user hardware. **Always build on the oldest glibc you intend to support.**
+**glibc.** The rule of thumb — *build on the oldest glibc you intend to support*, because an older-glibc build runs on newer systems but **never the reverse** — still stands, and it is why the release job pins **`ubuntu-latest`** rather than drifting onto whatever runner is convenient.
+
+> **Measured 2026-07-14, because the mechanism is not what it looks like.** A self-contained .NET app does **not** natively compile against the build host's glibc: `libcoreclr.so` and the other native libs are **prebuilt by Microsoft against an old baseline** and simply copied in, and our C# becomes IL. So the artifact's real floor is set by **.NET, not by Ubuntu**:
+>
+> | | glibc |
+> |---|---|
+> | What the package **requires** (`objdump -T`, all `.so` + apphost) | **2.27** |
+> | What SteamOS 3 **provides** | **≥ 2.33** |
+>
+> Building on Ubuntu 24.04 (host glibc 2.39) is therefore safe with a wide margin — the host's version is not inherited. **The real risk is a change that raises that floor silently**: enabling **NativeAOT**, or adding a natively-compiled dependency, would bind to the build host after all. That failure appears as `GLIBC_2.3x not found` **on a user's Deck** and cannot be reproduced on any machine we own — so CI's `package-linux` job now **asserts** the floor stays ≤ 2.31 rather than trusting it.
 
 The agent never talks to Steam — it reads two env vars and supervises a child process — so a **fake-game harness** (fixture compatdata tree + a script that writes saves slowly and exits, with the env vars set) exercises the entire code path with no Steam, no Proton and no GPU. That harness is also the CI test.
 

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
+using System.Reflection;
 using SaveLocker.Shared;
 
 namespace SaveLocker.Agent;
@@ -18,15 +19,38 @@ public sealed class UpdateChecker
     private readonly HttpClient _http;
 
     /// <summary>
-    /// The running agent's version, read from the exe's FileVersion resource.
-    /// MinVer overrides AssemblyVersion to 0.0.0.0 when git is inaccessible on CI runners,
-    /// but the command-line Version property reliably stamps FileVersion. For single-file
-    /// self-contained exes Assembly.Location is empty, so read Environment.ProcessPath.
+    /// The running agent's version.
+    /// <para>
+    /// <b>The Windows path is the FileVersion resource</b> on the exe: MinVer overrides
+    /// AssemblyVersion to 0.0.0.0 when git is inaccessible on CI runners, but the command-line
+    /// <c>Version</c> property reliably stamps FileVersion. For single-file self-contained exes
+    /// <c>Assembly.Location</c> is empty, so it reads <see cref="Environment.ProcessPath"/>.
+    /// </para>
+    /// <para>
+    /// <b>That yields NOTHING on Linux.</b> The published <c>savelocker</c> is a native ELF apphost,
+    /// which has no Win32 version resource — <c>FileVersionInfo.FileVersion</c> is null, and the agent
+    /// used to silently fall back to the hard-coded default. Every Deck therefore reported "0.1.0" to
+    /// the console forever, no matter which build it was running (the heartbeat sends this). So fall
+    /// back to the managed <c>AssemblyFileVersion</c> attribute, which is the same value the Windows
+    /// resource is generated from and is readable on every platform.
+    /// </para>
     /// </summary>
-    public static readonly Version CurrentVersion =
-        Version.TryParse(
-            FileVersionInfo.GetVersionInfo(Environment.ProcessPath ?? "").FileVersion,
-            out var v) ? v : new Version(0, 1, 0);
+    public static readonly Version CurrentVersion = ResolveVersion();
+
+    private static Version ResolveVersion()
+    {
+        // Windows: the PE version resource (proven; leave it first so nothing about Windows changes).
+        if (Version.TryParse(FileVersionInfo.GetVersionInfo(Environment.ProcessPath ?? "").FileVersion, out var fromResource))
+            return fromResource;
+
+        // Linux (and any host without a version resource): the managed attribute.
+        var attr = Assembly.GetEntryAssembly()
+            ?.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version;
+        if (Version.TryParse(attr, out var fromAttribute))
+            return fromAttribute;
+
+        return new Version(0, 1, 0);
+    }
 
     public UpdateChecker(AgentConfig config)
     {

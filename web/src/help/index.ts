@@ -1,3 +1,4 @@
+import installingTheAgent from './installing-the-agent.md?raw';
 import conflicts from './conflicts.md?raw';
 import howSyncWorks from './how-sync-works.md?raw';
 import multiMachine from './multi-machine.md?raw';
@@ -17,6 +18,8 @@ export interface Article {
 }
 
 export const articles: Article[] = [
+  // First, deliberately: `categories` preserves this order, so setup leads the sidebar.
+  { slug: 'installing-the-agent', title: 'Installing the agent (Windows, Linux & Steam Deck)', category: 'Getting started', content: installingTheAgent },
   { slug: 'conflicts',       title: 'Understanding sync conflicts',           category: 'Syncing',        content: conflicts },
   { slug: 'how-sync-works',  title: 'How syncing works',                      category: 'Syncing',        content: howSyncWorks },
   { slug: 'multi-machine',   title: 'Best practices for multiple machines',   category: 'Syncing',        content: multiMachine },
