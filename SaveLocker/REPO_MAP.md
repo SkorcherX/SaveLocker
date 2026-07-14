@@ -43,6 +43,7 @@ SaveLocker/
 │   │   ├── ServerTrust.cs               # TOFU pin of the server's TLS key: warn, never block
 │   │   ├── HealthReporter.cs            # Durable pending events + heartbeat. A headless box cannot
 │   │   │                               #   toast, so failures go to the console (Decisions §2)
+│   │   ├── SaveDirSanity.cs             # "That's a Wine PREFIX, not a save folder" + size backstop
 │   │   ├── CommandPoller.cs             # 20 s poll: reconcile game list + run commands
 │   │   ├── AgentApiServer.cs            # HttpListener on :5178 — JSON API + agent-ui static files
 │   │   ├── AgentConfig.cs               # JSON config at %PROGRAMDATA%\SaveLocker\config.json
@@ -121,6 +122,11 @@ SaveLocker/
 │   ├── run-agent-tests.ps1             # 10 integration checks. Runs on BOTH OSes: PowerShell Core
 │   │                                   #   runs on Linux, so the same script drives the Windows
 │   │                                   #   agent and the Linux agent. Needs a server on :5179.
+│   ├── run-hardening-tests.ps1         # SECURITY. 14 Linux / 13 Windows: a symlink must not leak its
+│   │                                   #   target into the archive, and the restore's delete pass must
+│   │                                   #   not reach THROUGH one and delete files OUTSIDE the save
+│   │                                   #   folder. Plus zip-slip. Run it against pre-fix code: it must
+│   │                                   #   FAIL. Own server on :5182.
 │   ├── run-health-tests.ps1            # 17 checks: heartbeat, real conflict, dedupe, self-healing,
 │   │                                   #   and a push while the server is STOPPED (the durable
 │   │                                   #   report). Owns its server on :5181 — it must stop it.

@@ -28,23 +28,34 @@
 | **Runtime: .NET 10 (LTS)** | ✅ merged 2026-07-13 (PR #2). net9 was STS, EOL 10 Nov 2026 |
 | **Known vulnerabilities** | ✅ **none** — `dotnet build` reports no NU1903 (PR #3) |
 | Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS (PR #4, merged) |
-| Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 |
+| Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
+| Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: Linux agent **Phase 6** — hardening
+## ▶ NEXT ACTION: **Validate on real hardware** — the Linux agent plan is otherwise complete
 
-The Deck is now functionally complete: it enrols with one file (Phase 4), syncs Proton saves proven
-byte-identical to Windows ones (Phase 3), and **reports its failures to the console** (Phase 5).
-What is left is the security/robustness pass.
+**All six phases of `tasks/linux-agent.md` are done.** The remaining risk is not code, it is the
+absence of a device. WSL + CI cover everything *except* the four things that make a Deck a Deck:
+**gamescope / Game Mode, the immutable rootfs, SD-card library paths, and suspend/resume.**
 
-- **Plan:** `tasks/linux-agent.md` → Phase 6.
-- **Item 1 is a real bug and it affects Windows too:** `Directory.EnumerateFiles(..., AllDirectories)` **follows symlinks**, and a Wine prefix is full of them — a save folder containing a link to `/etc` or `$HOME` gets sucked into the archive. Don't follow symlinks when archiving; don't restore them. (Junctions are the Windows equivalent.)
-- Also: prefix-root sanity check in `doctor` (a mis-set path archives the whole multi-GB prefix), and the settle gate's max-wait must not count **suspended** time as elapsed (a Deck suspends constantly, mid-sync).
-- ⚠️ **Built ≠ verified on hardware.** No Steam Deck is owned. WSL + the harness cover everything *except* gamescope, the immutable rootfs, SD-card paths and suspend/resume.
+- Validate on a **borrowed or used Deck**, or on **Bazzite** (the practical SteamOS stand-in), or recruit a Deck-owning beta tester. Treat it exactly like the Windows device-verify items: **built ≠ verified**.
+- Other open work is in `Backlog.md` — the device-verify items (5e globs, settle gate), code-signing the exe, and deploying the net10 server to unRAID.
+
+### 🐛 Phase 6 fixed a REAL data-loss bug (2026-07-14) — worth knowing about
+
+`Directory.EnumerateFiles(..., AllDirectories)` **follows symlinks**, and a Wine prefix is full of
+them. The archive leak was the *lesser* half. The dangerous half: **`RestoreArchive` deletes target
+files that are absent from the archive**, so walking through a link it **deleted files outside the
+save folder entirely.** The pre-fix harness run reproduced both for real. **Windows was affected too**,
+via junctions.
+
+- Fixed with a no-follow walk (`SaveArchive.EnumerateFilesNoFollow`): links are never archived, never restored, never deleted.
+- ⚠️ **Do not "simplify" the link test to `FileAttributes.ReparsePoint`.** OneDrive files-on-demand placeholders are *also* reparse points — that version silently stops archiving every OneDrive save. It keys on `FileSystemInfo.LinkTarget`, which is non-null only for symlinks and junctions. See `Gotchas.md`.
+- Also landed: `SaveDirSanity` (names a Wine prefix mistaken for a save folder, surfaced by `doctor`), a proven zip-slip rejection, and a **monotonic** settle gate — wall-clock counted suspended hours as elapsed, so a suspended Deck woke up and published a possibly mid-flush save.
 
 ### Phase 5, shipped 2026-07-14 — how a Deck's failures reach you
 
@@ -102,6 +113,7 @@ See `Backlog.md` for the full list.
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
 | Health tests | `.\tests\run-health-tests.ps1` (17 checks). **Starts and stops its own server on :5181** — it has to, since one check pushes while the server is *down*. Needs nothing running |
+| Hardening tests | `.\tests\run-hardening-tests.ps1` (14 on Linux / 13 on Windows; own server on :5182). Security: symlink escape on archive **and on restore-delete**, zip-slip. Windows uses junctions (no elevation); Linux uses symlinks |
 | TOFU pin tests (TLS) | `.\tests\run-enrollment-tls-tests.ps1` (6 checks; starts its own HTTPS server on :5443). Needs `dotnet dev-certs https --trust` — local only, not in CI |
 | Linux fake-game harness | `tests/linux/run-linux-tests.sh` (27 checks; starts its own server) |
 | Cross-OS round-trip | `tests/cross-os/crossos.ps1 -Leg author\|roundtrip\|confirm` — one leg per OS; CI chains them by passing the server's state as an artifact |
@@ -109,7 +121,7 @@ See `Backlog.md` for the full list.
 
 **Always use `--no-incremental` for server builds** — stale DLL reuse has masked changes before. Stop the running agent/server first (they lock the DLLs).
 
-**CI (`ci.yml`) runs 8 jobs on every PR:** `build-dotnet`, `build-web`, `build-agent-ui`, `docker-build` (builds the server image — publishes nothing), `agent-tests-linux` (agent suite **+ enrollment + health**), and the chained `crossos-author → crossos-roundtrip → crossos-confirm`. The cross-OS chain is the one that matters: it hands the **server's own state** (SQLite DB + archive store) between a Windows and an Ubuntu runner as an artifact, because runners cannot share a network.
+**CI (`ci.yml`) runs 8 jobs on every PR:** `build-dotnet`, `build-web`, `build-agent-ui`, `docker-build` (builds the server image — publishes nothing), `agent-tests-linux` (agent **+ enrollment + health + hardening**), and the chained `crossos-author → crossos-roundtrip → crossos-confirm`. The cross-OS chain is the one that matters: it hands the **server's own state** (SQLite DB + archive store) between a Windows and an Ubuntu runner as an artifact, because runners cannot share a network.
 
 ### Toolchain (installed 2026-07-13 — a fresh session does not need to redo this)
 
