@@ -20,6 +20,18 @@ The agent is a WinExe (GUI subsystem). Launching the installed `.exe` from Power
 - **Redirect to file:** `"C:\Program Files\SaveLocker Agent\SaveLocker.Agent.exe" <cmd> > C:\temp\sl.txt 2>&1`
 - **Read the log** (preferred): `%PROGRAMDATA%\SaveLocker\agent.log` — rolling 1 MB, keeps one `.old`. Tail it with the `log` CLI sub-command: `SaveLocker.Agent.exe log > C:\temp\sl.txt 2>&1`
 
+## Never skip files by `FileAttributes.ReparsePoint` — OneDrive placeholders are reparse points too
+The archiver must not follow symlinks (see below). The obvious implementation — skip any entry with `FileAttributes.ReparsePoint` — is **a silent data-loss bug**: OneDrive **files-on-demand placeholders are also reparse points**, so that check would quietly stop archiving every save in a OneDrive folder, and the user would never be told.
+- **Use `FileSystemInfo.LinkTarget is not null`** (`SaveArchive.IsLink`). It is non-null only for the *symlink* and *junction* reparse tags — exactly the set we mean — and null for cloud placeholders.
+- `tests/run-hardening-tests.ps1` guards this ("ordinary nested files still sync"), but the real OneDrive case cannot be reproduced in the harness. Do not "simplify" that check.
+
+## `Directory.EnumerateFiles(..., AllDirectories)` FOLLOWS symlinks — and the restore pass DELETES
+Fixed 2026-07-14 (Phase 6). The default recursive enumeration follows symlinks and junctions, and a Wine prefix is full of them. Two consequences, the second far worse than the first:
+- **Archive:** a save folder containing a link to `$HOME` or `/etc` pulls that target **into the archive** and uploads it.
+- **Restore (the data-loss one):** `RestoreArchive` deletes target files that are absent from the archive. Walking through a link, it **deletes files outside the save folder entirely.** The pre-fix harness run confirmed this for real — it deleted a file in a sibling directory.
+- **Fix:** `SaveArchive.EnumerateFilesNoFollow` / `EnumerateDirsNoFollow` — a manual walk that skips links rather than descending into them. Links are never archived, never restored, and never deleted.
+- Windows is affected too, via **junctions** (which need no elevation to create — which is why the harness uses them there).
+
 ## OneDrive save paths and RestoreArchive
 If a game's save folder is inside an OneDrive-managed tree (`C:\Users\<name>\OneDrive\…`), `Directory.Move` fails with **"Access to the path '…' is denied"** — OneDrive's reparse points block the rename even when OneDrive is not running.
 - **Fixed (2026-06-23):** `SaveArchive.RestoreArchive` accepts an optional `stagingRoot`; `SyncEngine` passes `_tempDir` (`C:\ProgramData\SaveLocker\tmp`) so staging lives outside the OneDrive tree. Restore is file-by-file copy rather than directory rename.

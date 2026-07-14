@@ -38,10 +38,18 @@ public static class SaveSettler
         var globs = excludeGlobs?.ToList();
         var pollMs = Math.Clamp(quietPeriod.TotalMilliseconds / 5, 250, 2000);
         var poll = TimeSpan.FromMilliseconds(pollMs);
-        var deadline = DateTime.UtcNow + maxWait;
+
+        // MONOTONIC, not wall-clock. A Steam Deck suspends constantly, and mid-settle is exactly when
+        // it happens — the user finishes a game and puts it to sleep. DateTime.UtcNow counts the hours
+        // spent suspended as elapsed, so on resume the max-wait has "expired" and the gate gives up
+        // instantly, publishing a save that may still have been mid-flush when the lid closed. It
+        // would also see the quiet period as satisfied without ever having observed quiet.
+        // Stopwatch runs on the monotonic clock, which does not advance while the machine is asleep,
+        // so the gate measures only time it was actually awake and watching.
+        var clock = System.Diagnostics.Stopwatch.StartNew();
 
         string? lastPrint = null;
-        var stableSince = DateTime.UtcNow;
+        var stableSince = TimeSpan.Zero;
         var waited = false;
         var warnedNoLockProbe = false;
 
@@ -64,7 +72,7 @@ public static class SaveSettler
 
             if (locked is null && print == lastPrint)
             {
-                if (DateTime.UtcNow - stableSince >= quietPeriod)
+                if (clock.Elapsed - stableSince >= quietPeriod)
                 {
                     if (waited) log?.Invoke("save files settled.");
                     return true;
@@ -72,11 +80,11 @@ public static class SaveSettler
             }
             else
             {
-                stableSince = DateTime.UtcNow;
+                stableSince = clock.Elapsed;
                 lastPrint = print;
             }
 
-            if (DateTime.UtcNow >= deadline)
+            if (clock.Elapsed >= maxWait)
             {
                 log?.Invoke(locked is not null
                     ? $"still writing after {maxWait.TotalSeconds:0}s (locked: {locked}) — pushing anyway."

@@ -89,7 +89,27 @@ public static class Doctor
             else if (!IsWritable(g.SaveDirectory))
                 Problem($"'{g.Name}' save directory is not writable — pull would fail: {g.SaveDirectory}");
             else
-                Info("    files", SaveArchive.ListFiles(g.SaveDirectory, g.ExcludeGlobs).Count.ToString());
+            {
+                // Symlinks are never archived and never followed (they would drag in — or, on restore,
+                // delete — files outside the save folder). Doctor is where the user finds out that a
+                // link they placed here is not being synced.
+                var links = new List<string>();
+                SaveArchive.OnSymlinkSkipped = p => links.Add(p);
+                var (bytes, files) = SaveDirSanity.Measure(g.SaveDirectory, g.ExcludeGlobs);
+                SaveArchive.OnSymlinkSkipped = null;
+
+                Info("    files", $"{files} ({bytes / 1024.0 / 1024.0:0.#} MB)");
+                foreach (var link in links.Take(5))
+                    Console.WriteLine($"      ! symlink NOT synced: {link}");
+                if (links.Count > 5)
+                    Console.WriteLine($"      ! …and {links.Count - 5} more symlinks not synced");
+
+                // A save path that is really the Wine prefix archives gigabytes and is rejected by the
+                // upload cap — with an error about the SAVE being too big, which sends the user hunting
+                // in the wrong place. Name the actual mistake.
+                foreach (var problem in SaveDirSanity.Inspect(g.SaveDirectory, g.ExcludeGlobs))
+                    Problem($"'{g.Name}': {problem}");
+            }
 
             if (g.SteamAppId is not null && config.Games.Any(o => o != g && o.SteamAppId == g.SteamAppId))
                 Problem($"more than one tracked game claims appid {g.SteamAppId}; " +

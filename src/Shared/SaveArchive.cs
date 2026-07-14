@@ -138,20 +138,26 @@ public static class SaveArchive
             }
 
             // Remove files in the target that are no longer in the archive.
+            //
+            // This is the most dangerous loop in the codebase: it DELETES. It must never walk through
+            // a symlink, or a link inside a save folder would let it delete files outside that folder
+            // entirely (a link to $HOME in a Wine prefix is not hypothetical). Links themselves are
+            // skipped, never deleted — we did not archive them, so their absence from the archive
+            // must not read as "the user removed this file".
             var targetFull = Path.GetFullPath(targetDir);
-            var archiveRel = Directory.EnumerateFiles(stagingDir, "*", SearchOption.AllDirectories)
+            var archiveRel = EnumerateFilesNoFollow(stagingFull)
                 .Select(f => Path.GetRelativePath(stagingFull, f))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            foreach (var tgt in Directory.EnumerateFiles(targetDir, "*", SearchOption.AllDirectories))
+            foreach (var tgt in EnumerateFilesNoFollow(targetFull))
             {
                 if (!archiveRel.Contains(Path.GetRelativePath(targetFull, tgt)))
                     File.Delete(tgt);
             }
 
-            // Prune empty subdirectories left behind by deletions.
-            foreach (var dir in Directory.EnumerateDirectories(targetDir, "*", SearchOption.AllDirectories)
-                         .OrderByDescending(d => d.Length))
+            // Prune empty subdirectories left behind by deletions (deepest first, links skipped —
+            // deleting a symlinked directory would remove the user's link, which we never created).
+            foreach (var dir in EnumerateDirsNoFollow(targetFull))
             {
                 if (!Directory.EnumerateFileSystemEntries(dir).Any())
                     try { Directory.Delete(dir); } catch { /* best-effort */ }
@@ -174,6 +180,91 @@ public static class SaveArchive
         Directory.Exists(root) ? EnumerateRelativeFiles(root, excludeGlobs) : Array.Empty<string>();
 
     /// <summary>
+    /// Raised (best-effort) when a symlink or junction is skipped, so the agent can say so rather
+    /// than silently omitting a file the user expected to be synced.
+    /// </summary>
+    public static Action<string>? OnSymlinkSkipped { get; set; }
+
+    /// <summary>
+    /// True for a symlink or junction — an entry whose contents live somewhere else.
+    /// <para>
+    /// <b>This deliberately does NOT test <see cref="FileAttributes.ReparsePoint"/>.</b> Symlinks are
+    /// reparse points, but so are <b>OneDrive files-on-demand placeholders</b>, and a real save file
+    /// in a OneDrive folder is an ordinary file we must archive (see Gotchas.md). Skipping every
+    /// reparse point would therefore stop syncing OneDrive saves entirely — silently. <c>LinkTarget</c>
+    /// is non-null only for the symlink and junction reparse tags, which is exactly the set we mean.
+    /// </para>
+    /// </summary>
+    private static bool IsLink(FileSystemInfo entry)
+    {
+        try { return entry.LinkTarget is not null; }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// Walk <paramref name="rootFull"/> WITHOUT following symlinks or junctions, yielding full file
+    /// paths. <c>Directory.EnumerateFiles(..., AllDirectories)</c> follows them, and a Wine prefix is
+    /// full of them — a save folder containing a link to <c>/etc</c> or <c>$HOME</c> would otherwise be
+    /// pulled into the archive, and (far worse) the restore's delete pass would reach through the link
+    /// and delete files OUTSIDE the save folder.
+    /// <para>The link itself is skipped, not followed: its target is not ours to sync or to delete.</para>
+    /// </summary>
+    private static IEnumerable<string> EnumerateFilesNoFollow(string rootFull)
+    {
+        var stack = new Stack<string>();
+        stack.Push(rootFull);
+
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            FileSystemInfo[] entries;
+            try { entries = new DirectoryInfo(dir).GetFileSystemInfos(); }
+            catch (UnauthorizedAccessException) { continue; }
+            catch (DirectoryNotFoundException) { continue; }
+            catch (IOException) { continue; }
+
+            foreach (var entry in entries)
+            {
+                if (IsLink(entry))
+                {
+                    OnSymlinkSkipped?.Invoke(entry.FullName);
+                    continue;
+                }
+                if (entry is DirectoryInfo sub) stack.Push(sub.FullName);
+                else yield return entry.FullName;
+            }
+        }
+    }
+
+    /// <summary>Directories under <paramref name="rootFull"/>, deepest first, never through a link.</summary>
+    private static List<string> EnumerateDirsNoFollow(string rootFull)
+    {
+        var found = new List<string>();
+        var stack = new Stack<string>();
+        stack.Push(rootFull);
+
+        while (stack.Count > 0)
+        {
+            var dir = stack.Pop();
+            DirectoryInfo[] subs;
+            try { subs = new DirectoryInfo(dir).GetDirectories(); }
+            catch (UnauthorizedAccessException) { continue; }
+            catch (DirectoryNotFoundException) { continue; }
+            catch (IOException) { continue; }
+
+            foreach (var sub in subs)
+            {
+                if (IsLink(sub)) continue;
+                found.Add(sub.FullName);
+                stack.Push(sub.FullName);
+            }
+        }
+
+        found.Sort((a, b) => b.Length.CompareTo(a.Length)); // deepest first
+        return found;
+    }
+
+    /// <summary>
     /// Ordered, forward-slash relative paths of the files under <paramref name="root"/>,
     /// minus any matching <paramref name="excludeGlobs"/>. Ordering is stable (Ordinal) so
     /// the hash is reproducible. The same result drives both hashing and archiving.
@@ -181,8 +272,7 @@ public static class SaveArchive
     private static List<string> EnumerateRelativeFiles(string root, IEnumerable<string>? excludeGlobs = null)
     {
         var rootFull = Path.GetFullPath(root);
-        var all = Directory
-            .EnumerateFiles(rootFull, "*", SearchOption.AllDirectories)
+        var all = EnumerateFilesNoFollow(rootFull)
             .Select(f => Path.GetRelativePath(rootFull, f).Replace('\\', '/'))
             .ToList();
 

@@ -104,6 +104,13 @@ jobs:
       - name: Agent health reporting tests
         run: pwsh tests/run-health-tests.ps1
 
+      # Security tests. Each one must prove the ATTACK fails, not that ordinary saves still sync:
+      # a symlink in a save folder must not leak its target into the archive, and — the data-loss
+      # case — the restore's delete pass must not reach THROUGH a link and delete files outside the
+      # save folder. Linux is where this matters most: a Wine prefix is full of symlinks.
+      - name: Hardening tests (symlink escape, zip-slip)
+        run: pwsh tests/run-hardening-tests.ps1
+
   # ── Cross-OS round-trip ──────────────────────────────────────────────────────────────────
   # Prove a Windows save and a Proton save are actually interchangeable.
   #

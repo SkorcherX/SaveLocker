@@ -1,12 +1,15 @@
 # Task: Linux agent (Proton / Steam Deck)
 
-> ## ▶ START HERE: **Phases 0–5 are DONE. Next is Phase 6** (hardening).
+> ## ▶ ALL PHASES (0–6) ARE DONE. This plan is complete.
 >
-> The Deck is now functionally complete: it enrols with one file, syncs Proton saves that are
-> byte-identical to Windows ones, and **reports its failures to the console**. Phase 6 is the
-> security/robustness pass — the symlink escape in item 1 is a **real bug that affects Windows too**.
+> The Linux agent enrols with one file, syncs Proton saves proven byte-identical to Windows ones,
+> reports its failures to the console, and no longer leaks or deletes files outside a save folder.
 >
-> ⚠️ **Still no hardware.** Everything above is verified in WSL + CI, never on a Deck.
+> ⚠️ **The one thing left is hardware.** Everything here is verified in WSL + CI, **never on a Deck**.
+> Before shipping to real users, validate on a borrowed/used Deck or on Bazzite, or recruit a
+> Deck-owning beta tester. gamescope, the immutable rootfs, SD-card paths and suspend/resume are the
+> four things no amount of WSL can prove. Treat this exactly like the Windows device-verify items:
+> **built ≠ verified.**
 >
 > **The runtime moved to .NET 10 after Phase 3** (`Decisions.md → Runtime: .NET 10 LTS`;
 > `logs/2026-07-13_dotnet-10-upgrade.md`). The phase write-ups below still *say* `net9.0` — that is
@@ -422,6 +425,40 @@ assertion measured the wrong number.
    where the right answer is to tell them Steam Cloud already handles it.
 5. **Suspend/resume.** The Deck suspends constantly, mid-sync. The offline queue covers the
    network drop; ensure the settle gate's max-wait does not count suspended time as elapsed.
+
+### Status: ✅ DONE (2026-07-14)
+
+**Item 1 was worse than this plan described, and it was real.** The plan called the symlink escape an
+archive-bloat/leak problem. It is also a **data-loss** problem: `RestoreArchive` deletes target files
+that are absent from the archive, and walking through a symlink it **deletes files outside the save
+folder**. The pre-fix harness run proved both for real — it archived a file from a sibling directory
+*and* deleted one.
+
+- **Fix:** `SaveArchive.EnumerateFilesNoFollow` / `EnumerateDirsNoFollow` — a manual walk that skips
+  links instead of descending. Links are never archived, never restored, never deleted. Both the
+  archive path and the restore's delete/prune passes use it. Windows is affected too, via junctions.
+- **⚠️ The obvious fix is a silent data-loss bug.** Skipping anything with
+  `FileAttributes.ReparsePoint` would also skip **OneDrive files-on-demand placeholders**, quietly
+  ending OneDrive save sync. The check keys on `FileSystemInfo.LinkTarget`, which is non-null only for
+  symlinks and junctions. See `Gotchas.md` — do not "simplify" it.
+2. **Prefix-root sanity check** — `SaveDirSanity` (Agent.Core) names the actual mistake: *"that is a
+   Wine PREFIX, not a save folder"*, plus a size backstop against the 200 MB cap and a refusal for
+   `$HOME`. Surfaced by `doctor`. Without it the user is told their *save* is too big and goes hunting
+   in the wrong place.
+3. **Zip-slip** — still handled by `ZipFile.ExtractToDirectory`, and now *proven*: the harness
+   force-uploads a genuinely hostile archive (a `../../ESCAPED.txt` entry) to the server and pulls it
+   through the real restore path. The check exists so nobody ever hand-rolls extraction.
+4. **Steam Cloud** — no change, as planned. `scan --no-cloud` stays; non-Steam shortcuts have no Cloud.
+5. **Suspend/resume** — `SaveSettler` now measures on a **monotonic** clock (`Stopwatch`), not
+   `DateTime.UtcNow`. Wall-clock counts hours spent suspended as elapsed, so a Deck suspended
+   mid-settle would wake with its max-wait "expired" and immediately publish a save that may have been
+   mid-flush when the lid closed. The gate now measures only time it was awake and watching.
+
+**Verified:** `tests/run-hardening-tests.ps1` — **14/14 on Linux** (real symlinks, incl. the doctor
+check) and **13/13 on Windows** (junctions; `doctor` is Linux-only). It was first run against the
+**pre-fix** code and correctly **failed 4 checks** — a security test that passes on vulnerable code is
+worthless, so that run is the one that gives the suite its meaning. No regressions: agent 10/10,
+enrollment 16/16, health 17/17, TLS 6/6, on both OSes. In CI.
 
 **STOP.**
 
