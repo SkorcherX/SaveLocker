@@ -226,6 +226,36 @@ floor is set by the bundled native libraries. Checked all of them —
 **3. Windows installer** builds from the `net10.0-windows` publish path — so the `.iss` / pubxml /
 `build-installer.ps1` path updates were right. 48 MB setup exe.
 
+#### 🔑 A net9 field agent IS compatible with the net10 server — tested, not assumed
+
+**This is the actual deployment path**, and it was the one scenario not covered: `docker compose pull`
+moves the server to net10 while THUNDERHORSE and WIDEBOY keep running the **v0.1.5 (net9)** installer
+until they auto-update. If the two disagreed about the JSON wire *or* the content hash, every push
+would become a conflict.
+
+Built a **real v0.1.5 agent from the tag** (`git worktree add --detach <path> v0.1.5`) and ran it
+against the net10 server. **12/12:**
+
+- net9 agent registers, pushes, pulls and reads status from the net10 server.
+- A net10 agent pulls what the net9 agent pushed — **byte-identical**.
+- **The content hash agrees across runtimes**, in *both* directions: after a cross-version pull, the
+  next push reports *"no local changes since last sync"*. That is the agent itself confirming net9 and
+  net10 hashed identical bytes identically — a disagreement would surface as a spurious upload or a
+  phantom CONFLICT. (Same assertion the cross-OS test uses.)
+- A genuinely stale net9 push is still correctly reported as a **CONFLICT**, and the net9 agent sees
+  it in `status`.
+
+Why it holds, for the record: agents speak REST/JSON against the `Contracts.cs` DTOs and **never read
+the OpenAPI document** (that is consumed only by the dashboard's codegen), so Phase 3's schema churn
+cannot reach them. And `SaveArchive`'s hash is SHA-256 over Ordinal-sorted relative paths plus file
+bytes — no framework dependency. The one framework-sensitive input, `FileSystemGlobbing`, was verified
+unchanged in Phase 2.
+
+> ⚠️ **Do not try to verify this with the v0.1.5 test suite.** At that tag `tests/run-agent-tests.ps1`
+> still points at **`LocalGameSync.Agent.dll`** — the pre-rename name — so it fails 0/10 no matter what.
+> It was **unrunnable from the rename until 2026-07-12**. Red means nothing there, just as green would
+> not have. Drive the old agent directly instead.
+
 #### Found, not fixed (both pre-existing, both unrelated to net10)
 - **`agent-ui/node_modules` in the WSL clone is owned by `root`** — `npm ci` dies `EACCES` and
   `build-linux.sh` cannot run there. Needs `sudo rm -rf ~/SaveLocker/agent-ui/node_modules` once.

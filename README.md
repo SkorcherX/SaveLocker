@@ -115,7 +115,7 @@ In the agent window → **Add Games**: the agent scans for Steam titles and game
 
 ## Building from source
 
-**Requirements:** .NET 9 SDK, Node 20+, npm
+**Requirements:** .NET 10 SDK, Node 20+, npm
 
 ```sh
 git clone https://github.com/SkorcherX/SaveLocker.git
@@ -191,7 +191,7 @@ To deploy the new image on unRAID, run `docker compose pull && docker compose up
 ```
 SaveLocker/
 ├── src/
-│   ├── Agent/          # Windows tray app + CLI (.NET 9, WinForms, WebView2)
+│   ├── Agent/          # Windows tray app + CLI (.NET 10, WinForms, WebView2)
 │   │   └── agent-ui/   # React agent UI (Vite, TypeScript)  ← built into Agent output
 │   ├── Server/         # ASP.NET Core server + EF Core / SQLite
 │   └── Shared/         # Wire contracts, archive helpers, manifest loader

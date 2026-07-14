@@ -52,18 +52,29 @@ differs between CI and dev is exactly the sort of thing that makes a real bug un
 - The Dockerfile **copies `global.json` in**, so the container is held to the same pin. Bump the pin
   and the `sdk:`/`aspnet:` image tags **together**, or the Docker build fails (loudly — by design).
 
-## Known-vulnerable transitive package: SQLitePCLRaw (pre-existing, not yet fixable)
-`dotnet build` reports **NU1903 High** for `SQLitePCLRaw.lib.e_sqlite3` (CVE-2025-6965 — memory
-corruption in SQLite's aggregate-term handling). **This is not new** and was not introduced by the
-net10 upgrade: net9 shipped 2.1.10 with the same advisory. SDK 10 audits *transitive* packages by
-default, which is why it only started showing up.
-- **There is no patched 2.x release.** The fix needs SQLite ≥ 3.50.2, i.e. SQLitePCLRaw **3.x** — a
-  major bump of the native provider *underneath EF Core*, which EF 10 was not built against.
-- Deliberately **not** bundled into the net10 upgrade: SQLite is the one component where a subtle
-  break silently corrupts save data, and mixing it in would destroy the "if CI goes red we know
-  which change did it" property. Tracked in `Backlog.md` as its own change.
-- Practical exposure here is low: exploitation needs attacker-controlled *query structure*, and all
-  SQL is EF-generated and parameterized — users never submit SQL.
+## SQLitePCLRaw is pinned to 3.x on purpose — do not "simplify" it away
+`Microsoft.Data.Sqlite.Core` resolves the SQLitePCLRaw **2.1.11** family, whose native lib bundles a
+SQLite vulnerable to **CVE-2025-6965** (NU1903 High — memory corruption when aggregate terms exceed
+the available columns). There is **no patched 2.x release**: the fix needs SQLite ≥ 3.50.2, which
+only ships in the **3.x** line. `SaveLocker.Server.csproj` therefore pins
+`SQLitePCLRaw.bundle_e_sqlite3` directly to lift the whole family (core / provider / config / lib).
+- Removing that pin silently reintroduces the CVE — EF Core still resolves 2.1.11 on its own.
+- The major bump is safe: the v3 notes state *"there are no code changes in SQLitePCLRaw.core"*, so
+  the API `Microsoft.Data.Sqlite` compiles against is unchanged. The v3 breaking changes are the
+  removal of classic Xamarin support and of bundles we do not use (`bundle_green`, `bundle_zetetic`…).
+- **In v3 the LIB package version tracks SQLite's own version** — which is why it reads `3.53.x`
+  rather than `3.0.x`. Do not "fix" that apparent mismatch.
+- Verify the fix by asking the engine, not by reading a package number:
+  `SELECT sqlite_version()` must be **≥ 3.50.2** (it is 3.50.4).
+- Drop the pin only once EF Core resolves 3.x by itself.
+
+## PBKDF2 parameters are part of the on-disk format
+`Tokens.HashPassword` stores `v1:{salt}:{hash}` — the iteration count, salt size, hash size and
+algorithm are all implied by that `v1` tag, not recorded in it. **Changing any of them invalidates
+every stored password**, and the failure only appears in production on the one machine that already
+has an admin password set. If they ever must move, bump the version tag and keep a `v1` verification
+path. `tests/verify-password-compat.ps1` guards this: it makes a server built from an older ref hash
+a password, then asserts the current code still verifies it (and still rejects a wrong one).
 
 ## Dev server port
 `dotnet run` honours the launch profile (port 5179) unless you pass `--no-launch-profile` and set `ASPNETCORE_URLS` yourself.

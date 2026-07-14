@@ -23,8 +23,14 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>Assets\SaveLocker.ico</ApplicationIcon>
-    <!-- Version is now driven by git tags (MinVer). Tag format: v0.1.0 -->
+    <!-- Version is driven by git tags (MinVer). Tag format: v0.1.0 -->
     <MinVerMinimumMajorMinor>0.1</MinVerMinimumMajorMinor>
+    <!-- Our tags are "v"-prefixed (v0.1.5), but MinVer's DEFAULT tag prefix is EMPTY — so it was
+         searching for a tag literally named "0.1.5", finding none, and silently falling back to
+         MinVerMinimumMajorMinor. Every local build therefore stamped 0.1.0 instead of the real
+         0.1.6-alpha.N. It went unnoticed because build-installer.ps1 and release.yml both pass the
+         version explicitly, which masks the fallback exactly where it would have been visible. -->
+    <MinVerTagPrefix>v</MinVerTagPrefix>
   </PropertyGroup>
 
   <!-- Build the React agent UI before compiling C# -->
