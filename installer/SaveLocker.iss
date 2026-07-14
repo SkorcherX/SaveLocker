@@ -319,6 +319,10 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
+  // CRITICAL: the agent's auto-update runs this installer with /SILENT. Inno still calls
+  // NextButtonClick in silent mode even though no page is shown, and returning False there
+  // (or popping a MsgBox) ABORTS the update. Never validate a silent install — just proceed.
+  if WizardSilent then exit;
   if (EnrollPage <> nil) and (CurPageID = EnrollPage.ID) and RbEnrollNow.Checked then
   begin
     if Trim(EdEnrollFile.Text) = '' then
@@ -363,6 +367,15 @@ begin
   cfg := ExpandConstant('{commonappdata}\SaveLocker\config.json');
   if FileExists(cfg) and LoadStringFromFile(cfg, s) then
     Result := Pos('"ApiKey"', s) > 0;
+end;
+
+// On an upgrade/reinstall the machine is already enrolled, so there is nothing to ask:
+// hide the enrollment page entirely. (Re-enrolling would rotate the machine's key; the
+// deliberate path for that is the CLI / Settings tab, never a routine upgrade.) A fresh
+// install has no config yet, so the page still shows there.
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (EnrollPage <> nil) and (PageID = EnrollPage.ID) and IsAlreadyEnrolled;
 end;
 
 procedure DoEnroll;

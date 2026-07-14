@@ -4,7 +4,7 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.6 (tagged 2026-07-14 — installer GUI enrollment; ⏳ upgrade path being device-verified). v0.1.5 released glob depth-matching; v0.1.4 shipped 5e glob filters; v0.1.1–0.1.3 verified on device. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
+**Current version:** v0.1.7 (tagged 2026-07-14 — **fixes a v0.1.6 regression that broke silent auto-update**: the installer's enroll page validated in `NextButtonClick`, which Inno still calls under `/SILENT`, and returning False there aborts the update. See `Gotchas.md`). **v0.1.6 must not be hosted for auto-update.** v0.1.6 added installer GUI enrollment; v0.1.5 released glob depth-matching; v0.1.4 shipped 5e glob filters. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
 
 ---
 
@@ -30,7 +30,7 @@
 | Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS (PR #4, merged) |
 | Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
 | Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
-| **Installer GUI enrollment** (Windows) | ✅ built + ISCC-compiles 2026-07-14 (v0.1.6). ⏳ **not device-verified** — the silent-upgrade regression is the one that matters |
+| **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ⏳ still needs device-verify on v0.1.7 |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.

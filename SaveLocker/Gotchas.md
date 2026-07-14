@@ -2,6 +2,21 @@
 
 Traps that have already cost time. Read before touching builds, paths, or the running server.
 
+## Inno `NextButtonClick` fires in `/SILENT` — returning False ABORTS the silent install
+Cost the fleet's auto-update between v0.1.6 and v0.1.7 (2026-07-14). The agent auto-updates by running
+the installer with **`/SILENT`** (`TrayApp.cs`). The installer-enrollment wizard page validated its
+input in `NextButtonClick` and returned `False` (plus a `MsgBox`) when no enrollment file was chosen.
+In silent mode Inno **still calls `NextButtonClick`** even though the page is never shown, and there
+`False` doesn't "stay on the page" — there is no page — it **terminates Setup**. The abort happens
+during page navigation, *before* the install step, so files are not replaced; but `TrayApp` has
+already exited to release its mutex, so the agent is left **stopped** until the next login (the Run-key
+auto-start) brings it back. Not bricked, but every machine that attempted the update went dark.
+- **Fix:** `if WizardSilent then exit;` at the top of `NextButtonClick` — never validate or prompt in
+  silent mode. Also `ShouldSkipPage` hides the enroll page entirely on an already-enrolled machine, so
+  interactive upgrades don't demand a file either.
+- **Rule:** any installer `[Code]` that can block navigation or show UI must guard on `WizardSilent`.
+  The agent's most load-bearing behaviour (silent auto-update) exercises exactly that path.
+
 ## Stale incremental builds (most common)
 `dotnet build` sometimes did **not** recompile the Server after edits — a stale DLL got reused and masked changes (e.g. new endpoints 404'd at runtime).
 - **Always build with `--no-incremental`** and stop the running agent/server first (they lock the DLLs).
