@@ -20,6 +20,9 @@ public static class Doctor
         Console.WriteLine();
 
         Section("Agent");
+        // A headless box that cannot tell you which version it is running makes every other answer
+        // less useful — and it is the first thing to ask for in a bug report.
+        Info("version", UpdateChecker.CurrentVersion.ToString());
         Info("config", config.ConfigPath);
         Info("state dir", AgentConfig.DefaultDir);
         Info("log", AgentLogger.LogPath);

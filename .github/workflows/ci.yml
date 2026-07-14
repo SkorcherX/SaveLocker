@@ -18,6 +18,52 @@ jobs:
       - name: Build server
         run: dotnet build src/Server/SaveLocker.Server.csproj -c Release --no-incremental
 
+  # The Steam Deck release artifact. This exists so packaging cannot rot unnoticed: it is only
+  # exercised on a `v*` tag otherwise, i.e. exactly when it is too late to find out it is broken.
+  # It does not just produce a .tar.gz — it INSTALLS the tarball into a throwaway HOME and runs the
+  # binary, because "the archive was created" says nothing about whether a Deck user can use it.
+  package-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: agent-ui/package-lock.json
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Build the self-contained tarball
+        run: bash packaging/linux/build-linux.sh 9.9.9-ci
+
+      # Install as a user would, into a clean HOME. systemd is not available on the runner, and
+      # install.sh is expected to notice that and carry on rather than fail.
+      - name: Install it the way a Deck user would
+        run: |
+          fake_home="$(mktemp -d)"
+          tar -xzf artifacts/linux/savelocker-9.9.9-ci-linux-x64.tar.gz -C "$fake_home"
+          HOME="$fake_home" bash "$fake_home/SaveLocker/install.sh"
+          test -x "$fake_home/.local/share/SaveLocker/savelocker" || { echo "binary not installed"; exit 1; }
+          test -L "$fake_home/.local/bin/savelocker"              || { echo "symlink not created"; exit 1; }
+
+          # The installed binary must actually RUN — self-contained, on a box with no .NET runtime
+          # of its own for it to fall back on. And it must report the version it was stamped with:
+          # the agent sends that to the console in every heartbeat, so a wrong one is a lie in the
+          # dashboard. It used to report the hard-coded default here, because an ELF apphost has no
+          # Win32 version resource for FileVersionInfo to read.
+          out="$(HOME="$fake_home" "$fake_home/.local/bin/savelocker" doctor --config "$fake_home/cfg.json" || true)"
+          echo "$out" | head -5
+          echo "$out" | grep -q "version: 9.9.9" || { echo "agent did not report its stamped version"; exit 1; }
+
+      - name: Serve the agent UI from the package
+        run: |
+          # The daemon serves the React agent UI — a Deck's only UI. If agent-ui/dist is missing from
+          # the tarball the daemon starts and silently serves nothing.
+          test -f artifacts/linux/SaveLocker/agent-ui/index.html \
+            || { echo "agent-ui was not packaged — the daemon would serve a blank page"; exit 1; }
+
   build-web:
     runs-on: ubuntu-latest
     steps:

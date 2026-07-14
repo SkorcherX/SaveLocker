@@ -1,0 +1,28 @@
+# Shell scripts and the systemd unit MUST be LF, always.
+#
+# These are executed on Linux (a Steam Deck). A file committed with CRLF from a Windows checkout
+# fails there with the deeply unhelpful `bad interpreter: /usr/bin/env bash^M`, and systemd simply
+# refuses to parse the unit. Git currently stores them as LF by luck, not by rule — this makes it
+# a rule.
+*.sh            text eol=lf
+*.service       text eol=lf
+
+# Normalise the rest to LF in the repository, letting Git check out the platform's native endings.
+*.cs            text
+*.csproj        text
+*.md            text
+*.json          text
+*.yml           text
+*.ts            text
+*.tsx           text
+
+# PowerShell scripts here must stay ASCII/CRLF-safe on Windows PowerShell 5.1, which reads a
+# BOM-less .ps1 as ANSI. Leave them to Git's default handling rather than forcing LF.
+*.ps1           text
+
+# Binary — never touch.
+*.png           binary
+*.ico           binary
+*.exe           binary
+*.zip           binary
+*.tar.gz        binary
