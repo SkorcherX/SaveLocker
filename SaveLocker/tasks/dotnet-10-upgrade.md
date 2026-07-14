@@ -190,6 +190,52 @@ changes only the emitted schema, never serialization.
    is still an acceptable floor for the Deck.
 3. Windows installer builds (`installer/build-installer.ps1`) and the agent runs on a clean box.
 
+### Status: ✅ DONE (2026-07-13)
+
+**1. EF Core 10 against the REAL production DB — the step with actual data at risk.**
+Ran the net10 server against a **copy** of the live unRAID `localgamesync.db` (2 machines, 2 games,
+7 save versions, 4 conflicts, 331 audit rows). **EF Core 10 changed nothing:**
+
+| | Before | After |
+|---|---|---|
+| Migrations applied | 4 (stamped `9.0.9`) | 4 — **no new ones** |
+| Tables + columns | — | **identical** |
+| Machines / Games / SaveVersions | 2 / 2 / 7 | 2 / 2 / 7 |
+| AuditLogs / Conflicts / AgentCommands | 331 / 4 / 18 | 331 / 4 / 18 |
+
+It opened an EF-9-created schema, applied no migrations, rewrote nothing, and every query worked —
+machines (THUNDERHORSE, WIDEBOY), games, head content hashes intact, full audit history readable.
+(The only delta was `Settings 2 → 1`: the admin-password row, deleted **by hand on the copy** so the
+admin API could be exercised without knowing the real password.)
+
+⚠️ **A copy of production must never be committed.** It carries machine API-key hashes, machine
+names, save paths and the audit log, and this repo is public. `*.db` is now in `.gitignore`
+(verified: no `.db` has ever been in history).
+
+**2. Self-contained SteamOS publish — the glibc question, answered properly.**
+The apphost alone claims `GLIBC_2.16`, which is a **reassuring number that means nothing**: the real
+floor is set by the bundled native libraries. Checked all of them —
+
+    libcoreclr.so / libclrjit.so / libclrgcexp.so  →  GLIBC_2.27   ← the true floor
+    build host (Ubuntu 24.04)                      →  glibc 2.39
+    SteamOS 3.x (Arch-based)                       →  ~2.38+
+
+**2.27 is far below anything a Deck runs.** Risk #4 cleared. The binary **runs with no .NET on PATH**
+(`env -i`, self-contained), and `doctor` works. Payload ~80 MB.
+
+**3. Windows installer** builds from the `net10.0-windows` publish path — so the `.iss` / pubxml /
+`build-installer.ps1` path updates were right. 48 MB setup exe.
+
+#### Found, not fixed (both pre-existing, both unrelated to net10)
+- **`agent-ui/node_modules` in the WSL clone is owned by `root`** — `npm ci` dies `EACCES` and
+  `build-linux.sh` cannot run there. Needs `sudo rm -rf ~/SaveLocker/agent-ui/node_modules` once.
+  (Also: `npm` inside WSL resolves to the **Windows** npm on the shared PATH unless a Linux node is
+  first — that produces the baffling `error TS5083: Cannot read file 'C:/Windows/tsconfig.json'`.)
+- **MinVer stamps `0.1.0`, not `0.1.6-alpha`.** Tags are `v0.1.5` but **`MinVerTagPrefix` is never
+  set**, and MinVer's default prefix is empty — so it looks for a tag named `0.1.5`, finds none, and
+  falls back to `MinVerMinimumMajorMinor`. Harmless today only because the installer script *and*
+  release CI both pass the version explicitly. Backlogged.
+
 **STOP.**
 
 ---
