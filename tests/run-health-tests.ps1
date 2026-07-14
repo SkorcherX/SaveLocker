@@ -64,7 +64,13 @@ $env:Storage__ArchiveRoot = Join-Path $state "archives"
 $env:Backup__Enabled      = "false"
 
 function Start-TestServer {
-    $p = Start-Process -FilePath $dotnet -ArgumentList $serverDll -PassThru -WindowStyle Hidden
+    # -WindowStyle does not exist on PowerShell Core on Linux ("not supported on this edition"), and
+    # there is no window to hide there anyway. Passing it unconditionally fails the whole suite on CI.
+    $p = if ($onWindows) {
+        Start-Process -FilePath $dotnet -ArgumentList $serverDll -PassThru -WindowStyle Hidden
+    } else {
+        Start-Process -FilePath $dotnet -ArgumentList $serverDll -PassThru
+    }
     foreach ($i in 1..40) {
         Start-Sleep -Milliseconds 700
         try { Invoke-RestMethod "$server/api/admin/status" -TimeoutSec 3 | Out-Null; return $p } catch { }
