@@ -1,5 +1,5 @@
 {
-  "openapi": "3.0.1",
+  "openapi": "3.1.1",
   "info": {
     "title": "SaveLocker API",
     "version": "v1"
@@ -944,7 +944,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/SaveVersionDto2"
+                    "$ref": "#/components/schemas/SaveVersionDto"
                   }
                 }
               }
@@ -966,7 +966,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/ConflictDto2"
+                    "$ref": "#/components/schemas/ConflictDto"
                   }
                 }
               }
@@ -1305,18 +1305,24 @@
             "format": "uuid"
           },
           "machineId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "machineName": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "gameId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "type": {
             "$ref": "#/components/schemas/AgentCommandType"
@@ -1332,13 +1338,17 @@
             "format": "date-time"
           },
           "completedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           },
           "result": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1412,29 +1422,39 @@
             "format": "date-time"
           },
           "machineId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "machineName": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "gameId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "gameName": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "action": {
             "type": "string"
           },
           "detail": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1459,28 +1479,6 @@
           }
         }
       },
-      "BackupInfo2": {
-        "required": [
-          "fileName",
-          "sizeBytes",
-          "createdAt"
-        ],
-        "type": "object",
-        "properties": {
-          "fileName": {
-            "type": "string"
-          },
-          "sizeBytes": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        },
-        "nullable": true
-      },
       "BackupResult": {
         "required": [
           "ok",
@@ -1494,11 +1492,20 @@
             "type": "boolean"
           },
           "message": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "backup": {
-            "$ref": "#/components/schemas/BackupInfo2"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BackupInfo"
+              }
+            ]
           },
           "totalBackups": {
             "type": "integer",
@@ -1517,8 +1524,10 @@
             "$ref": "#/components/schemas/CommandStatus"
           },
           "result": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1568,72 +1577,24 @@
             "format": "date-time"
           },
           "resolvedVersionId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "resolvedBy": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "resolvedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        },
-        "nullable": true
-      },
-      "ConflictDto2": {
-        "required": [
-          "id",
-          "gameId",
-          "versionAId",
-          "versionBId",
-          "status",
-          "createdAt",
-          "resolvedVersionId",
-          "resolvedBy",
-          "resolvedAt"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "gameId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "versionAId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "versionBId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "status": {
-            "$ref": "#/components/schemas/ConflictStatus"
-          },
-          "createdAt": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "date-time"
-          },
-          "resolvedVersionId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "resolvedBy": {
-            "type": "string",
-            "nullable": true
-          },
-          "resolvedAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
           }
         }
       },
@@ -1655,17 +1616,22 @@
             "type": "string"
           },
           "manifestKey": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "customPathsJson": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "suggestedSaveDir": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -1683,9 +1649,11 @@
             "format": "uuid"
           },
           "gameId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           },
           "type": {
             "$ref": "#/components/schemas/AgentCommandType"
@@ -1713,59 +1681,71 @@
             "type": "string"
           },
           "manifestKey": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "customPathsJson": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "enabled": {
             "type": "boolean"
           },
           "suggestedSaveDir": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "machineSavePath": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "gridUrl": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "heroUrl": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "logoUrl": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "iconUrl": {
-            "type": "string",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "retainVersions": {
-            "type": "integer",
-            "format": "int32",
-            "default": null,
-            "nullable": true
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
           },
           "excludeGlobs": {
-            "type": "array",
+            "type": [
+              "null",
+              "array"
+            ],
             "items": {
               "type": "string"
-            },
-            "default": null,
-            "nullable": true
+            }
           }
         }
       },
@@ -1782,10 +1762,24 @@
             "$ref": "#/components/schemas/GameDto"
           },
           "head": {
-            "$ref": "#/components/schemas/SaveVersionDto"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SaveVersionDto"
+              }
+            ]
           },
           "lease": {
-            "$ref": "#/components/schemas/LeaseDto2"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LeaseDto"
+              }
+            ]
           },
           "hasOpenConflict": {
             "type": "boolean"
@@ -1827,61 +1821,33 @@
             "format": "uuid"
           },
           "holderMachineId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
-          "holderMachineName": {
-            "type": "string",
-            "nullable": true
-          },
-          "acquiredAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
-          }
-        }
-      },
-      "LeaseDto2": {
-        "required": [
-          "gameId",
-          "holderMachineId",
-          "holderMachineName",
-          "acquiredAt",
-          "expiresAt"
-        ],
-        "type": "object",
-        "properties": {
-          "gameId": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "uuid"
           },
-          "holderMachineId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          },
           "holderMachineName": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "acquiredAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           },
           "expiresAt": {
-            "type": "string",
-            "format": "date-time",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
-        },
-        "nullable": true
+        }
       },
       "MachineDto": {
         "required": [
@@ -1996,56 +1962,11 @@
             "format": "int64"
           },
           "parentVersionId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
-          }
-        },
-        "nullable": true
-      },
-      "SaveVersionDto2": {
-        "required": [
-          "id",
-          "gameId",
-          "machineId",
-          "machineName",
-          "createdAt",
-          "contentHash",
-          "size",
-          "parentVersionId"
-        ],
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
+            "type": [
+              "null",
+              "string"
+            ],
             "format": "uuid"
-          },
-          "gameId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "machineId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "machineName": {
-            "type": "string"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "contentHash": {
-            "type": "string"
-          },
-          "size": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "parentVersionId": {
-            "type": "string",
-            "format": "uuid",
-            "nullable": true
           }
         }
       },
@@ -2062,8 +1983,10 @@
             "type": "boolean"
           },
           "steamGridDbKeyMasked": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           },
           "steamGridDbFromConfig": {
             "type": "boolean"
@@ -2072,12 +1995,13 @@
             "type": "boolean"
           },
           "defaultExcludeGlobs": {
-            "type": "array",
+            "type": [
+              "null",
+              "array"
+            ],
             "items": {
               "type": "string"
-            },
-            "default": null,
-            "nullable": true
+            }
           },
           "autoFetchHours": {
             "type": "number",
@@ -2093,8 +2017,10 @@
         "type": "object",
         "properties": {
           "password": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2117,8 +2043,10 @@
         "type": "object",
         "properties": {
           "apiKey": {
-            "type": "string",
-            "nullable": true
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2134,10 +2062,24 @@
             "$ref": "#/components/schemas/UploadStatus"
           },
           "version": {
-            "$ref": "#/components/schemas/SaveVersionDto"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SaveVersionDto"
+              }
+            ]
           },
           "conflict": {
-            "$ref": "#/components/schemas/ConflictDto"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ConflictDto"
+              }
+            ]
           }
         }
       },

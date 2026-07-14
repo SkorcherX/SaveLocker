@@ -11,6 +11,13 @@
 /.verify/
 /crossos-work/
 
+# NEVER commit a real server database. A copy of production is sometimes pulled in to test a
+# migration against real data (see tasks/dotnet-10-upgrade.md Phase 4) — it holds machine API key
+# hashes, machine names, save paths and the audit log, and this repo is public.
+*.db
+*.db-wal
+*.db-shm
+
 # IDE / user files
 *.user
 .vs/

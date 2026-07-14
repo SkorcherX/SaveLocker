@@ -8,9 +8,32 @@ Reuse the open-source **Ludusavi manifest** (community DB mapping thousands of g
 ## Conflict prevention — Proactive lock/lease
 Server tracks an active "checkout" per game (like Steam Cloud's "in use"). Agent pulls latest before launch; the other machine is warned if saves are leased elsewhere. Content-hash + parent-version lineage is the fallback detector.
 
-## Tech stack — Single-language .NET 9
+## Tech stack — Single-language .NET  ⚠️ *version superseded by "Runtime: .NET 10 LTS" below*
 - Agent in C#/WinForms: best Windows integration (FileSystemWatcher, process watch, tray, single-file exe).
 - Server in ASP.NET Core, runs in Docker on unRAID. One language end-to-end.
+- The single-language, WinForms and ASP.NET Core choices all stand. Only the **framework version**
+  moved: .NET 9 → .NET 10.
+
+## Runtime: .NET 10 LTS (locked 2026-07-13)
+**Supersedes the version half of "Single-language .NET 9".** Execution plan: `tasks/dotnet-10-upgrade.md`.
+
+- **.NET 9 is STS and goes out of support 10 Nov 2026** — it is already in its maintenance phase
+  (security fixes only). This is a deadline, not a preference.
+- **.NET 10 is LTS** (supported to 14 Nov 2028) — three years, instead of another 18-month STS
+  treadmill. Prefer LTS-to-LTS from here.
+- **It dissolves the EF Core pin.** The rule "pin EF Core to 9.0.x; 10.x requires net10" existed
+  *because* we were on net9. The upgrade removes the reason, so the rule goes with it — do not leave
+  it behind to tell a future session not to do the thing that was just done.
+- **Timing: before Linux agent Phase 4, not after.** The safety net peaked the moment Phase 3 landed
+  — Windows 10/10, Linux 10/10, harness 27/27, and a cross-OS byte-compare in CI. That is exactly the
+  apparatus needed to catch a framework swap going wrong. Upgrading later means doing it across a
+  larger surface *and* porting fresh Phase 4/5 code onto net10 afterwards.
+- **Its own branch, its own PR.** Never mixed with feature work: if something breaks, the whole value
+  of the timing is that the cause is unambiguous.
+- **A `global.json` pins the SDK.** CI was silently building the net9 targets with **SDK 10.0.301**
+  (windows-latest preinstalls it; `dotnet build` takes the newest SDK unless pinned) while the dev box
+  used 9.0.315. Dev, CI and Docker must agree on the toolchain — and the pin must be satisfiable by
+  all three, including the `mcr.microsoft.com/dotnet/sdk` image.
 
 ## unRAID as hub (vs peer-to-peer)
 - Asynchronous decoupling: PC pushes; laptop pulls later even if PC is off.

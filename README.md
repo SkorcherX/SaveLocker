@@ -145,10 +145,10 @@ npm run dev   # proxies /api to :5179 — open http://localhost:5173
 dotnet build src/Agent/SaveLocker.Agent.csproj --no-incremental
 
 # Run (tray mode)
-src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.exe
+src/Agent/bin/Debug/net10.0-windows/SaveLocker.Agent.exe
 
 # Run (CLI)
-src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.exe status
+src/Agent/bin/Debug/net10.0-windows/SaveLocker.Agent.exe status
 ```
 
 The agent UI is a Vite/React app in `agent-ui/` — `npm run dev` there (port 5177) proxies `/api` to the agent's local server on port 5178. MSBuild runs `npm run build` automatically and copies `dist/` into the output folder on every build.

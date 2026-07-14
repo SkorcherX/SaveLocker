@@ -1,7 +1,7 @@
 # Agent integration tests — 10 checks. Runs on BOTH Windows and Linux.
 #
-#   Windows: Windows PowerShell 5.1 or pwsh, drives src/Agent (net9.0-windows).
-#   Linux:   pwsh (PowerShell Core), drives src/Agent.Linux (net9.0).
+#   Windows: Windows PowerShell 5.1 or pwsh, drives src/Agent (net10.0-windows).
+#   Linux:   pwsh (PowerShell Core), drives src/Agent.Linux (net10.0).
 #
 # The sync brain under test is the same Agent.Core on both — that is the point. Only the
 # host binary and the save-detection expectation differ, and both differences are explicit
@@ -28,11 +28,11 @@ if ($onWindows) {
     # so prefer the known install location and fall back to PATH.
     $inProgramFiles = Join-Path $env:ProgramFiles "dotnet\dotnet.exe"
     $dotnet = if (Test-Path $inProgramFiles) { $inProgramFiles } else { "dotnet" }
-    $dll    = Join-Path $root "src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.dll"
+    $dll    = Join-Path $root "src/Agent/bin/Debug/net10.0-windows/SaveLocker.Agent.dll"
 } else {
     # AssemblyName is 'savelocker' (the command users type), not the project name.
     $dotnet = "dotnet"
-    $dll    = Join-Path $root "src/Agent.Linux/bin/Debug/net9.0/savelocker.dll"
+    $dll    = Join-Path $root "src/Agent.Linux/bin/Debug/net10.0/savelocker.dll"
 }
 
 if (-not (Test-Path $dll)) {

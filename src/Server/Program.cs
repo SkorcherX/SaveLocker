@@ -4,6 +4,7 @@ using SaveLocker.Server.Services;
 using SaveLocker.Shared;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.OpenApi;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -57,11 +58,35 @@ builder.Services.AddHttpClient("steamgriddb", c =>
 // contract. The web dashboard's TS types are generated from it (openapi-typescript),
 // so hand-written types can no longer drift from the server. Endpoint response
 // schemas come from the .Produces<T>() annotations on the routes below.
-builder.Services.AddOpenApi(o => o.AddDocumentTransformer((doc, _, _) =>
+builder.Services.AddOpenApi(o =>
 {
-    doc.Info = new() { Title = "SaveLocker API", Version = "v1" };
-    return Task.CompletedTask;
-}));
+    o.AddDocumentTransformer((doc, _, _) =>
+    {
+        doc.Info = new() { Title = "SaveLocker API", Version = "v1" };
+        return Task.CompletedTask;
+    });
+
+    // .NET 10 emits OpenAPI 3.1, which describes numeric types as a union with string:
+    // `long` becomes ["integer","string"] (an int64 can exceed JavaScript's safe-integer range)
+    // and `double` becomes ["number","string"] (JSON cannot represent NaN/Infinity). Both hedge
+    // for a serializer that *might* fall back to a string. Ours never does — System.Text.Json
+    // writes these as JSON numbers, always, and throws rather than emitting "NaN".
+    //
+    // Leaving the hedge in propagates `number | string` into the generated TS types for every
+    // size, byte-count and interval field, which then has to be coerced away at ~10 call sites in
+    // the dashboard to handle a case that cannot occur. Describe what the server actually sends.
+    o.AddSchemaTransformer((schema, _, _) =>
+    {
+        if (schema.Type is { } t
+            && t.HasFlag(JsonSchemaType.String)
+            && (t.HasFlag(JsonSchemaType.Integer) || t.HasFlag(JsonSchemaType.Number)))
+        {
+            schema.Type = t & ~JsonSchemaType.String;
+            schema.Pattern = null;
+        }
+        return Task.CompletedTask;
+    });
+});
 builder.Services.ConfigureHttpJsonOptions(o =>
     o.SerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter()));
 

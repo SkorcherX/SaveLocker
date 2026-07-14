@@ -42,6 +42,6 @@ Before closing, update the vault so the next session starts clean:
 
 - Build server with `--no-incremental`; stop agent/server first (DLL lock).
 - Dev storage is `src/Server/localstate/` — never `data/` (case-collision with `Data/`).
-- EF Core pinned to 9.0.x — do not upgrade to 10.x (requires net10).
+- Target framework is **net10.0** (LTS). EF Core tracks it at 10.0.x. The SDK is pinned in `global.json` — bump it and the Dockerfile's `sdk`/`aspnet` tags together.
 - After any API change: regenerate `web/src/api-types.ts` and commit the updated `src/Server/openapi.json` snapshot.
 - No comments unless the WHY is non-obvious. No trailing summaries after diffs.

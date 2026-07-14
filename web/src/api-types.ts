@@ -1250,7 +1250,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["SaveVersionDto2"][];
+                        "application/json": components["schemas"]["SaveVersionDto"][];
                     };
                 };
             };
@@ -1285,7 +1285,7 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content: {
-                        "application/json": components["schemas"]["ConflictDto2"][];
+                        "application/json": components["schemas"]["ConflictDto"][];
                     };
                 };
             };
@@ -1723,18 +1723,18 @@ export interface components {
             /** Format: uuid */
             id: string;
             /** Format: uuid */
-            machineId: string | null;
-            machineName: string | null;
+            machineId: null | string;
+            machineName: null | string;
             /** Format: uuid */
-            gameId: string | null;
+            gameId: null | string;
             type: components["schemas"]["AgentCommandType"];
             force: boolean;
             status: components["schemas"]["CommandStatus"];
             /** Format: date-time */
             createdAt: string;
             /** Format: date-time */
-            completedAt: string | null;
-            result: string | null;
+            completedAt: null | string;
+            result: null | string;
         };
         /** @enum {unknown} */
         AgentCommandType: "Pull" | "Push" | "Sync" | "Scan";
@@ -1756,13 +1756,13 @@ export interface components {
             /** Format: date-time */
             timestamp: string;
             /** Format: uuid */
-            machineId: string | null;
-            machineName: string | null;
+            machineId: null | string;
+            machineName: null | string;
             /** Format: uuid */
-            gameId: string | null;
-            gameName: string | null;
+            gameId: null | string;
+            gameName: null | string;
             action: string;
-            detail: string | null;
+            detail: null | string;
         };
         BackupInfo: {
             fileName: string;
@@ -1771,23 +1771,16 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
-        BackupInfo2: {
-            fileName: string;
-            /** Format: int64 */
-            sizeBytes: number;
-            /** Format: date-time */
-            createdAt: string;
-        } | null;
         BackupResult: {
             ok: boolean;
-            message: string | null;
-            backup: components["schemas"]["BackupInfo2"];
+            message: null | string;
+            backup: null | components["schemas"]["BackupInfo"];
             /** Format: int32 */
             totalBackups: number;
         };
         CommandResultRequest: {
             status: components["schemas"]["CommandStatus"];
-            result: string | null;
+            result: null | string;
         };
         /** @enum {unknown} */
         CommandStatus: "Pending" | "Dispatched" | "Done" | "Failed";
@@ -1804,43 +1797,24 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             /** Format: uuid */
-            resolvedVersionId: string | null;
-            resolvedBy: string | null;
+            resolvedVersionId: null | string;
+            resolvedBy: null | string;
             /** Format: date-time */
-            resolvedAt: string | null;
-        } | null;
-        ConflictDto2: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            gameId: string;
-            /** Format: uuid */
-            versionAId: string;
-            /** Format: uuid */
-            versionBId: string;
-            status: components["schemas"]["ConflictStatus"];
-            /** Format: date-time */
-            createdAt: string;
-            /** Format: uuid */
-            resolvedVersionId: string | null;
-            resolvedBy: string | null;
-            /** Format: date-time */
-            resolvedAt: string | null;
+            resolvedAt: null | string;
         };
         /** @enum {unknown} */
         ConflictStatus: "Open" | "Resolved";
         CreateGameRequest: {
             name: string;
-            manifestKey: string | null;
-            customPathsJson: string | null;
-            /** @default null */
-            suggestedSaveDir: string | null;
+            manifestKey: null | string;
+            customPathsJson: null | string;
+            suggestedSaveDir?: null | string;
         };
         EnqueueCommandRequest: {
             /** Format: uuid */
             machineId: string;
             /** Format: uuid */
-            gameId: string | null;
+            gameId: null | string;
             type: components["schemas"]["AgentCommandType"];
             force: boolean;
         };
@@ -1848,33 +1822,23 @@ export interface components {
             /** Format: uuid */
             id: string;
             name: string;
-            manifestKey: string | null;
-            customPathsJson: string | null;
+            manifestKey: null | string;
+            customPathsJson: null | string;
             enabled: boolean;
-            /** @default null */
-            suggestedSaveDir: string | null;
-            /** @default null */
-            machineSavePath: string | null;
-            /** @default null */
-            gridUrl: string | null;
-            /** @default null */
-            heroUrl: string | null;
-            /** @default null */
-            logoUrl: string | null;
-            /** @default null */
-            iconUrl: string | null;
-            /**
-             * Format: int32
-             * @default null
-             */
-            retainVersions: number | null;
-            /** @default null */
-            excludeGlobs: string[] | null;
+            suggestedSaveDir?: null | string;
+            machineSavePath?: null | string;
+            gridUrl?: null | string;
+            heroUrl?: null | string;
+            logoUrl?: null | string;
+            iconUrl?: null | string;
+            /** Format: int32 */
+            retainVersions?: null | number;
+            excludeGlobs?: null | string[];
         };
         GameStateDto: {
             game: components["schemas"]["GameDto"];
-            head: components["schemas"]["SaveVersionDto"];
-            lease: components["schemas"]["LeaseDto2"];
+            head: null | components["schemas"]["SaveVersionDto"];
+            lease: null | components["schemas"]["LeaseDto"];
             hasOpenConflict: boolean;
             /**
              * Format: int64
@@ -1890,24 +1854,13 @@ export interface components {
             /** Format: uuid */
             gameId: string;
             /** Format: uuid */
-            holderMachineId: string | null;
-            holderMachineName: string | null;
+            holderMachineId: null | string;
+            holderMachineName: null | string;
             /** Format: date-time */
-            acquiredAt: string | null;
+            acquiredAt: null | string;
             /** Format: date-time */
-            expiresAt: string | null;
+            expiresAt: null | string;
         };
-        LeaseDto2: {
-            /** Format: uuid */
-            gameId: string;
-            /** Format: uuid */
-            holderMachineId: string | null;
-            holderMachineName: string | null;
-            /** Format: date-time */
-            acquiredAt: string | null;
-            /** Format: date-time */
-            expiresAt: string | null;
-        } | null;
         MachineDto: {
             /** Format: uuid */
             id: string;
@@ -1945,31 +1898,14 @@ export interface components {
             /** Format: int64 */
             size: number;
             /** Format: uuid */
-            parentVersionId: string | null;
-        } | null;
-        SaveVersionDto2: {
-            /** Format: uuid */
-            id: string;
-            /** Format: uuid */
-            gameId: string;
-            /** Format: uuid */
-            machineId: string;
-            machineName: string;
-            /** Format: date-time */
-            createdAt: string;
-            contentHash: string;
-            /** Format: int64 */
-            size: number;
-            /** Format: uuid */
-            parentVersionId: string | null;
+            parentVersionId: null | string;
         };
         ServerSettingsDto: {
             steamGridDbConfigured: boolean;
-            steamGridDbKeyMasked: string | null;
+            steamGridDbKeyMasked: null | string;
             steamGridDbFromConfig: boolean;
             adminPasswordSet: boolean;
-            /** @default null */
-            defaultExcludeGlobs: string[] | null;
+            defaultExcludeGlobs?: null | string[];
             /**
              * Format: double
              * @default 0
@@ -1977,19 +1913,19 @@ export interface components {
             autoFetchHours: number;
         };
         SetAdminPasswordRequest: {
-            password: string | null;
+            password: null | string;
         };
         SetAutoFetchHoursRequest: {
             /** Format: double */
             hours: number;
         };
         SetSteamGridDbKeyRequest: {
-            apiKey: string | null;
+            apiKey: null | string;
         };
         UploadResult: {
             status: components["schemas"]["UploadStatus"];
-            version: components["schemas"]["SaveVersionDto"];
-            conflict: components["schemas"]["ConflictDto"];
+            version: null | components["schemas"]["SaveVersionDto"];
+            conflict: null | components["schemas"]["ConflictDto"];
         };
         /** @enum {unknown} */
         UploadStatus: "Created" | "NoChange" | "Conflict";

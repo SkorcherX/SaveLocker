@@ -66,11 +66,11 @@ function Read-Text($path)         { [IO.File]::ReadAllText($path, $utf8).Trim() 
 
 # ---- The agent under test: the host binary for THIS OS, same Agent.Core inside ---------------
 if ($onWindows) {
-    $agentDll  = Join-Path $root "src/Agent/bin/Debug/net9.0-windows/SaveLocker.Agent.dll"
+    $agentDll  = Join-Path $root "src/Agent/bin/Debug/net10.0-windows/SaveLocker.Agent.dll"
     $agentName = "PC-Windows"
 } else {
     # AssemblyName is 'savelocker' (the command users type), not the project name.
-    $agentDll  = Join-Path $root "src/Agent.Linux/bin/Debug/net9.0/savelocker.dll"
+    $agentDll  = Join-Path $root "src/Agent.Linux/bin/Debug/net10.0/savelocker.dll"
     $agentName = "Deck-Linux"
 }
 if (-not (Test-Path $agentDll)) { throw "Agent not built for this OS: $agentDll" }
@@ -103,7 +103,7 @@ function Assert-PortFree {
 }
 
 function Start-TestServer {
-    $serverDll = Join-Path $root "src/Server/bin/Debug/net9.0/SaveLocker.Server.dll"
+    $serverDll = Join-Path $root "src/Server/bin/Debug/net10.0/SaveLocker.Server.dll"
     if (-not (Test-Path $serverDll)) { throw "Server not built: $serverDll" }
 
     Assert-PortFree
