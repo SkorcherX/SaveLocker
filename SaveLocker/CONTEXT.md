@@ -4,7 +4,7 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.5 (released — glob patterns now match at any depth, gitignore-style; asset ProductVersion `0.1.5` verified). v0.1.4 shipped 5e glob filters; v0.1.1–0.1.3 verified on device. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
+**Current version:** v0.1.6 (tagged 2026-07-14 — installer GUI enrollment; ⏳ upgrade path being device-verified). v0.1.5 released glob depth-matching; v0.1.4 shipped 5e glob filters; v0.1.1–0.1.3 verified on device. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
 
 ---
 
@@ -30,22 +30,30 @@
 | Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS (PR #4, merged) |
 | Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
 | Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
+| **Installer GUI enrollment** (Windows) | ✅ built + ISCC-compiles 2026-07-14 (v0.1.6). ⏳ **not device-verified** — the silent-upgrade regression is the one that matters |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: **Enroll from the Windows installer (GUI)** — `tasks/installer-enrollment.md`
+## ▶ NEXT ACTION: **Device-verify the installer GUI enrollment (v0.1.6)** — built, not yet proven
 
-Enrollment shipped (Phase 4), but on Windows it is **command-line only**: a user installs from a GUI
-and is then told to open a terminal and type a path. That is the *first* thing a new user does, and
-it is the worst seam in the product. Add a wizard page: *"Enrol this machine now?"* → browse to the
-policy file → the machine is online in the console before the installer closes.
+The installer wizard page + de-elevated post-install enroll shipped in `installer/SaveLocker.iss`
+(built 2026-07-14, ISCC compiles). It is **not device-verified**. Run the five scenarios in the
+archived task (`logs/2026-07-14_installer-enrollment.md`), the last one **first** if time is short:
 
-- **Plan + the traps:** `tasks/installer-enrollment.md`. Read the traps before writing code.
-- 🚨 **The one that could break the fleet:** the agent's **auto-update runs the installer with `/SILENT`** — a reinstall over an already-enrolled agent. The post-install enrol step must be a **no-op** when no file was chosen or a key already exists. Never re-enrol (it rotates the machine's key), never touch the existing config (it holds the API key, the TOFU pin, and every save-dir mapping).
-- ⚠️ **The ACL trap:** the installer is **elevated**, the tray agent is **not** (that is why `[Run]` uses `runasoriginaluser`). If the elevated installer creates `%PROGRAMDATA%\SaveLocker` first, the agent may not be able to write its own config afterwards — which looks like *"enrollment worked, then the agent forgot everything"*.
+- 🚨 **The silent-upgrade regression — the one that could break every Windows machine in the field.**
+  Install + enrol, then re-run the new installer with `/SILENT /FORCECLOSEAPPLICATIONS /NORESTART`
+  (what auto-update does). Assert: no prompt, API key **unchanged**, tracked games **intact**, no
+  token burnt server-side, agent comes back up enrolled. Guarded in code by `ResolveEnrollFile`
+  returning `''` under `/SILENT` **and** `IsAlreadyEnrolled` (config already holds `"ApiKey"`).
+- ⚠️ **The ACL trap:** after a happy-path enrol on a machine where `%PROGRAMDATA%\SaveLocker` did not
+  previously exist, `icacls "%PROGRAMDATA%\SaveLocker"` — the interactive user needs **Modify**. The
+  enroll runs via `ExecAsOriginalUser` precisely so the config dir is created de-elevated.
+- Also verify: happy path (page shows the right server + machine name, machine goes online),
+  expired-token (says so on the page, install still succeeds), skip path (installs unenrolled).
+- New unattended switch: `Setup.exe /SILENT /ENROLL="C:\path\policy.json"`.
 
 ## Also queued: **Linux Help-KB articles** — `tasks/linux-kb-articles.md` (UNBLOCKED)
 

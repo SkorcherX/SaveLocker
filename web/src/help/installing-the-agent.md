@@ -30,7 +30,7 @@ server only keeps a hash of it.
 
 # Windows
 
-## Install
+## Install and enroll — one flow
 
 1. Download and run `SaveLocker-Agent-Setup-<version>.exe`.
 2. **Windows will warn you that the publisher is unknown.** Click **More info → Run anyway**. The
@@ -38,23 +38,26 @@ server only keeps a hash of it.
    expected, and worth knowing rather than being surprised by.
 3. The installer needs **administrator rights** (it installs to `C:\Program Files\SaveLocker Agent`
    and registers the auto-start entry, so the uninstaller can cleanly remove both).
+4. On the **Enroll this machine** page, leave **"Enroll this machine now"** selected and browse to
+   the enrollment file you downloaded. The installer shows **which server and machine name** the file
+   will join — check the server address is one you trust before continuing. The machine is enrolled as
+   the install finishes, so it is **online in this console before the installer window closes**.
 
-The agent starts in the **system tray**. Double-click the icon to open its window.
+The agent then starts in the **system tray**. Double-click the icon to open its window, and confirm
+the machine appears under **Configuration → Machines** here, showing as **online**.
 
-## Enroll it
+> **Enrolling later instead.** Choose **"Skip — I'll enroll later"** on that page to install without
+> enrolling. When you have the file, enroll from the agent's **Settings** tab, or from a terminal:
+>
+> ```
+> "C:\Program Files\SaveLocker Agent\SaveLocker.Agent.exe" enroll --file C:\Users\you\Downloads\savelocker-enroll-desktop.json
+> ```
+>
+> Either way, if the file has **expired** (they last ~15 minutes) the installer says so on the page —
+> just create a new one from the console.
 
-Open a terminal and point the agent at the enrollment file you downloaded:
-
-```
-"C:\Program Files\SaveLocker Agent\SaveLocker.Agent.exe" enroll --file C:\Users\you\Downloads\savelocker-enroll-desktop.json
-```
-
-That sets the server URL, registers this machine, and picks up the games already defined on the
-server. Then confirm it appears under **Configuration → Machines** in this console, showing as
-**online**.
-
-> **No console access?** You can still set it up by hand from the agent's **Settings** tab: enter the
-> server URL and register. Enrollment is the easier path, not the only one.
+> **Deploying to many machines?** Pass the file on the command line for an unattended install:
+> `SaveLocker-Agent-Setup-<version>.exe /SILENT /ENROLL="C:\path\savelocker-enroll.json"`.
 
 ## Notes
 
