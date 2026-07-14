@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
     public DbSet<MachineSavePath> MachineSavePaths => Set<MachineSavePath>();
+    public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
 
     protected override void OnModelCreating(ModelBuilder b)
     {
@@ -32,5 +33,8 @@ public class AppDbContext : DbContext
         b.Entity<AppSetting>().HasKey(s => s.Key);
 
         b.Entity<MachineSavePath>().HasKey(p => new { p.MachineId, p.GameId });
+
+        // Redeem looks a token up by hash; unique so a hash can never map to two rows.
+        b.Entity<EnrollmentToken>().HasIndex(t => t.TokenHash).IsUnique();
     }
 }

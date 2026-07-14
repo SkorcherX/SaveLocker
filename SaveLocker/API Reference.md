@@ -10,6 +10,7 @@ Server endpoints (`src/Server/Program.cs`).
 
 ## Public (no auth)
 - `POST /api/machines/register` `{ name }` → `{ machineId, apiKey }`. First-time registration of a new name is open. Re-registering an **existing** name rotates its key — requires `X-Admin-Password` once an admin password is set (**401** otherwise). With no password configured it stays open.
+- `POST /api/enroll` `{ token, machineName? }` → `{ machineId, apiKey, machineName }`. Spends a single-use enrollment token for a real machine key. **No auth filter, because the token *is* the credential** — a fresh agent has nothing else. Unknown, expired and already-spent tokens all answer **401**. If the token was minted *for* a machine name, that name is binding and `machineName` in the body is ignored — so a leaked file cannot be spent to claim another machine's identity. Redeeming for an existing name **rotates** that machine's key (the re-enrollment path for a wiped device), authorised by the token exactly as the admin password authorises re-registration.
 - `GET /health` → `{ service, status:"ok" }`.
 - `GET /api/admin/status` → `{ passwordRequired }`.
 - `GET /` → React admin dashboard (served from `wwwroot/` by ASP.NET static files).
@@ -57,6 +58,13 @@ Server endpoints (`src/Server/Program.cs`).
 - `POST /api/admin/password` `{ password }` → `{ ok, message }`. Set or clear the admin password.
 - `POST /api/admin/backup` → `BackupResult { ok, message, backup, totalBackups }`. Take an immediate SQLite snapshot.
 - `GET /api/admin/backups` → `BackupInfo[]` `{ fileName, sizeBytes, createdAt }`, newest first.
+
+## Enrollment (admin)
+- `POST /api/admin/enrollments` `{ machineName?, ttlMinutes?, serverUrl?, gameIds?, settleQuietSeconds?, settleMaxWaitSeconds? }` → `CreateEnrollmentResponse { id, policy }`. Mints a single-use token (default TTL **15 min**, max 24 h) and returns the **policy file** the agent consumes. **The raw token is in this response and nowhere else** — the server stores only its hash, so a policy that isn't saved here is unrecoverable. `serverUrl` defaults to the URL the console was reached on; override it when the admin is on the LAN but the agent must use the public tunnel. `gameIds` null = every enabled game.
+- `GET /api/admin/enrollments` → `EnrollmentDto[]` (100 newest) `{ id, machineName, createdAt, expiresAt, redeemedAt, redeemedByMachineName }`.
+- `DELETE /api/admin/enrollments/{id}` → 204 / 404. Revokes an unspent token. Deleting a *spent* one only drops the record — it does not revoke the API key it bought (delete the machine for that).
+
+The policy file is **deliberately unsigned** (`Decisions.md` §4). Its `games` list only pre-seeds the agent; the server stays authoritative and the agent's reconcile corrects it.
 
 ## Agent installer management (admin)
 - `GET /api/admin/agent-installer` → `AgentInstallerStatus { version, fileName, uploadedAt, sizeBytes }`, or 204 if none hosted.

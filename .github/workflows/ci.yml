@@ -88,6 +88,16 @@ jobs:
       - name: Agent integration tests
         run: pwsh tests/run-agent-tests.ps1
 
+      # Enrollment runs AFTER the agent suite: that suite expects a fresh DB, and this one adds a
+      # game and a machine to it. `enroll` lives in Agent.Core, so driving it from the Linux host
+      # exercises the same code the Windows agent runs.
+      #
+      # TOFU pinning is NOT covered here — plain http has no server identity to pin. That path is
+      # tests/run-enrollment-tls-tests.ps1, which needs a trusted dev certificate and so is a local
+      # check, not a CI one.
+      - name: Enrollment integration tests
+        run: pwsh tests/run-enrollment-tests.ps1
+
   # ── Cross-OS round-trip ──────────────────────────────────────────────────────────────────
   # Prove a Windows save and a Proton save are actually interchangeable.
   #

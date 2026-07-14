@@ -63,6 +63,35 @@
         }
       }
     },
+    "/api/enroll": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RedeemEnrollmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RedeemEnrollmentResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agent/installer/download": {
       "get": {
         "tags": [
@@ -1217,6 +1246,78 @@
         }
       }
     },
+    "/api/admin/enrollments": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateEnrollmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateEnrollmentResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EnrollmentDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/enrollments/{id}": {
+      "delete": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/admin/agent-installer": {
       "get": {
         "tags": [
@@ -1604,6 +1705,70 @@
           "Resolved"
         ]
       },
+      "CreateEnrollmentRequest": {
+        "type": "object",
+        "properties": {
+          "machineName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "ttlMinutes": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "serverUrl": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "gameIds": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "settleQuietSeconds": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "settleMaxWaitSeconds": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "CreateEnrollmentResponse": {
+        "required": [
+          "id",
+          "policy"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/EnrollmentPolicy"
+          }
+        }
+      },
       "CreateGameRequest": {
         "required": [
           "name",
@@ -1660,6 +1825,141 @@
           },
           "force": {
             "type": "boolean"
+          }
+        }
+      },
+      "EnrollmentDto": {
+        "required": [
+          "id",
+          "machineName",
+          "createdAt",
+          "expiresAt",
+          "redeemedAt",
+          "redeemedByMachineName"
+        ],
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "machineName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "redeemedAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "redeemedByMachineName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "EnrollmentGame": {
+        "required": [
+          "gameId",
+          "name"
+        ],
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "manifestKey": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "suggestedSaveDir": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "excludeGlobs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "EnrollmentPolicy": {
+        "required": [
+          "version",
+          "serverUrl",
+          "token",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "serverUrl": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "machineName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "settleQuietSeconds": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "settleMaxWaitSeconds": {
+            "type": [
+              "null",
+              "integer"
+            ],
+            "format": "int32"
+          },
+          "games": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/EnrollmentGame"
+            }
           }
         }
       },
@@ -1918,6 +2218,43 @@
             "type": "string"
           },
           "savePath": {
+            "type": "string"
+          }
+        }
+      },
+      "RedeemEnrollmentRequest": {
+        "required": [
+          "token"
+        ],
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "machineName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "RedeemEnrollmentResponse": {
+        "required": [
+          "machineId",
+          "apiKey",
+          "machineName"
+        ],
+        "type": "object",
+        "properties": {
+          "machineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "apiKey": {
+            "type": "string"
+          },
+          "machineName": {
             "type": "string"
           }
         }

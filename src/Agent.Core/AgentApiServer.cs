@@ -245,7 +245,7 @@ public sealed class AgentApiServer : IDisposable
             try
             {
                 var body = await ReadJsonAsync<RegisterRequest>(req);
-                var api = new ApiClient(_config.ServerUrl, null);
+                var api = ApiClient.For(_config, useConfigKey: false);
                 var reg = await api.RegisterAsync(_config.MachineName, body?.AdminPassword);
                 _config.ApiKey = reg.ApiKey;
                 _config.MachineId = reg.MachineId;

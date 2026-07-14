@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry, AgentInstallerStatus } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -80,6 +80,26 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password }),
     }),
+
+  enrollments: () => request<Enrollment[]>('/admin/enrollments'),
+
+  // The raw token comes back exactly once, inside the policy — the server keeps only its hash.
+  // Whatever the caller does with this response is the only chance to hand it to the user.
+  createEnrollment: (body: {
+    machineName: string | null;
+    ttlMinutes: number;
+    serverUrl: string | null;
+    gameIds: string[] | null;
+  }) =>
+    request<CreateEnrollmentResponse>('/admin/enrollments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }),
+
+  revokeEnrollment: (id: string) =>
+    fetch(`/api/admin/enrollments/${id}`, { method: 'DELETE', headers: headers() })
+      .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
 
   installerStatus: (): Promise<AgentInstallerStatus | null> =>
     fetch('/api/admin/agent-installer', { headers: headers() }).then(async res => {

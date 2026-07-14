@@ -1,5 +1,6 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
+using System.Net.Security;
 using SaveLocker.Shared;
 
 namespace SaveLocker.Agent;
@@ -9,11 +10,59 @@ public sealed class ApiClient
 {
     private readonly HttpClient _http;
 
-    public ApiClient(string baseUrl, string? apiKey)
+    /// <summary>
+    /// The server's TLS public-key fingerprint as observed on the last connection this client made,
+    /// or null over plain http (nothing to pin) or before the first request. Enrollment reads this
+    /// to record the TOFU pin; see <see cref="ServerTrust"/>.
+    /// </summary>
+    public string? ObservedPin { get; private set; }
+
+    /// <summary>
+    /// The client every part of the agent should use: it carries the machine key and enforces the
+    /// TOFU pin recorded at enrollment. Constructing an <see cref="ApiClient"/> directly is for the
+    /// pre-enrollment case, where there is no pin yet.
+    /// </summary>
+    public static ApiClient For(AgentConfig config, string? apiKey = null, bool useConfigKey = true) =>
+        new(config.ServerUrl,
+            apiKey ?? (useConfigKey ? config.ApiKey : null),
+            config.ServerPin,
+            observed => ServerTrust.WarnMismatch(config.ServerPin!, observed));
+
+    /// <param name="expectedPin">TOFU pin recorded at enrollment, if any.</param>
+    /// <param name="onPinMismatch">Invoked with the observed pin when it differs from the expected one.</param>
+    public ApiClient(string baseUrl, string? apiKey, string? expectedPin = null, Action<string>? onPinMismatch = null)
     {
-        _http = new HttpClient { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromMinutes(10) };
+        var handler = new HttpClientHandler();
+
+        // Observe the certificate without weakening validation: the callback still answers with the
+        // platform's own verdict. Returning `true` here would disable TLS validation outright, which
+        // is the classic way this hook gets misused.
+        handler.ServerCertificateCustomValidationCallback = (_, cert, _, errors) =>
+        {
+            if (ServerTrust.Fingerprint(cert) is { } pin)
+            {
+                ObservedPin = pin;
+                if (!string.IsNullOrEmpty(expectedPin) && pin != expectedPin)
+                    onPinMismatch?.Invoke(pin);
+            }
+            return errors == SslPolicyErrors.None;
+        };
+
+        _http = new HttpClient(handler) { BaseAddress = new Uri(baseUrl), Timeout = TimeSpan.FromMinutes(10) };
         if (!string.IsNullOrEmpty(apiKey))
             _http.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
+    }
+
+    /// <summary>
+    /// Spend an enrollment token for this machine's real API key. The only call the agent makes
+    /// before it has a key.
+    /// </summary>
+    public async Task<RedeemEnrollmentResponse> EnrollAsync(string token, string? machineName)
+    {
+        var resp = await _http.PostAsJsonAsync("/api/enroll", new RedeemEnrollmentRequest(token, machineName));
+        if (!resp.IsSuccessStatusCode)
+            throw new InvalidOperationException(await ReadErrorAsync(resp));
+        return (await resp.Content.ReadFromJsonAsync<RedeemEnrollmentResponse>())!;
     }
 
     public async Task<MachineRegisterResponse> RegisterAsync(string name, string? adminPassword = null)
@@ -46,6 +95,13 @@ public sealed class ApiClient
     }
 
     private sealed class ErrorBody { public string? Error { get; set; } }
+
+    /// <summary>
+    /// The one unauthenticated route. Used as a reachability probe — and, because it completes a
+    /// TLS handshake, as the way <c>trust --accept</c> observes the server's current identity.
+    /// </summary>
+    public async Task GetAdminStatusAsync() =>
+        (await _http.GetAsync("/api/admin/status")).EnsureSuccessStatusCode();
 
     public async Task<List<GameDto>> ListGamesAsync() =>
         await _http.GetFromJsonAsync<List<GameDto>>("/api/games") ?? new();

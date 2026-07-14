@@ -12,9 +12,8 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 
 ## Planned — large
 - **Linux agent (Proton / Steam Deck)** — design locked in `Decisions.md`; phased execution plan in `tasks/linux-agent.md`. Proton-only for v1 (Proton saves are byte-identical to Windows saves → no schema change), headless daemon serving the existing React UI, Steam launch-option wrapper as the sync trigger. Dev on WSL2 + a fake-game harness; **no Deck owned**, so hardware validation is a deferred risk.
-  - **Phases 0–3 done.** "Proton saves are byte-identical to Windows saves" is no longer an assumption — Phase 3 proves it in CI, round-tripping a save Windows→Linux→Windows byte-for-byte with matching hashes.
-  - **Next: Phase 4** — enrollment token + policy import (single-use ~15-min token, `savelocker enroll --file <policy>`; no signing, TOFU-pin the server).
-  - Phase 5 (agent health reporting) **ships with Linux, not after** — a headless spoke cannot surface a conflict, so without it a Deck failure is invisible.
+  - **Phases 0–4 done.** "Proton saves are byte-identical to Windows saves" is no longer an assumption — Phase 3 proves it in CI, round-tripping a save Windows→Linux→Windows byte-for-byte with matching hashes. Phase 4 landed enrollment: one file, one command, no API key ever copied by hand (single-use 15-min token; unsigned by design; TOFU-pins the server and warns, never blocks, if its identity changes).
+  - **Next: Phase 5 — agent health reporting.** It **ships with Linux, not after**: an enrolled Deck can now sync but still cannot *tell anyone* when that fails. A conflict that toasts on Windows is silent on a headless box, so until the console can surface "Steam Deck: conflict on Hades, 2 days ago", a Deck failure is invisible and the feature feels broken.
 
 ## Medium priority
 - **Registry-based saves** — the Ludusavi manifest has a `registry:` section; currently only `files:` paths are handled.

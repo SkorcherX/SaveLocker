@@ -1,6 +1,9 @@
 # Task: Linux agent (Proton / Steam Deck)
 
-> ## ▶ START HERE: **Phases 0–3 are DONE. Next is Phase 4** (enrollment token + policy import).
+> ## ▶ START HERE: **Phases 0–4 are DONE. Next is Phase 5** (agent health reporting).
+>
+> Phase 5 is not optional polish: an enrolled Deck can now sync, but it still cannot *tell* anyone
+> when that goes wrong. Until health reporting lands, a Deck failure is invisible.
 >
 > **The runtime moved to .NET 10 after Phase 3** (`Decisions.md → Runtime: .NET 10 LTS`;
 > `logs/2026-07-13_dotnet-10-upgrade.md`). The phase write-ups below still *say* `net9.0` — that is
@@ -303,6 +306,45 @@ API key in a file), agent redeems it for its machine key. `savelocker enroll --f
 Policy carries server URL + preselected games / exclude globs / settle delay.
 **No signing** — see the decision for why it would be theatre. TOFU-pin the server after
 enrollment and warn if its identity changes.
+
+### Status: ✅ DONE (2026-07-13)
+
+- **Server** — `EnrollmentToken` entity + migration `AddEnrollmentTokens` (hash only; the raw token
+  is never stored). `EnrollmentService` mints / lists / revokes / redeems. Redeem is **atomically**
+  single-use: the token is burnt with a conditional `ExecuteUpdate` *before* any key is issued, so
+  two agents racing the same file cannot both come away with one.
+- **Endpoints** — admin `POST|GET|DELETE /api/admin/enrollments`, public `POST /api/enroll`. The
+  redeem route has no auth filter **because the token is the credential** — a fresh agent has
+  nothing else. Unknown / expired / spent all answer 401.
+- **Name binding** — a token minted *for* a machine name is binding; `--name` cannot override it, so
+  a leaked file cannot be spent to claim another machine's identity. Redeeming an existing name
+  rotates its key: that is the re-enrollment path for a wiped Deck, authorised by the token.
+- **Agent** — `enroll --file <policy>` in **`Agent.Core`**, so Windows and Linux share one
+  implementation. It sets the server URL, redeems, records the pin, applies the settle delay, and
+  **pre-seeds** the policy's games (resolving each save dir *on this machine*). The seed is a head
+  start, not a second source of truth — reconcile still corrects it.
+- **TOFU pin** — `ServerTrust` + `ApiClient.For(config)`. The pin is over the **SPKI**, not the
+  cert, and it **warns rather than blocks**: Let's Encrypt rotates the key on renewal, and a hard
+  fail would take a headless Deck offline for a reason its owner cannot see. `trust` shows the pin,
+  `trust --accept` re-pins. The warning goes to **stderr and the log**, once per process.
+- **Console** — *Configuration → Enroll a machine*: mint, download the file, see and revoke tokens.
+  The raw token exists only in that download.
+- **`openapi.json` + `web/src/api-types.ts` regenerated** per the API-change rule.
+
+**Verified:** `tests/run-enrollment-tests.ps1` **16/16** (mint, redeem, pre-seed, the issued key
+actually authenticating, replay refused, revoked refused, expired refused, forged refused, console
+shows who spent it) and `tests/run-enrollment-tls-tests.ps1` **6/6** over real HTTPS. Windows agent
+still **10/10**. The http suite is wired into CI (`agent-tests-linux`); the TLS one needs a trusted
+dev certificate, so it stays a local check.
+
+**The TLS suite earned its keep twice.** Plain http has no identity to pin, so the http harness can
+only assert the agent records *nothing* — every interesting pin assertion would have passed
+vacuously. Against a real HTTPS server it caught (a) a test that made **no HTTP request at all**
+because the fresh server had no games, so `status` iterated an empty list and completed no
+handshake, and (b) the mismatch warning reaching only the log, where a CLI user would never see it.
+
+**Deferred to Phase 5, deliberately:** the enrolled Deck still cannot *tell* anyone when a sync
+fails. That is health reporting, and it is the next phase.
 
 **STOP.**
 

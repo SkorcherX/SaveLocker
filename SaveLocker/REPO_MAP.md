@@ -19,6 +19,7 @@ SaveLocker/
 │   │   ├── Migrations/                  # EF migrations (InitialSchema + incremental)
 │   │   ├── Services/
 │   │   │   ├── SyncService.cs           # Core: lease, upload, conflict, prune, resolve
+│   │   │   ├── EnrollmentService.cs     # Single-use enrollment tokens → machine API key
 │   │   │   ├── ArchiveStore.cs          # {root}/{gameId}/{versionId}.zip on disk
 │   │   │   ├── ArtService.cs            # SteamGridDB fetch + cache to /data/art/
 │   │   │   ├── BackupService.cs         # Nightly VACUUM INTO SQLite snapshots + retention
@@ -35,7 +36,9 @@ SaveLocker/
 │   │   │                               # SaveLocker.Agent.*; the Linux agent will reuse this.
 │   │   ├── SyncEngine.cs                # push / pull / pre-launch / post-exit
 │   │   ├── SaveSettler.cs               # Settle gate: wait for the game to finish writing
-│   │   ├── ApiClient.cs                 # Typed HTTP client for server API
+│   │   ├── ApiClient.cs                 # Typed HTTP client for server API. ApiClient.For(config)
+│   │   │                               #   is the one every caller uses — it carries the TOFU pin
+│   │   ├── ServerTrust.cs               # TOFU pin of the server's TLS key: warn, never block
 │   │   ├── CommandPoller.cs             # 20 s poll: reconcile game list + run commands
 │   │   ├── AgentApiServer.cs            # HttpListener on :5178 — JSON API + agent-ui static files
 │   │   ├── AgentConfig.cs               # JSON config at %PROGRAMDATA%\SaveLocker\config.json
@@ -114,6 +117,11 @@ SaveLocker/
 │   ├── run-agent-tests.ps1             # 10 integration checks. Runs on BOTH OSes: PowerShell Core
 │   │                                   #   runs on Linux, so the same script drives the Windows
 │   │                                   #   agent and the Linux agent. Needs a server on :5179.
+│   ├── run-enrollment-tests.ps1        # 16 checks: mint → enroll → single-use / revoked / expired /
+│   │                                   #   forged all refused. Runs on both OSes; in CI.
+│   ├── run-enrollment-tls-tests.ps1    # 6 checks: the TOFU pin, over a real HTTPS server it starts
+│   │                                   #   itself. Needs a trusted dev cert, so LOCAL only — http
+│   │                                   #   has no identity to pin, so the suite above cannot cover it.
 │   ├── verify-password-compat.ps1      # Builds a server from an older git ref, has it hash an
 │   │                                   #   admin password, then asserts the CURRENT code still
 │   │                                   #   verifies it (guards the PBKDF2 on-disk `v1:` format)

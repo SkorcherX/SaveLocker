@@ -14,6 +14,11 @@ public sealed class AgentConfig
     public string MachineName { get; set; } = Environment.MachineName;
     public string? ApiKey { get; set; }
     public Guid? MachineId { get; set; }
+    /// <summary>
+    /// TOFU pin of the server's TLS public key, recorded at enrollment. Null over plain http, or
+    /// for agents registered before enrollment existed. See <see cref="ServerTrust"/>.
+    /// </summary>
+    public string? ServerPin { get; set; }
     public string ManifestCachePath { get; set; } =
         Path.Combine(DefaultDir, "manifest.yaml");
     /// <summary>Set once the first-run welcome prompt has been shown/dismissed so we don't nag.</summary>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, setPassword } from '../api';
-import type { GameSummary, Machine, Settings, AgentInstallerStatus } from '../types';
+import type { GameSummary, Machine, Settings, AgentInstallerStatus, Enrollment } from '../types';
 
 interface Props {
   games: GameSummary[];
@@ -145,6 +145,60 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
   async function handleDeleteMachine(machineId: string, name: string) {
     if (!confirm(`Delete machine "${name}"? Its API key stops working immediately. Saved versions it uploaded are kept as history.`)) return;
     try { await api.deleteMachine(machineId); onRefresh(); } catch (e) { alert('Delete machine failed: ' + (e as Error).message); }
+  }
+
+  // ── Enrollment ──
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [enrollName, setEnrollName] = useState('');
+  const [enrollTtl, setEnrollTtl] = useState('15');
+  const [enrollServerUrl, setEnrollServerUrl] = useState('');
+  const [minting, setMinting] = useState(false);
+
+  async function loadEnrollments() {
+    try { setEnrollments(await api.enrollments()); }
+    catch { /* non-fatal */ }
+  }
+
+  useEffect(() => { loadEnrollments(); }, []);
+
+  async function handleMintEnrollment() {
+    const ttl = parseInt(enrollTtl, 10);
+    if (!Number.isFinite(ttl) || ttl < 1) { alert('Enter an expiry in minutes (at least 1).'); return; }
+    setMinting(true);
+    try {
+      const res = await api.createEnrollment({
+        machineName: enrollName.trim() || null,
+        ttlMinutes: ttl,
+        serverUrl: enrollServerUrl.trim() || null,
+        gameIds: null, // every enabled game — the agent's reconcile would adopt them all anyway
+      });
+
+      // The raw token is in this response and nowhere else: the server stored only its hash. If the
+      // user does not get the file now, the token is unrecoverable and they must mint another.
+      const blob = new Blob([JSON.stringify(res.policy, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `savelocker-enroll-${res.policy.machineName || 'machine'}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      setEnrollName('');
+      await loadEnrollments();
+    } catch (e) { alert('Could not create the enrollment file: ' + (e as Error).message); }
+    finally { setMinting(false); }
+  }
+
+  async function handleRevokeEnrollment(id: string) {
+    if (!confirm('Revoke this enrollment token? An agent still holding the file will not be able to use it.')) return;
+    try { await api.revokeEnrollment(id); await loadEnrollments(); }
+    catch (e) { alert('Revoke failed: ' + (e as Error).message); }
+  }
+
+  function enrollmentState(e: Enrollment): { text: string; color: string } {
+    if (e.redeemedAt) return { text: `used by ${e.redeemedByMachineName ?? 'a machine'}`, color: '#556070' };
+    if (new Date(asUtc(e.expiresAt)) <= new Date()) return { text: 'expired', color: '#f4a60d' };
+    return { text: `valid until ${when(e.expiresAt)}`, color: '#129271' };
   }
 
   const card = { background: '#1E252A', border: '1px solid #494949', borderRadius: 8, overflow: 'hidden' } as const;
@@ -447,6 +501,103 @@ export function ConfigView({ games, machines, settings, onRefresh }: Props) {
                       </td>
                     </tr>
                   ))
+            }
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Enroll a machine ── */}
+      <div style={{ ...card, marginBottom: 24 }}>
+        <div style={cardHeader}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Enroll a machine</span>
+          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>single-use file — set up an agent without pasting an API key</span>
+        </div>
+
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid #252e35' }}>
+          <p style={{ margin: '0 0 12px', fontSize: 12.5, color: '#8b9aaa', lineHeight: 1.5 }}>
+            Downloads a file carrying a short-lived, single-use token — never an API key. Copy it to the
+            new machine and run <code style={{ fontFamily: "'JetBrains Mono', monospace", color: '#ECEFF1' }}>savelocker enroll --file &lt;file&gt;</code>.
+            The agent trades the token for its own key, pins this server, and picks up every enabled game.
+            The file is downloaded once and cannot be shown again.
+          </p>
+
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 180px' }}>
+              <span style={{ fontSize: 11, color: '#556070' }}>Machine name (optional — binds the file to it)</span>
+              <input
+                value={enrollName}
+                onChange={e => setEnrollName(e.target.value)}
+                placeholder="steamdeck"
+                style={{ padding: '6px 9px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontSize: 12.5 }}
+              />
+            </label>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, width: 110 }}>
+              <span style={{ fontSize: 11, color: '#556070' }}>Expires (min)</span>
+              <input
+                type="number"
+                min={1}
+                value={enrollTtl}
+                onChange={e => setEnrollTtl(e.target.value)}
+                style={{ padding: '6px 9px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace" }}
+              />
+            </label>
+
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: '1 1 220px' }}>
+              <span style={{ fontSize: 11, color: '#556070' }}>Server URL the agent should use (optional)</span>
+              <input
+                value={enrollServerUrl}
+                onChange={e => setEnrollServerUrl(e.target.value)}
+                placeholder={window.location.origin}
+                style={{ padding: '6px 9px', background: 'transparent', color: '#ECEFF1', border: '1px solid #494949', borderRadius: 4, fontSize: 12.5, fontFamily: "'JetBrains Mono', monospace" }}
+              />
+            </label>
+
+            <button
+              onClick={handleMintEnrollment}
+              disabled={minting}
+              style={{ padding: '7px 14px', background: '#129271', color: '#fff', border: 'none', borderRadius: 4, fontSize: 12, fontWeight: 600, cursor: minting ? 'default' : 'pointer', opacity: minting ? 0.6 : 1 }}
+            >
+              {minting ? 'Creating…' : 'Create enrollment file'}
+            </button>
+          </div>
+
+          <p style={{ margin: '10px 0 0', fontSize: 11.5, color: '#556070', lineHeight: 1.5 }}>
+            Leave the server URL blank to use <code style={{ fontFamily: "'JetBrains Mono', monospace" }}>{window.location.origin}</code> — the address you
+            reached this console on. Set it when the agent must use a different one (e.g. you are on the LAN but the machine will connect over your tunnel).
+          </p>
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: '#222d34', borderBottom: '1px solid #494949' }}>
+              <th style={thStyle}>For machine</th>
+              <th style={thStyle}>Created</th>
+              <th style={thStyle}>State</th>
+              <th style={{ ...thStyle, textAlign: 'right' }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {enrollments.length === 0
+              ? <tr><td colSpan={4} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No enrollment files created.</td></tr>
+              : enrollments.map(e => {
+                  const state = enrollmentState(e);
+                  return (
+                    <tr key={e.id} style={rowSep}>
+                      <td style={tdStyle}>{e.machineName ?? <span style={{ color: '#556070' }}>any machine</span>}</td>
+                      <td style={tdMono}>{when(e.createdAt)}</td>
+                      <td style={{ ...tdMono, color: state.color }}>{state.text}</td>
+                      <td style={{ padding: '11px 18px', textAlign: 'right' }}>
+                        <button
+                          onClick={() => handleRevokeEnrollment(e.id)}
+                          style={{ padding: '4px 10px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                        >
+                          {e.redeemedAt ? 'Remove' : 'Revoke'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
             }
           </tbody>
         </table>

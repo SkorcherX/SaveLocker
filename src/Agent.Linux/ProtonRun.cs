@@ -37,7 +37,7 @@ public static class ProtonRun
         void Log(string m) => AgentLogger.Log($"[run] {m}");
         Log($"launch: appid={appId ?? "(none)"} prefix={prefix ?? "(none)"}");
 
-        var api = new ApiClient(config.ServerUrl, config.ApiKey);
+        var api = ApiClient.For(config);
         var engine = new SyncEngine(config, api, log: Log, notify: Log, offlineQueue: new OfflineQueue());
 
         // The game must be found before launch, but a failure here must never stop it starting:

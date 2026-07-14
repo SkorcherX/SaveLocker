@@ -33,8 +33,10 @@ If you must run the `.exe`, redirect its output to a file:
 | Command | Options | What it does |
 |---------|---------|-------------|
 | *(none)* | | Launch the system-tray app. |
-| `register` | `--name <machineName>`<br>`--admin-password <pw>` | Register this machine with the server. Prints the API key and saves it to config. Re-registering an existing name **rotates** its key; once an admin password is set on the server, re-registration requires `--admin-password`. |
+| `enroll` | `--file <policy.json>`<br>`[--name <machineName>]` | **The easy way to set up a machine.** Create the file in the console (**Configuration → Enroll a machine**), copy it over, and run this. It sets the server URL, trades the file's single-use token for this machine's API key, pins the server, and picks up the games already defined on the server — no API key ever gets copied by hand. The file expires (15 min by default) and works **once**. If it was created for a specific machine name, that name wins over `--name`. |
+| `register` | `--name <machineName>`<br>`--admin-password <pw>` | Register this machine by hand instead. Prints the API key and saves it to config. Re-registering an existing name **rotates** its key; once an admin password is set on the server, re-registration requires `--admin-password`. |
 | `set-server` | `--url <url>` | Point the agent at a server (e.g. your Cloudflare Tunnel hostname). |
+| `trust` | `[--accept]` | Show the server's pinned TLS key — recorded at `enroll`, and checked on every later connection. If the server's identity ever changes, the agent **warns** but keeps working. That is expected after a certificate renewal: confirm it was you, then `trust --accept` to pin the new key. If it wasn't you, stop — a `pull` writes files into your save folders. Servers reached over plain `http://` have no identity to pin. |
 | `whoami` | | Print the stored machine name, ID, server URL, API key, and config path. Local only — does not contact the server. |
 
 ### Games
@@ -63,6 +65,9 @@ Manual `push` and `pull` are **immediate** — they skip the settle gate that de
 ## Examples
 
 ```sh
+dotnet SaveLocker.Agent.dll enroll --file savelocker-enroll-steamdeck.json
+dotnet SaveLocker.Agent.dll trust
+
 dotnet SaveLocker.Agent.dll register --name "ThunderHorse"
 dotnet SaveLocker.Agent.dll set-server --url https://sl.example.com
 dotnet SaveLocker.Agent.dll whoami

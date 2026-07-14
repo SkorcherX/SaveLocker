@@ -45,6 +45,7 @@ builder.Services.AddSingleton<AgentInstallerService>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ArtService>();
+builder.Services.AddScoped<EnrollmentService>();
 
 // SteamGridDB client (artwork). The Bearer key is attached per request by ArtService
 // (resolved from SettingsService) so it can be set/changed from the dashboard at runtime.
@@ -220,6 +221,18 @@ app.MapPost("/api/machines/register", async (
 
 app.MapGet("/api/admin/status", async (SettingsService settings) =>
     Results.Ok(new { passwordRequired = await settings.HasAdminPasswordAsync() }));
+
+// ---- Public: enrollment redeem ----
+// No auth filter, because the token IS the credential: a fresh agent has nothing else. It is
+// single-use and short-lived, so an intercepted policy file is worth far less than the API key
+// it replaces (Decisions.md §4). Every failure — unknown, expired, spent — answers 401.
+app.MapPost("/api/enroll", async (RedeemEnrollmentRequest req, EnrollmentService enrollment) =>
+{
+    var (result, error) = await enrollment.RedeemAsync(req);
+    return result is null
+        ? Results.Json(new { error }, statusCode: StatusCodes.Status401Unauthorized)
+        : Results.Ok(result);
+}).Produces<RedeemEnrollmentResponse>();
 
 // ---- Agent API (requires X-Api-Key: identifies the calling machine) ----
 var agent = app.MapGroup("/api").AddEndpointFilter<ApiKeyFilter>();
@@ -488,6 +501,26 @@ admin.MapGet("/admin/backups", (BackupService backup) =>
 admin.MapPost("/admin/backup", async (BackupService backup, CancellationToken ct) =>
     Results.Ok(await backup.BackupAsync(ct)))
     .Produces<BackupResult>();
+
+// ---- Enrollment tokens (admin) ----
+// Minting returns the policy file, raw token included. That token is not stored and cannot be
+// shown again — the console hands the file to the user once, or not at all.
+admin.MapPost("/admin/enrollments", async (
+    CreateEnrollmentRequest req, HttpContext http, EnrollmentService enrollment) =>
+{
+    // The URL the admin reached the console on is the one that demonstrably works, so it is the
+    // default. It is wrong exactly when the console is on the LAN and the agent needs the public
+    // tunnel — hence the override on the request.
+    var serverUrl = $"{http.Request.Scheme}://{http.Request.Host}";
+    return Results.Ok(await enrollment.CreateAsync(req, serverUrl));
+}).Produces<CreateEnrollmentResponse>();
+
+admin.MapGet("/admin/enrollments", async (EnrollmentService enrollment) =>
+    Results.Ok(await enrollment.ListAsync()))
+    .Produces<List<EnrollmentDto>>();
+
+admin.MapDelete("/admin/enrollments/{id:guid}", async (Guid id, EnrollmentService enrollment) =>
+    await enrollment.RevokeAsync(id) ? Results.NoContent() : Results.NotFound());
 
 // ---- Agent installer management (admin) ----
 admin.MapGet("/admin/agent-installer", (AgentInstallerService installer) =>

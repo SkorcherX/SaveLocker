@@ -93,10 +93,22 @@ Use the install script, not apt: `bash <(curl -fsSL https://dot.net/v1/dotnet-in
 Running WSL commands from PowerShell, `"...\$HOME..."` does **not** escape `$HOME` — backslash is not PowerShell's escape character. PowerShell expands its *own* `$HOME` (`C:\Users\<you>`), eats the backslashes, and bash receives `C:Usersskorc`. This silently installed a .NET SDK into a junk folder **inside the repo** on the Windows drive, with a colon in its name that Windows itself cannot easily delete.
 - **Fix:** pass the command in a **single-quoted** PowerShell string so `$VAR` reaches bash untouched, or (best) write a `.sh` file and run `wsl -- bash /mnt/c/path/to/script.sh`. Avoid inline quoting gymnastics entirely.
 
-## Integration suite needs a fresh server DB
-`tests/run-agent-tests.ps1` re-runs against whatever state the server already has. Wiping `.verify/` (the agents' configs) without also clearing the server DB makes the agents lose their version lineage while the server keeps its head — the "PC initial push" then legitimately reports CONFLICT and four tests fail for reasons that have nothing to do with your change.
-- Run it against an empty `src/Server/localstate/savelocker.db` (delete the `savelocker.db*` files, restart the server, then run) — or don't wipe `.verify/` between runs.
+## Integration suite: clear the server DB and `.verify/` TOGETHER
+`tests/run-agent-tests.ps1` re-runs against whatever state both sides already hold — the server's DB **and** `.verify/` (the agents' configs *and their save folders*). The two must be reset **as a pair**. Clearing either one alone produces confident, plausible failures that have nothing to do with your change:
+
+| What you cleared | What breaks | Why |
+|---|---|---|
+| `.verify/` only | "PC initial push" reports **CONFLICT**, ~4 fail | Agents lost their version lineage; the server kept its head. |
+| Server DB only | "Laptop pull restores save" is **BLOCKED**, ~3 fail | `.verify/laptop_save` still holds files from the last run, so the pull correctly refuses to overwrite what looks like un-pushed local progress. |
+
+- **Do:** stop the server, delete `src/Server/localstate/savelocker.db*` **and** `src/Server/localstate/archives/` **and** `.verify/`, restart the server, then run.
+- Ordering matters when chaining suites: run `run-agent-tests.ps1` (which wants a fresh DB) **before** `run-enrollment-tests.ps1` (which adds a game and a machine to it).
 - The suite also needs `%APPDATA%\LGSTestGame` to exist for the detection check; the script now creates it itself (2026-07-12).
+
+## A green pin/TLS test can be green because it never connected
+Verifying TOFU pinning taught this twice (2026-07-13). Plain **http has no server identity to pin**, so an http harness can only assert the agent records *nothing* — every interesting pin assertion passes **vacuously**. And on an https harness, a `status` run against a server with **no games** iterates an empty list, makes **no HTTP request**, completes **no TLS handshake**, and the pin check passes without ever running.
+- **Rule:** a test of a connection-time behaviour must assert that a connection actually happened. Give the fixture server a game, and prove the negative case fails (tamper the pin and require the warning).
+- `tests/run-enrollment-tls-tests.ps1` needs a trusted dev certificate (`dotnet dev-certs https --trust`), which is why it is a local check and not a CI job.
 
 ## `CommonApplicationData` is `/usr/share` on Linux (agent state)
 `Environment.SpecialFolder.CommonApplicationData` is `%PROGRAMDATA%` on Windows but **`/usr/share`** on Linux — not user-writable, and on SteamOS it is the **immutable rootfs, wiped on every update**. `AgentConfig.DefaultDir` used it, so the config, log and offline queue would have gone somewhere that either fails to write or silently vanishes on update.

@@ -182,6 +182,76 @@ public record AgentCommandDto(
 
 public record CommandResultRequest(CommandStatus Status, string? Result);
 
+// ----- Enrollment -----
+
+/// <summary>
+/// Admin: mint a single-use enrollment token. <paramref name="ServerUrl"/> overrides the URL the
+/// console was reached on — needed when the admin browses over the LAN but the enrolling machine
+/// must use the public (tunnel) URL. <paramref name="GameIds"/> null = every enabled game.
+/// </summary>
+public record CreateEnrollmentRequest(
+    string? MachineName = null,
+    int? TtlMinutes = null,
+    string? ServerUrl = null,
+    Guid[]? GameIds = null,
+    int? SettleQuietSeconds = null,
+    int? SettleMaxWaitSeconds = null);
+
+/// <summary>An enrollment token as the console lists it. The raw token is shown ONCE, at mint.</summary>
+public record EnrollmentDto(
+    Guid Id,
+    string? MachineName,
+    DateTime CreatedAt,
+    DateTime ExpiresAt,
+    DateTime? RedeemedAt,
+    string? RedeemedByMachineName);
+
+/// <summary>Mint result: the row (for listing/revoking) plus the policy file handed to the agent.</summary>
+public record CreateEnrollmentResponse(Guid Id, EnrollmentPolicy Policy);
+
+/// <summary>
+/// The enrollment file: <c>savelocker enroll --file &lt;policy&gt;</c>. Carries a single-use,
+/// short-lived <see cref="Token"/> — never a machine API key, so a leaked file expires on its own
+/// and is revocable.
+/// <para>
+/// <b>Deliberately unsigned</b> (Decisions.md §4). The threat a forged file poses is not a bogus
+/// token but a <i>malicious server URL</i>, whose pull writes into save directories — and a fresh
+/// agent has no trust anchor with which to check a signature, so a PKI here would be theatre. The
+/// user is the trust anchor: they downloaded this from their own console. HTTPS plus the TOFU pin
+/// the agent records at enrollment are what actually mitigate it.
+/// </para>
+/// The <see cref="Games"/> list only <i>pre-seeds</i> the agent so a fresh machine is useful before
+/// its first poll; the server remains authoritative and the agent's reconcile keeps it so.
+/// Null settle values mean "keep the agent's defaults".
+/// </summary>
+public record EnrollmentPolicy(
+    int Version,
+    string ServerUrl,
+    string Token,
+    DateTime ExpiresAt,
+    string? MachineName = null,
+    int? SettleQuietSeconds = null,
+    int? SettleMaxWaitSeconds = null,
+    EnrollmentGame[]? Games = null)
+{
+    /// <summary>Schema version of the policy file. Bump only on a breaking shape change.</summary>
+    public const int CurrentVersion = 1;
+}
+
+/// <summary>A game pre-selected by the console, as it appears in the policy file.</summary>
+public record EnrollmentGame(
+    Guid GameId,
+    string Name,
+    string? ManifestKey = null,
+    string? SuggestedSaveDir = null,
+    string[]? ExcludeGlobs = null);
+
+/// <summary>Agent → server: trade the enrollment token for this machine's real API key.</summary>
+public record RedeemEnrollmentRequest(string Token, string? MachineName = null);
+
+/// <summary>The machine identity the redeemed token bought.</summary>
+public record RedeemEnrollmentResponse(Guid MachineId, string ApiKey, string MachineName);
+
 // ----- Agent update channel -----
 
 /// <summary>Latest available agent version info, served by the SaveLocker server.</summary>
