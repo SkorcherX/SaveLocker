@@ -1,5 +1,16 @@
 # Task: Linux agent (Proton / Steam Deck)
 
+> ## ▶ START HERE: **Phases 0–3 are DONE. Next is Phase 4** (enrollment token + policy import).
+>
+> **The runtime moved to .NET 10 after Phase 3** (`Decisions.md → Runtime: .NET 10 LTS`;
+> `logs/2026-07-13_dotnet-10-upgrade.md`). The phase write-ups below still *say* `net9.0` — that is
+> the historical record of when they were written, not the current target. **Everything is
+> `net10.0` now** (`net10.0-windows` for the tray). The upgrade was deliberately sequenced *before*
+> Phase 4 so Phases 4–6 get written on net10 rather than ported to it afterwards.
+>
+> Phase 4 adds server endpoints → per `CLAUDE.md`, **regenerate `web/src/api-types.ts` and commit the
+> updated `src/Server/openapi.json`**.
+
 Design decisions are **locked** in `Decisions.md → Linux agent (locked 2026-07-12)`.
 Read that section first. Do not re-litigate Proton-only scope, the headless-daemon
 choice, the launch-wrapper trigger, or the unsigned-policy call — they are settled.

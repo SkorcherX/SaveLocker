@@ -111,7 +111,16 @@ SaveLocker/
 │   └── savelocker.service               # systemd --user unit
 │
 ├── tests/
-│   ├── run-agent-tests.ps1             # Windows agent integration tests (server on :5179)
+│   ├── run-agent-tests.ps1             # 10 integration checks. Runs on BOTH OSes: PowerShell Core
+│   │                                   #   runs on Linux, so the same script drives the Windows
+│   │                                   #   agent and the Linux agent. Needs a server on :5179.
+│   ├── verify-password-compat.ps1      # Builds a server from an older git ref, has it hash an
+│   │                                   #   admin password, then asserts the CURRENT code still
+│   │                                   #   verifies it (guards the PBKDF2 on-disk `v1:` format)
+│   ├── cross-os/crossos.ps1            # THE cross-OS round-trip: -Leg author|roundtrip|confirm.
+│   │                                   #   One leg per OS; CI chains them by handing the SERVER'S
+│   │                                   #   OWN STATE (SQLite DB + archive store) between runners as
+│   │                                   #   an artifact — runners cannot share a network.
 │   └── linux/                          # Fake-game harness — no Steam/Proton/GPU/Deck needed
 │       ├── run-linux-tests.sh          # 27 checks; starts its own server, fake HOME
 │       ├── make-fixtures.py            # Builds compatdata tree + binary shortcuts.vdf
@@ -124,8 +133,18 @@ SaveLocker/
 │   └── release.yml                      # v* tag → windows-latest build → installer → GitHub Release
 │
 ├── SaveLocker.sln
+├── global.json                         # Pins the .NET SDK (10.0.x). The Dockerfile COPIES this in,
+│                                       #   so bump it and the sdk:/aspnet: image tags TOGETHER.
 └── docker-compose.unraid.yml           # Server container for unRAID deployment
 ```
+
+## Runtime / toolchain
+- **net10.0** everywhere (`net10.0-windows` for the WinForms tray). .NET 10 is **LTS**; net9 was STS
+  and goes out of support 10 Nov 2026. See `Decisions.md → Runtime: .NET 10 LTS`.
+- EF Core tracks the framework at **10.0.x**.
+- **`SQLitePCLRaw.bundle_e_sqlite3` is pinned to 3.x on purpose** in `SaveLocker.Server.csproj` —
+  EF Core otherwise resolves 2.1.11, whose bundled SQLite carries **CVE-2025-6965**. Removing the pin
+  silently reintroduces it. See `Gotchas.md`.
 
 ## Auth model
 - **Agent routes** — `X-Api-Key: <machine key>` (issued at registration)

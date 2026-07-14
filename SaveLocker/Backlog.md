@@ -8,7 +8,6 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 - **Device-verify save-in-use settle gate** (built 2026-07-12, not yet on device) — play a game that flushes slowly, exit, and confirm the agent log shows the settle wait then `save files settled.` before the push, and that the archived version is complete. Tune the delay in agent Settings → Sync Safety if a game needs longer.
 
 ## High priority
-- **.NET 10 (LTS) upgrade** — **has a deadline.** .NET 9 is STS and goes out of support **10 Nov 2026** (already in maintenance: security fixes only); .NET 10 is LTS to Nov 2028. Decision locked in `Decisions.md → Runtime: .NET 10 LTS`; phased plan in `tasks/dotnet-10-upgrade.md`. **Do it before Linux agent Phase 4** — the test net (Windows 10/10, Linux 10/10, harness 27/27, cross-OS byte-compare in CI) is at its strongest right now, and Phases 4–6 then get written on net10 instead of ported to it. Also folds in a `global.json` to stop CI and dev silently using different SDKs.
 - **Code-signing** — installer + exe currently unsigned. SmartScreen warns on first run for new users. Options: EV certificate or Azure Trusted Signing.
 
 ## Planned — large
