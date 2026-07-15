@@ -73,6 +73,14 @@ The server is the single source of truth. Agents only make outbound HTTP calls â
 
 ![Installer wizard](docs/screenshots/installer.png)
 
+### Enrollment & fleet health
+
+Mint a single-use enrollment file (no API key ever leaves the console), and watch each machine's agent version, online status, and last sync from the dashboard.
+
+| Enroll a machine | Machine health |
+|---|---|
+| ![Enroll a machine](docs/screenshots/enrollment.png) | ![Machine health](docs/screenshots/health.png) |
+
 ---
 
 ## Getting started
