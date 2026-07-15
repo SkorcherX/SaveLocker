@@ -72,7 +72,7 @@ Server endpoints (`src/Server/Program.cs`).
 
 ## Enrollment (admin)
 - `POST /api/admin/enrollments` `{ machineName?, ttlMinutes?, serverUrl?, gameIds?, settleQuietSeconds?, settleMaxWaitSeconds? }` → `CreateEnrollmentResponse { id, policy }`. Mints a single-use token (default TTL **15 min**, max 24 h) and returns the **policy file** the agent consumes. **The raw token is in this response and nowhere else** — the server stores only its hash, so a policy that isn't saved here is unrecoverable. `serverUrl` defaults to the URL the console was reached on; override it when the admin is on the LAN but the agent must use the public tunnel. `gameIds` null = every enabled game.
-- `GET /api/admin/enrollments` → `EnrollmentDto[]` (100 newest) `{ id, machineName, createdAt, expiresAt, redeemedAt, redeemedByMachineName }`.
+- `GET /api/admin/enrollments` → `EnrollmentDto[]` (100 newest) `{ id, machineName, createdAt, expiresAt, redeemedAt, redeemedByMachineName }`. **Tokens whose window closed >24 h ago (`EnrollmentService.ListRetention`) are omitted** and pruned by the hourly sweep — their history lives in the audit log (`enrollment.create` records the expiry; an unredeemed one logs `enrollment.expire` when pruned).
 - `DELETE /api/admin/enrollments/{id}` → 204 / 404. Revokes an unspent token. Deleting a *spent* one only drops the record — it does not revoke the API key it bought (delete the machine for that).
 
 The policy file is **deliberately unsigned** (`Decisions.md` §4). Its `games` list only pre-seeds the agent; the server stays authoritative and the agent's reconcile corrects it.

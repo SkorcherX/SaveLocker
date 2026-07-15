@@ -21,6 +21,10 @@ const ACTION_COLORS: Record<string, string> = {
   'machine_path.set':  '#9CA3AF',
   'command.enqueue':   '#4a9eff',
   'command.complete':  '#129271',
+  'enrollment.create': '#4a9eff',
+  'enrollment.redeem': '#129271',
+  'enrollment.revoke': '#e05252',
+  'enrollment.expire': '#9CA3AF',
 };
 
 function ActionBadge({ action }: { action: string }) {

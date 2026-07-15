@@ -16,6 +16,13 @@ public sealed class EnrollmentService
     public const int DefaultTtlMinutes = 15;
     private const int MaxTtlMinutes = 24 * 60;
 
+    /// <summary>
+    /// How long a token lingers in the console's enrollment list after its window closes, before it
+    /// is pruned. The audit log keeps the permanent record (create / redeem / revoke / expire); this
+    /// only controls how long dead files clutter the list.
+    /// </summary>
+    public static readonly TimeSpan ListRetention = TimeSpan.FromHours(24);
+
     private readonly AppDbContext _db;
     private readonly SyncService _sync;
     private readonly IConfiguration _config;
@@ -75,16 +82,23 @@ public sealed class EnrollmentService
                 g.SuggestedSaveDir,
                 GlobConfig.Effective(_config, g.ExcludeGlobs))).ToArray());
 
-        _db.AuditLogs.Add(NewAudit("enrollment.create", token.MachineName ?? "(any machine)"));
+        _db.AuditLogs.Add(NewAudit("enrollment.create", MintDetail(token)));
         await _db.SaveChangesAsync();
 
         return new CreateEnrollmentResponse(token.Id, policy);
     }
 
-    /// <summary>Every token, newest first, with the machine that spent it (for the console's list).</summary>
+    /// <summary>
+    /// Every still-relevant token, newest first, with the machine that spent it (for the console's
+    /// list). Tokens whose window closed more than <see cref="ListRetention"/> ago are dropped —
+    /// their history lives in the audit log, not this list. The sweeper deletes them for real
+    /// shortly after; filtering here makes the 24-hour cutoff exact regardless of sweep timing.
+    /// </summary>
     public async Task<List<EnrollmentDto>> ListAsync()
     {
+        var cutoff = DateTime.UtcNow - ListRetention;
         var rows = await _db.EnrollmentTokens
+            .Where(t => t.ExpiresAt > cutoff)
             .OrderByDescending(t => t.CreatedAt)
             .Take(100)
             .ToListAsync();
@@ -107,9 +121,34 @@ public sealed class EnrollmentService
         var token = await _db.EnrollmentTokens.FindAsync(id);
         if (token is null) return false;
         _db.EnrollmentTokens.Remove(token);
-        _db.AuditLogs.Add(NewAudit("enrollment.revoke", token.MachineName ?? "(any machine)"));
+        _db.AuditLogs.Add(NewAudit("enrollment.revoke", Who(token)));
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    /// <summary>
+    /// Delete tokens whose window closed more than <see cref="ListRetention"/> ago, so the console's
+    /// enrollment list does not accumulate dead files forever. The audit log is the durable record:
+    /// a token that was never redeemed is logged as <c>enrollment.expire</c> on the way out (a
+    /// redeemed one already logged <c>enrollment.redeem</c>, a revoked one is deleted at revoke time).
+    /// Called on the hourly maintenance sweep. Returns how many rows were removed.
+    /// </summary>
+    public async Task<int> PruneExpiredAsync()
+    {
+        var cutoff = DateTime.UtcNow - ListRetention;
+        var stale = await _db.EnrollmentTokens
+            .Where(t => t.ExpiresAt < cutoff)
+            .ToListAsync();
+        if (stale.Count == 0) return 0;
+
+        foreach (var t in stale)
+        {
+            if (t.RedeemedAt is null)
+                _db.AuditLogs.Add(NewAudit("enrollment.expire", ExpiredDetail(t)));
+            _db.EnrollmentTokens.Remove(t);
+        }
+        await _db.SaveChangesAsync();
+        return stale.Count;
     }
 
     /// <summary>
@@ -171,4 +210,14 @@ public sealed class EnrollmentService
         Action = action,
         Detail = detail
     };
+
+    private static string Who(EnrollmentToken t) => t.MachineName ?? "(any machine)";
+
+    // Record the expiry on the audit trail so troubleshooting can confirm when a file was valid,
+    // even after the token row itself is pruned from the list.
+    private static string MintDetail(EnrollmentToken t) =>
+        $"{Who(t)} (expires {t.ExpiresAt:yyyy-MM-dd HH:mm} UTC)";
+
+    private static string ExpiredDetail(EnrollmentToken t) =>
+        $"{Who(t)} (expired {t.ExpiresAt:yyyy-MM-dd HH:mm} UTC, never used)";
 }
