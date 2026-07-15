@@ -28,10 +28,14 @@ The agent does **not** automatically advance its known parent when a conflict oc
 3. Choose which version to keep (your local save or the server's current head).
 4. After resolving, the conflicting machine will pull the winning version on its next sync.
 
-**Option B — Force Pull from the tray:**
-1. Right-click the SaveLocker tray icon → open the agent window.
-2. Find the game and click **Force Pull**.
-3. This overwrites your local save with the current server head and resets the known parent, breaking the conflict loop.
+**Option B — Force Pull from the agent:**
+1. **Windows:** right-click the SaveLocker tray icon → open the agent window, find the game, and click **Force Pull**.
+2. **Linux / Steam Deck** (no tray): run `savelocker pull <game> --force`.
+3. Either way this overwrites your local save with the current server head and resets the known parent, breaking the conflict loop.
+
+## Conflicts on a Steam Deck
+
+A Deck is headless — it can't pop a conflict banner. It is **not** silent, though: the agent reports the stuck game to the server, so the console shows a **problem badge** in the nav bar and marks that machine in **Configuration → Machines** (per-machine health: online / offline, agent version, last sync). Resolve it the same way — dashboard **Resolve conflict**, or `savelocker pull --force` on the Deck. The event auto-clears once that machine syncs the game cleanly again.
 
 ## Common causes
 

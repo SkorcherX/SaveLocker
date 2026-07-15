@@ -8,7 +8,15 @@ The CLI is the power-user and automation surface — scripting, diagnostics, and
 
 ## Running it
 
-The installed `.exe` is a GUI-subsystem app, so **it does not print to a terminal**. Invoke the DLL through `dotnet` so output attaches to your console:
+**Linux / Steam Deck** — the agent is a normal command-line program. `install.sh` symlinks it onto your `PATH`, so just run:
+
+```sh
+savelocker <command> [options]
+```
+
+On a Steam Deck, the daemon runs headless (there is no tray); the CLI is how you enroll it, add games, and diagnose it. `savelocker doctor` is the one to remember — see the **Linux / Steam Deck** section below.
+
+**Windows** — the installed `.exe` is a GUI-subsystem app, so **it does not print to a terminal**. Invoke the DLL through `dotnet` so output attaches to your console:
 
 ```sh
 dotnet "C:\Program Files\SaveLocker Agent\SaveLocker.Agent.dll" <command> [options]
@@ -24,7 +32,7 @@ If you must run the `.exe`, redirect its output to a file:
 
 | Option | What it does |
 |--------|-------------|
-| `--config <path>` | Use a specific config file instead of `%PROGRAMDATA%\SaveLocker\config.json`. Lets several machine identities run side by side on one PC. |
+| `--config <path>` | Use a specific config file instead of the default (`%PROGRAMDATA%\SaveLocker\config.json` on Windows, `~/.local/share/SaveLocker/config.json` on Linux). Lets several machine identities run side by side on one machine. On Linux the `SAVELOCKER_CONFIG` environment variable does the same thing — handy inside a systemd unit. |
 
 ## Commands
 
@@ -43,7 +51,7 @@ If you must run the `.exe`, redirect its output to a file:
 
 | Command | Options | What it does |
 |---------|---------|-------------|
-| `add-game` | `--name <name>`<br>`[--manifest <key>]`<br>`[--dir <path>]`<br>`[--proc <a,b>]` | Enroll a game. Creates the server-side game (matched case-insensitively, so it joins an existing one rather than duplicating it) and a local tracked entry. Without `--dir`, the save folder is auto-detected from the Ludusavi manifest. `--proc` lists process names (no `.exe`) that mean the game is running. |
+| `add-game` | `--name <name>`<br>`[--manifest <key>]`<br>`[--dir <path>]`<br>`[--proc <a,b>]`<br>`[--appid <id>]`<br>`[--prefix <compatdata>]` | Enroll a game. Creates the server-side game (matched case-insensitively, so it joins an existing one rather than duplicating it) and a local tracked entry. Without `--dir`, the save folder is auto-detected from the Ludusavi manifest. `--proc` lists process names (no `.exe`) that mean the game is running. **Linux:** `--appid` is the Steam AppID whose Proton prefix (`compatdata/<appid>`) the launch wrapper matches on — set it for a non-Steam shortcut; `--prefix` resolves the manifest's paths inside a specific Wine prefix. On Linux, mapping with `--dir` is the normal path, not a fallback (most standalone builds aren't in the manifest). |
 | `list` | | List locally tracked games: name, save directory, process names. |
 | `scan` | `[--no-cloud]` | Discover enrollment candidates — non-Steam shortcuts, installed Steam games, and folders under common save roots that match the manifest. `--no-cloud` hides games that already have Steam Cloud. Local only. |
 | `search` | `<term>` | List Ludusavi manifest game names containing the term. |
@@ -61,6 +69,19 @@ If you must run the `.exe`, redirect its output to a file:
 | `log` | `[--n <count>]` | Print the last *n* lines of the agent log (default 50). |
 
 Manual `push` and `pull` are **immediate** — they skip the settle gate that delays automatic backups. See **Save-in-use safety**.
+
+### Linux / Steam Deck only
+
+These commands exist only in the Linux agent, which has no tray or window to do their job.
+
+| Command | Options | What it does |
+|---------|---------|-------------|
+| `run` | `-- %command%` | The **Steam launch wrapper**. Add `savelocker run -- %command%` to a game's **Launch Options** and Steam runs the game *through* the agent: it pulls the latest save before launch, waits for the game to exit, waits for the save to settle, and pushes. Everything after `--` is the game's own command line, untouched. This is how a Deck syncs — it has no process watcher. |
+| `doctor` | | **The first thing to run when something is wrong.** Checks the whole chain — server reachable, Steam roots found, shortcuts parsed, Proton prefixes located, save folders present and writable — and prints a mark next to anything broken. On a headless machine it is the only diagnostic UI; paste its output when asking for help. |
+| `daemon` | `[--lan]` | Run the agent headless (the foreground process the systemd unit runs). It serves the same agent UI on port **5178**. By default it listens on localhost only; `--lan` binds all interfaces so you can reach the UI from another device — the practical way to see a Deck's UI, since Game Mode has no browser. |
+| `autostart` | `--enable`<br>`--disable` | Enable or disable the `systemd --user` unit that starts the daemon with your session. With no flag, prints whether it is currently enabled. (`install.sh` enables it for you.) |
+
+> On a Deck, the agent stops when you log out unless *lingering* is enabled: `sudo loginctl enable-linger $USER`. Usually unnecessary — you are logged in whenever you are playing.
 
 ## Examples
 
@@ -80,6 +101,18 @@ dotnet SaveLocker.Agent.dll status
 dotnet SaveLocker.Agent.dll push all
 dotnet SaveLocker.Agent.dll pull Celeste --force
 dotnet SaveLocker.Agent.dll log --n 100
+```
+
+On Linux / Steam Deck the binary prints normally, so drop the `dotnet` wrapper:
+
+```sh
+savelocker enroll --file ~/Downloads/savelocker-enroll-steamdeck.json
+savelocker doctor
+savelocker add-game --name "Hollow Knight" --dir ~/.local/share/Steam/steamapps/compatdata/367520/pfx/... --appid 367520
+savelocker daemon --lan          # reach the agent UI at http://<deck-ip>:5178
+
+# In the game's Steam launch options:
+#   savelocker run -- %command%
 ```
 
 ## Safe first sync between two machines

@@ -17,6 +17,8 @@ After a game exits, the agent watches the save folder and waits for two things t
 
 Once both hold continuously for the **settle delay** (10 seconds by default), the folder is considered quiet and the backup proceeds. If the game touches a file during that window, the clock restarts.
 
+> **How "still open for writing" is detected differs by OS.** On Windows the agent asks the filesystem directly (share-mode). The Linux kernel doesn't enforce that, so on the Steam Deck the agent instead scans `/proc/*/fd` to see whether any process still holds the save file open. Where it genuinely can't tell, it says so in the log and settles on the "nothing is changing" signal alone — the fingerprint of files, sizes, and modification times. The behaviour you see is the same; only the detection underneath changes.
+
 ```
 Game closes
   └─ Settle gate: wait for the save folder to go quiet
@@ -55,11 +57,11 @@ Manual actions are never delayed — you chose the moment, so the agent trusts y
 
 The delay is per-machine, in the agent (not the dashboard):
 
-1. Open the agent window from the tray icon.
+1. Open the agent window from the tray icon (**Windows**). On a **Steam Deck** there is no tray — browse to the agent UI the daemon serves on port 5178 instead (`savelocker daemon --lan`, then `http://<deck-ip>:5178` from another device).
 2. Go to **Settings → Sync Safety**.
 3. Set **Wait for saves to settle (seconds)** and click **Save**.
 
-Accepted range is 0–300 seconds.
+Accepted range is 0–300 seconds. The enrollment file can also seed this value, so a fleet of machines starts with the same settle delay without touching each one.
 
 - **Raise it** if a game is slow to flush and you have seen an incomplete save reach the server. Going from 10 to 30 seconds costs you nothing except a slightly later backup.
 - **Lower it** if you want backups to land faster and your games write their saves promptly.
@@ -67,7 +69,7 @@ Accepted range is 0–300 seconds.
 
 ## How to tell it's working
 
-Check the agent log (`%PROGRAMDATA%\SaveLocker\agent.log`, or the **log** command in the agent CLI). After exiting a game you should see the backup happen *after* the wait, and if the agent had to wait at all it says so:
+Check the agent log (`%PROGRAMDATA%\SaveLocker\agent.log` on Windows, `~/.local/share/SaveLocker/agent.log` on Linux — or the **log** command in the agent CLI). After exiting a game you should see the backup happen *after* the wait, and if the agent had to wait at all it says so:
 
 ```
 [Game Name] save files settled.

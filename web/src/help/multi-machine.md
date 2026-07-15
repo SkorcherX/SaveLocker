@@ -4,7 +4,7 @@
 
 Different agent versions may hash save archives differently. If two machines are on different versions, the server may see every push as a new divergence and raise a conflict even when the save files haven't changed.
 
-**Rule: before playing on any machine, check the agent version matches across all machines.** The tray icon tooltip and the dashboard's Configuration tab both show the agent version for each machine.
+**Rule: before playing on any machine, check the agent version matches across all machines.** The dashboard's **Configuration → Machines** list shows the agent version for every machine (the Windows tray tooltip shows it locally too, and `savelocker doctor` prints it on a Deck) — the console is the one place you can compare them all at once.
 
 ## Always launch through your game launcher
 
@@ -20,7 +20,7 @@ If a conflict is open on Machine A and you switch to Machine B without resolving
 
 Manually copying save files between machines breaks the agent's knowledge of the parent version. The agent won't know which version to use as its parent on the next push, and a conflict is likely.
 
-Always let SaveLocker handle the transfer: resolve via the dashboard or Force Pull from the tray.
+Always let SaveLocker handle the transfer: resolve via the dashboard, Force Pull from the tray (Windows), or `savelocker pull --force` (Linux).
 
 ## Understand the conflict: it's a divergence, not an error
 

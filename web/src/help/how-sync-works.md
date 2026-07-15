@@ -28,6 +28,8 @@ Post-exit (game closes)
 
 The settle gate is what stops a game that keeps flushing after exit from being archived half-written. See **Save-in-use safety** for how to tune it.
 
+On **Windows** this lifecycle is driven by a process watcher that notices the game start and exit. On **Linux / Steam Deck** there is no watcher — you wrap the launch instead, with `savelocker run -- %command%` in the game's Steam launch options. The wrapper *is* the pre-launch/post-exit boundary: it pulls, runs the game to completion, settles, and pushes.
+
 ## Push flow
 
 1. Agent zips the save directory (respecting exclude patterns).
@@ -43,4 +45,4 @@ The settle gate is what stops a game that keeps flushing after exit from being a
 
 ## Offline queue
 
-If the server is unreachable, the agent stores pending pushes in a local **offline queue** (`%PROGRAMDATA%\SaveLocker\offline-queue.json`). A background timer retries the queue every 30 seconds once the server becomes reachable again.
+If the server is unreachable, the agent stores pending pushes in a local **offline queue** (`%PROGRAMDATA%\SaveLocker\offline-queue.json` on Windows, `~/.local/share/SaveLocker/offline-queue.json` on Linux). A background timer retries the queue every 30 seconds once the server becomes reachable again.

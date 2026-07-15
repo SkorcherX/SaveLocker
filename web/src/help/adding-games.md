@@ -26,6 +26,16 @@ After a game is added to the server, each machine needs to map its local save di
 
 Alternatively, use the **game scanning** feature: the agent can auto-detect save paths from Steam and Ludusavi's game manifests. Check the **Add Games** tab in the agent for detected candidates.
 
+### On Linux / Steam Deck
+
+The Deck agent is headless — there is no **Add Games** tab to click. Map a game from the command line instead:
+
+```sh
+savelocker add-game --name "Hollow Knight" --dir <save folder> --appid 367520
+```
+
+`--dir` mapping is the **normal** path here, not a fallback: most standalone (non-Steam) builds aren't in the Ludusavi manifest, so you point the agent at the save folder yourself. `--appid` is the Steam AppID of the non-Steam shortcut, which lets the `savelocker run` launch wrapper match the game to the Proton prefix Steam hands it. Run `savelocker doctor` afterwards to confirm the path resolved. See the [CLI reference](#help/cli-reference).
+
 ## Ludusavi auto-detection
 
 SaveLocker downloads the [Ludusavi community manifest](https://github.com/mtkennerly/ludusavi) to look up known save paths for thousands of games. If your game is in the manifest, the agent will suggest its save path automatically. You can accept or override the suggestion.
