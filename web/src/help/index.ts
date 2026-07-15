@@ -2,6 +2,7 @@ import installingTheAgent from './installing-the-agent.md?raw';
 import conflicts from './conflicts.md?raw';
 import howSyncWorks from './how-sync-works.md?raw';
 import multiMachine from './multi-machine.md?raw';
+import deckSupportedGames from './deck-supported-games.md?raw';
 import saveInUseSafety from './save-in-use-safety.md?raw';
 import globPatterns from './glob-patterns.md?raw';
 import addingGames from './adding-games.md?raw';
@@ -23,6 +24,7 @@ export const articles: Article[] = [
   { slug: 'conflicts',       title: 'Understanding sync conflicts',           category: 'Syncing',        content: conflicts },
   { slug: 'how-sync-works',  title: 'How syncing works',                      category: 'Syncing',        content: howSyncWorks },
   { slug: 'multi-machine',   title: 'Best practices for multiple machines',   category: 'Syncing',        content: multiMachine },
+  { slug: 'deck-supported-games', title: 'What syncs on Steam Deck (and what doesn\'t)', category: 'Syncing', content: deckSupportedGames },
   { slug: 'save-in-use-safety', title: 'Save-in-use safety (the settle gate)', category: 'Syncing',      content: saveInUseSafety },
   { slug: 'glob-patterns',   title: 'Exclude patterns (glob filters)',         category: 'Configuration',  content: globPatterns },
   { slug: 'adding-games',    title: 'Adding games & mapping save folders',     category: 'Configuration',  content: addingGames },
