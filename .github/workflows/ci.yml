@@ -57,6 +57,23 @@ jobs:
           echo "$out" | head -5
           echo "$out" | grep -q "version: 9.9.9" || { echo "agent did not report its stamped version"; exit 1; }
 
+          HOME="$fake_home" "$fake_home/.local/bin/savelocker" daemon \
+            --config "$fake_home/cfg.json" > "$fake_home/daemon.log" 2>&1 &
+          daemon_pid=$!
+          trap 'kill "$daemon_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 30); do
+            curl -sf http://localhost:5178/api/state >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -sf http://localhost:5178/ >/dev/null \
+            || { echo "packaged agent UI was not served"; cat "$fake_home/daemon.log"; exit 1; }
+          curl -sf http://localhost:5178/openapi/v1.json >/dev/null \
+            || { echo "agent OpenAPI document was not served"; cat "$fake_home/daemon.log"; exit 1; }
+          npm --prefix agent-ui run gen:api -- --check
+          kill "$daemon_pid"
+          wait "$daemon_pid" || true
+          trap - EXIT
+
       - name: Serve the agent UI from the package
         run: |
           # The daemon serves the React agent UI — a Deck's only UI. If agent-ui/dist is missing from

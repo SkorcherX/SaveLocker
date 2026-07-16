@@ -5,6 +5,17 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-15 — Agent local API and generated UI types
+
+- Replaced the raw `HttpListener` and anonymous JSON responses with an in-process ASP.NET Core minimal API shared by the Windows tray and Linux daemon.
+- Added named request/response contracts and `/openapi/v1.json`; `agent-ui/src/api-types.ts` is generated with `openapi-typescript`, while `types.ts` keeps only UI aliases and numeric normalization.
+- Preserved loopback-only Windows hosting, opt-in LAN hosting on Linux, SPA fallback, native folder picking, registration, scanning, and the existing synchronous host lifecycle.
+- Extended the Linux package CI smoke test to start the installed daemon and verify `/`, `/api/state`, OpenAPI, and generated-type drift.
+- Verified Linux and Windows builds, agent UI TypeScript/Vite build, and a live isolated API host. The Windows build retains its pre-existing WebView2 `WindowsBase` warning.
+- Device verification confirmed both the 5e exclude-glob behavior and the save-in-use settle gate; removed those completed checks from the backlog.
+
+---
+
 ## 2026-07-12 — Scheduled GitHub installer auto-poll
 
 - Added `AgentInstallerPollerService`, a server `BackgroundService` following the existing `IServiceScopeFactory` scheduler pattern.

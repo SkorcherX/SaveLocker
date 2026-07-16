@@ -11,7 +11,9 @@ quick "what shipped, where" index.
 | Uploaded installer persistence across Docker update (`Storage:AgentInstallerRoot`) | v0.1.2 | ✅ device | sessions 2026-07-12 |
 | Fetch agent installer from GitHub Releases — manual dashboard button (`POST /api/admin/agent-installer/fetch-github`) | main, 2026-07-11 | API-verified | sessions 2026-07-11 (session 2) |
 | Sync toaster reduction — one summary toast with save date instead of 4 | v0.1.3 | ✅ device | sessions 2026-07-12 |
-| Per-game exclude globs + configurable upload cap (hygiene 5e) | v0.1.4 (agent); server on main | API-verified live; agent device check pending | sessions 2026-07-12 (session 2); `logs/002_glob_filters.md` |
+| Per-game exclude globs + configurable upload cap (hygiene 5e) | v0.1.4 (agent); server on main | ✅ device-verified: excluded logs absent; log-only change created no version | sessions 2026-07-12 (session 2); `logs/002_glob_filters.md` |
+| Save-in-use settle gate before automatic pushes | main, 2026-07-12 | ✅ device-verified: settle wait completed before push; archive complete | `save-in-use-safety.md` |
+| Agent local API → generated UI types | main, 2026-07-15 | Windows + Linux builds; live `/api/state`, static UI, OpenAPI, 404 behavior, and generated-type drift check | `AgentApiServer.cs`; `agent-ui/src/api-types.ts` |
 | Console Help KB — dashboard Help tab, 8 static Markdown articles, full-text search, `#help/<slug>` deep-links, conflict card "Why did this happen?" link | main (`be54374`) | build-verified | 2026-07-11 |
 | Scheduled GitHub installer auto-poll | main | server + dashboard builds | `AgentInstallerPollerService`, dashboard-configurable in Agent Updates; sessions 2026-07-12 |
 | Linux agent Phases 1–3 — `Agent.Core` split, `src/Agent.Linux` (`savelocker`), **cross-OS round-trip in CI** | main (PR #1), 2026-07-13 | CI: Windows 10/10, Linux 10/10, harness 27/27, cross-OS **byte-identical both ways** | `logs/2026-07-14_linux-agent.md` |

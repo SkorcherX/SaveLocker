@@ -29,7 +29,7 @@ export const api = {
     settleQuietSeconds?: number
   }) => post('/api/config', body),
   register: (adminPassword?: string) =>
-    post<{ apiKey: string }>('/api/register', adminPassword ? { adminPassword } : undefined),
+    post<{ apiKey: string }>('/api/register', { adminPassword }),
   games: () => req<TrackedGame[]>('/api/games'),
   removeGame: (id: string) => post(`/api/games/${id}/remove`),
   setGameFolder: (id: string, path: string) => post(`/api/games/${id}/folder`, { path }),

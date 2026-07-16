@@ -45,7 +45,7 @@ SaveLocker/
 │   │   │                               #   toast, so failures go to the console (Decisions §2)
 │   │   ├── SaveDirSanity.cs             # "That's a Wine PREFIX, not a save folder" + size backstop
 │   │   ├── CommandPoller.cs             # 20 s poll: reconcile game list + run commands
-│   │   ├── AgentApiServer.cs            # HttpListener on :5178 — JSON API + agent-ui static files
+│   │   ├── AgentApiServer.cs            # ASP.NET minimal API on :5178 + OpenAPI + agent-ui files
 │   │   ├── AgentConfig.cs               # JSON config at %PROGRAMDATA%\SaveLocker\config.json
 │   │   ├── Detection.cs                 # Ludusavi manifest wrapper
 │   │   ├── UpdateChecker.cs             # Polls /api/agent/latest, downloads installer

@@ -51,7 +51,6 @@ public sealed class Daemon : IAsyncDisposable
         _apiServer = new AgentApiServer(
             port: AgentApiPort,
             config: _config,
-            ui: new SynchronizationContext(),
             doScan: () => _scanner.ScanAsync(),
             enroll: async (candidates, ids) =>
             {

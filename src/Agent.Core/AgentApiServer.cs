@@ -1,19 +1,21 @@
-﻿using System.Net;
-using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using System.Net;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.HttpResults;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 
 namespace SaveLocker.Agent;
 
 /// <summary>
-/// Minimal HTTP server that drives the SaveLocker Agent UI (React app in WebView2).
-/// Serves the bundled agent-ui/dist/ folder alongside the exe and exposes /api/* routes.
+/// ASP.NET Core host that drives the SaveLocker Agent UI. It serves the bundled React app and a
+/// typed local API whose OpenAPI document is the source for the UI's generated TypeScript types.
 /// </summary>
 public sealed class AgentApiServer : IDisposable
 {
-    private readonly HttpListener _http = new();
     private readonly AgentConfig _config;
-    private readonly SynchronizationContext _ui;
     private readonly Func<Task<IReadOnlyList<ScanCandidate>>> _doScan;
     private readonly Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> _enroll;
     private readonly IAutoStart _autoStart;
@@ -21,32 +23,17 @@ public sealed class AgentApiServer : IDisposable
     private readonly Action? _onRegistered;
     private readonly Func<UpdateResult?> _getUpdateResult;
     private readonly string _uiRoot;
+    private readonly bool _listenOnAllInterfaces;
+    private readonly Dictionary<string, string> _leaseWarnings = new();
 
     private IReadOnlyList<ScanCandidate>? _candidateCache;
-    private readonly Dictionary<string, string> _leaseWarnings = new(); // gameName → holderMachine
-    private Task? _loop;
-    private volatile bool _stopping;
-
-    private static readonly JsonSerializerOptions JsonOpts = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    };
+    private WebApplication? _app;
 
     public int Port { get; }
 
-    /// <param name="autoStart">Platform launch-on-login toggle.</param>
-    /// <param name="pickFolder">Native folder dialog; null on a headless platform, where the
-    /// folder-pick routes return no path and the UI falls back to a typed path.</param>
-    /// <param name="listenOnAllInterfaces">
-    /// Serve on every interface rather than loopback. The headless Linux daemon needs this — a
-    /// Deck in Game Mode has no browser of its own, so its UI is reached from another device on
-    /// the LAN (Decisions.md §2). Off by default: the tray UI is local-only.
-    /// </param>
     public AgentApiServer(
         int port,
         AgentConfig config,
-        SynchronizationContext ui,
         Func<Task<IReadOnlyList<ScanCandidate>>> doScan,
         Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> enroll,
         IAutoStart autoStart,
@@ -57,7 +44,6 @@ public sealed class AgentApiServer : IDisposable
     {
         Port = port;
         _config = config;
-        _ui = ui;
         _doScan = doScan;
         _enroll = enroll;
         _autoStart = autoStart;
@@ -65,7 +51,7 @@ public sealed class AgentApiServer : IDisposable
         _onRegistered = onRegistered;
         _getUpdateResult = getUpdateResult ?? (() => null);
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
-        _http.Prefixes.Add(listenOnAllInterfaces ? $"http://+:{port}/" : $"http://localhost:{port}/");
+        _listenOnAllInterfaces = listenOnAllInterfaces;
     }
 
     public void AddLeaseWarning(string gameName, string holderMachine)
@@ -80,276 +66,201 @@ public sealed class AgentApiServer : IDisposable
 
     public void Start()
     {
-        _http.Start();
-        AgentLogger.Log($"AgentApiServer listening on http://localhost:{Port}/ — UI root: {_uiRoot} (exists: {Directory.Exists(_uiRoot)})");
-        _loop = Task.Run(LoopAsync);
+        if (_app is not null) return;
+
+        var options = new WebApplicationOptions
+        {
+            ApplicationName = typeof(AgentApiServer).Assembly.FullName,
+            ContentRootPath = AppContext.BaseDirectory,
+            WebRootPath = Directory.Exists(_uiRoot) ? _uiRoot : null,
+        };
+        var builder = WebApplication.CreateSlimBuilder(options);
+        builder.WebHost.ConfigureKestrel(server =>
+        {
+            if (_listenOnAllInterfaces) server.ListenAnyIP(Port);
+            else server.ListenLocalhost(Port);
+        });
+        builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
+            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+        builder.Services.AddOpenApi();
+
+        _app = builder.Build();
+        _app.UseCors();
+        _app.MapOpenApi();
+        MapApi(_app);
+        MapUi(_app);
+        _app.StartAsync().GetAwaiter().GetResult();
+
+        var host = _listenOnAllInterfaces ? "0.0.0.0" : "localhost";
+        AgentLogger.Log($"AgentApiServer listening on http://{host}:{Port}/ — UI root: {_uiRoot} (exists: {Directory.Exists(_uiRoot)})");
     }
 
-    private async Task LoopAsync()
+    private void MapApi(WebApplication app)
     {
-        while (!_stopping)
+        app.MapGet("/api/state", () =>
         {
-            HttpListenerContext ctx;
-            try { ctx = await _http.GetContextAsync(); }
-            catch { break; }
-            _ = Task.Run(() => HandleAsync(ctx));
-        }
-    }
-
-    private async Task HandleAsync(HttpListenerContext ctx)
-    {
-        var req = ctx.Request;
-        var res = ctx.Response;
-        res.Headers["Access-Control-Allow-Origin"] = "*";
-        res.Headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS";
-        res.Headers["Access-Control-Allow-Headers"] = "Content-Type";
-
-        if (req.HttpMethod == "OPTIONS")
-        {
-            res.StatusCode = 204;
-            res.Close();
-            return;
-        }
-
-        try
-        {
-            var path = req.Url?.LocalPath ?? "/";
-            if (path.StartsWith("/api/", StringComparison.OrdinalIgnoreCase))
-                await HandleApiAsync(ctx, req.HttpMethod, path[5..]);
-            else
-                await ServeStaticAsync(ctx, path);
-        }
-        catch (Exception ex)
-        {
-            AgentLogger.Log("AgentApiServer: " + ex.Message);
-            try { res.StatusCode = 500; await WriteJsonAsync(res, new { error = ex.Message }); }
-            catch { }
-        }
-        finally
-        {
-            try { res.Close(); } catch { }
-        }
-    }
-
-    // ─── API routes ─────────────────────────────────────────────────────────────
-
-    private async Task HandleApiAsync(HttpListenerContext ctx, string method, string route)
-    {
-        var res = ctx.Response;
-        var req = ctx.Request;
-        var parts = route.TrimEnd('/').Split('/');
-
-        // GET /api/state
-        if (route == "state" && method == "GET")
-        {
-            object[] warnings;
+            LeaseWarningDto[] warnings;
             lock (_leaseWarnings)
-                warnings = _leaseWarnings
-                    .Select(kv => (object)new { gameName = kv.Key, holderMachine = kv.Value })
-                    .ToArray();
+                warnings = _leaseWarnings.Select(kv => new LeaseWarningDto(kv.Key, kv.Value)).ToArray();
 
             var lastSyncAgo = _config.LastSyncTime.HasValue
                 ? FormatAgo(DateTime.UtcNow - _config.LastSyncTime.Value)
                 : "—";
 
-            await WriteJsonAsync(res, new
-            {
-                connected = !string.IsNullOrEmpty(_config.ApiKey),
-                machineName = _config.MachineName,
-                serverUrl = _config.ServerUrl,
-                apiKey = _config.ApiKey ?? "",
-                startWithWindows = _autoStart.IsEnabled(),
-                currentVersion = UpdateChecker.CurrentVersion.ToString(3),
-                gamesTracked = _config.Games.Count,
-                savesBacked = _config.TotalSavesPushed,
+            return new AgentStateDto(
+                !string.IsNullOrEmpty(_config.ApiKey),
+                UpdateChecker.CurrentVersion.ToString(3),
+                _config.MachineName,
+                _config.ServerUrl,
+                _config.ApiKey ?? "",
+                _autoStart.IsEnabled(),
+                _config.Games.Count,
+                _config.TotalSavesPushed,
                 lastSyncAgo,
-                leaseWarnings = warnings,
-                settleQuietSeconds = _config.SettleQuietSeconds,
-            });
-            return;
-        }
+                warnings,
+                _config.SettleQuietSeconds);
+        }).Produces<AgentStateDto>();
 
-        // POST /api/lease-warnings/dismiss  { gameName }
-        if (route == "lease-warnings/dismiss" && method == "POST")
+        app.MapPost("/api/lease-warnings/dismiss", (DismissWarningRequest body) =>
         {
-            var body = await ReadJsonAsync<DismissWarningBody>(req);
-            if (body?.GameName is not null) ClearLeaseWarning(body.GameName);
-            await WriteJsonAsync(res, new { ok = true });
-            return;
-        }
+            if (!string.IsNullOrWhiteSpace(body.GameName)) ClearLeaseWarning(body.GameName);
+            return new OkResponse();
+        }).Produces<OkResponse>();
 
-        // GET /api/candidates  — returns cached scan or triggers one
-        if (route == "candidates" && method == "GET")
-        {
-            var c = _candidateCache ?? await RescanAsync();
-            await WriteJsonAsync(res, ToCandidateDtos(c));
-            return;
-        }
+        app.MapGet("/api/candidates", async () => ToCandidateDtos(
+            _candidateCache ?? await RescanAsync())).Produces<CandidateDto[]>();
 
-        // POST /api/candidates/rescan
-        if (route == "candidates/rescan" && method == "POST")
-        {
-            var c = await RescanAsync();
-            await WriteJsonAsync(res, ToCandidateDtos(c));
-            return;
-        }
+        app.MapPost("/api/candidates/rescan", async () =>
+            ToCandidateDtos(await RescanAsync())).Produces<CandidateDto[]>();
 
-        // POST /api/enroll  { ids: number[] }
-        if (route == "enroll" && method == "POST")
+        app.MapPost("/api/enroll", async Task<Results<Ok<EnrollResponse>, BadRequest<ErrorResponse>>>
+            (EnrollRequest body) =>
         {
-            var body = await ReadJsonAsync<EnrollRequest>(req);
-            if (body?.Ids is null) { res.StatusCode = 400; return; }
+            if (body.Ids is null)
+                return TypedResults.BadRequest(new ErrorResponse("ids is required"));
             var candidates = _candidateCache ?? Array.Empty<ScanCandidate>();
             var (enrolled, skipped) = await _enroll(candidates, body.Ids);
-            await WriteJsonAsync(res, new { enrolled, skipped });
-            return;
-        }
+            return TypedResults.Ok(new EnrollResponse(enrolled, skipped));
+        });
 
-        // GET /api/config
-        if (route == "config" && method == "GET")
+        app.MapGet("/api/config", () => new AgentConfigDto(
+            _config.ServerUrl,
+            _config.MachineName,
+            _config.ApiKey ?? "",
+            _autoStart.IsEnabled(),
+            _config.SettleQuietSeconds)).Produces<AgentConfigDto>();
+
+        app.MapPost("/api/config", (ConfigRequest body) =>
         {
-            await WriteJsonAsync(res, new
-            {
-                serverUrl = _config.ServerUrl,
-                machineName = _config.MachineName,
-                apiKey = _config.ApiKey ?? "",
-                startWithWindows = _autoStart.IsEnabled(),
-                settleQuietSeconds = _config.SettleQuietSeconds,
-            });
-            return;
-        }
+            if (!string.IsNullOrWhiteSpace(body.ServerUrl))
+                _config.ServerUrl = body.ServerUrl.Trim().TrimEnd('/');
+            if (!string.IsNullOrWhiteSpace(body.MachineName))
+                _config.MachineName = body.MachineName.Trim();
+            if (body.SettleQuietSeconds.HasValue)
+                _config.SettleQuietSeconds = Math.Clamp(body.SettleQuietSeconds.Value, 0, 300);
+            _config.Save();
+            if (body.StartWithWindows.HasValue)
+                _autoStart.SetEnabled(body.StartWithWindows.Value);
+            return new OkResponse();
+        }).Produces<OkResponse>();
 
-        // POST /api/config  { serverUrl?, machineName?, startWithWindows?, settleQuietSeconds? }
-        if (route == "config" && method == "POST")
-        {
-            var body = await ReadJsonAsync<ConfigRequest>(req);
-            if (body is not null)
-            {
-                if (!string.IsNullOrWhiteSpace(body.ServerUrl))
-                    _config.ServerUrl = body.ServerUrl.Trim().TrimEnd('/');
-                if (!string.IsNullOrWhiteSpace(body.MachineName))
-                    _config.MachineName = body.MachineName.Trim();
-                if (body.SettleQuietSeconds.HasValue)
-                    _config.SettleQuietSeconds = Math.Clamp(body.SettleQuietSeconds.Value, 0, 300);
-                _config.Save();
-                if (body.StartWithWindows.HasValue)
-                    _autoStart.SetEnabled(body.StartWithWindows.Value);
-            }
-            await WriteJsonAsync(res, new { ok = true });
-            return;
-        }
-
-        // POST /api/register
-        if (route == "register" && method == "POST")
+        app.MapPost("/api/register", async Task<Results<Ok<RegisterResponse>, InternalServerError<ErrorResponse>>>
+            (RegisterRequest body) =>
         {
             try
             {
-                var body = await ReadJsonAsync<RegisterRequest>(req);
                 var api = ApiClient.For(_config, useConfigKey: false);
-                var reg = await api.RegisterAsync(_config.MachineName, body?.AdminPassword);
+                var reg = await api.RegisterAsync(_config.MachineName, body.AdminPassword);
                 _config.ApiKey = reg.ApiKey;
                 _config.MachineId = reg.MachineId;
                 _config.Save();
                 _onRegistered?.Invoke();
-                await WriteJsonAsync(res, new { apiKey = reg.ApiKey });
+                return TypedResults.Ok(new RegisterResponse(reg.ApiKey));
             }
             catch (Exception ex)
             {
-                res.StatusCode = 500;
-                await WriteJsonAsync(res, new { error = ex.Message });
+                return TypedResults.InternalServerError(new ErrorResponse(ex.Message));
             }
-            return;
-        }
+        });
 
-        // GET /api/games
-        if (route == "games" && method == "GET")
-        {
-            await WriteJsonAsync(res, _config.Games.Select(g => new
-            {
-                id = g.GameId.ToString(),
-                name = g.Name,
-                path = g.SaveDirectory,
-            }));
-            return;
-        }
+        app.MapGet("/api/games", () => _config.Games
+            .Select(g => new TrackedGameDto(g.GameId, g.Name, g.SaveDirectory))
+            .ToArray()).Produces<TrackedGameDto[]>();
 
-        // POST /api/games/{id}/remove
-        if (parts.Length == 3 && parts[0] == "games" && parts[2] == "remove" && method == "POST")
+        app.MapPost("/api/games/{id:guid}/remove", (Guid id) =>
         {
-            if (Guid.TryParse(parts[1], out var id))
+            _config.Games.RemoveAll(g => g.GameId == id);
+            _config.Save();
+            return new OkResponse();
+        }).Produces<OkResponse>();
+
+        app.MapPost("/api/games/{id:guid}/folder", (Guid id, FolderRequest body) =>
+        {
+            var game = _config.Games.FirstOrDefault(g => g.GameId == id);
+            if (game is not null && body.Path is not null)
             {
-                _config.Games.RemoveAll(g => g.GameId == id);
+                game.SaveDirectory = body.Path;
                 _config.Save();
             }
-            await WriteJsonAsync(res, new { ok = true });
-            return;
-        }
+            return new OkResponse();
+        }).Produces<OkResponse>();
 
-        // POST /api/games/{id}/folder  { path }
-        if (parts.Length == 3 && parts[0] == "games" && parts[2] == "folder" && method == "POST")
-        {
-            var body = await ReadJsonAsync<FolderBody>(req);
-            if (Guid.TryParse(parts[1], out var id) && body?.Path is not null)
-            {
-                var game = _config.Games.FirstOrDefault(g => g.GameId == id);
-                if (game is not null) { game.SaveDirectory = body.Path; _config.Save(); }
-            }
-            await WriteJsonAsync(res, new { ok = true });
-            return;
-        }
+        app.MapPost("/api/folder-pick", async () =>
+            new FolderResponse(await _pickFolder())).Produces<FolderResponse>();
 
-        // POST /api/folder-pick  → open native OS folder dialog
-        if (route == "folder-pick" && method == "POST")
+        app.MapPost("/api/candidates/{id:int}/folder-pick", async Task<Results<Ok<FolderResponse>, BadRequest<ErrorResponse>>>
+            (int id) =>
         {
+            if (_candidateCache is null || id < 0 || id >= _candidateCache.Count)
+                return TypedResults.BadRequest(new ErrorResponse("Invalid candidate id"));
+
             var path = await _pickFolder();
-            await WriteJsonAsync(res, new { path });
-            return;
-        }
-
-        // POST /api/candidates/{id}/folder-pick  → open folder dialog AND update the cache
-        if (parts.Length == 3 && parts[0] == "candidates" && parts[2] == "folder-pick" && method == "POST")
-        {
-            if (!int.TryParse(parts[1], out var candidateId) ||
-                _candidateCache is null || candidateId < 0 || candidateId >= _candidateCache.Count)
+            if (path is not null)
             {
-                res.StatusCode = 400;
-                await WriteJsonAsync(res, new { error = "Invalid candidate id" });
-                return;
-            }
-            var pickedPath = await _pickFolder();
-            if (pickedPath is not null)
-            {
-                // Rebuild the immutable record with the new save dir.
-                var old = _candidateCache[candidateId];
-                var updated = old with { SuggestedSaveDir = pickedPath };
                 var list = _candidateCache.ToList();
-                list[candidateId] = updated;
+                list[id] = list[id] with { SuggestedSaveDir = path };
                 _candidateCache = list;
             }
-            await WriteJsonAsync(res, new { path = pickedPath });
-            return;
-        }
+            return TypedResults.Ok(new FolderResponse(path));
+        });
 
-        // GET /api/agent-version
-        if (route == "agent-version" && method == "GET")
+        app.MapGet("/api/agent-version", () =>
         {
-            var current = UpdateChecker.CurrentVersion.ToString(3);
-            var updateResult = _getUpdateResult();
-            var latestVersion = updateResult is UpdateResult.Available av ? av.Version : null;
-            await WriteJsonAsync(res, new
-            {
-                currentVersion = current,
-                latestVersion,
-                updateAvailable = latestVersion is not null,
-            });
-            return;
-        }
-
-        res.StatusCode = 404;
-        await WriteJsonAsync(res, new { error = "Not found" });
+            var latest = _getUpdateResult() is UpdateResult.Available available
+                ? available.Version
+                : null;
+            return new AgentVersionDto(
+                UpdateChecker.CurrentVersion.ToString(3),
+                latest,
+                latest is not null);
+        }).Produces<AgentVersionDto>();
     }
 
-    // ─── Helpers ────────────────────────────────────────────────────────────────
+    private void MapUi(WebApplication app)
+    {
+        if (!Directory.Exists(_uiRoot)) return;
+
+        var provider = new PhysicalFileProvider(_uiRoot);
+        app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = provider });
+        app.UseStaticFiles(new StaticFileOptions { FileProvider = provider });
+        app.MapFallback(async context =>
+        {
+            if (context.Request.Path.StartsWithSegments("/api") ||
+                context.Request.Path.StartsWithSegments("/openapi"))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+            var index = Path.Combine(_uiRoot, "index.html");
+            if (!File.Exists(index))
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                return;
+            }
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.SendFileAsync(index);
+        });
+    }
 
     private async Task<IReadOnlyList<ScanCandidate>> RescanAsync()
     {
@@ -358,58 +269,13 @@ public sealed class AgentApiServer : IDisposable
         return result;
     }
 
-    private static object[] ToCandidateDtos(IReadOnlyList<ScanCandidate> candidates) =>
-        candidates.Select((c, i) => (object)new
-        {
-            id = i,
-            name = c.Name,
-            source = c.Source.ToString(),
-            hasSteamCloud = c.HasSteamCloud,
-            path = c.SuggestedSaveDir ?? "",
-        }).ToArray();
-
-    // ─── Static file server ──────────────────────────────────────────────────────
-
-    private async Task ServeStaticAsync(HttpListenerContext ctx, string urlPath)
-    {
-        var res = ctx.Response;
-        if (urlPath == "/") urlPath = "/index.html";
-
-        var safePart = urlPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar);
-        var filePath = Path.GetFullPath(Path.Combine(_uiRoot, safePart));
-
-        if (!filePath.StartsWith(_uiRoot, StringComparison.OrdinalIgnoreCase))
-        {
-            res.StatusCode = 403; return;
-        }
-
-        if (!File.Exists(filePath))
-            filePath = Path.Combine(_uiRoot, "index.html"); // SPA fallback
-
-        if (!File.Exists(filePath))
-        {
-            res.StatusCode = 404; return;
-        }
-
-        res.ContentType = Path.GetExtension(filePath).ToLowerInvariant() switch
-        {
-            ".html"  => "text/html; charset=utf-8",
-            ".js"    => "application/javascript; charset=utf-8",
-            ".css"   => "text/css; charset=utf-8",
-            ".png"   => "image/png",
-            ".svg"   => "image/svg+xml",
-            ".ico"   => "image/x-icon",
-            ".json"  => "application/json; charset=utf-8",
-            ".woff2" => "font/woff2",
-            _        => "application/octet-stream",
-        };
-
-        var bytes = await File.ReadAllBytesAsync(filePath);
-        res.ContentLength64 = bytes.Length;
-        await res.OutputStream.WriteAsync(bytes);
-    }
-
-    // ─── Helpers ────────────────────────────────────────────────────────────────
+    private static CandidateDto[] ToCandidateDtos(IReadOnlyList<ScanCandidate> candidates) =>
+        candidates.Select((candidate, id) => new CandidateDto(
+            id,
+            candidate.Name,
+            candidate.Source.ToString(),
+            candidate.HasSteamCloud,
+            candidate.SuggestedSaveDir ?? "")).ToArray();
 
     private static string FormatAgo(TimeSpan ago)
     {
@@ -419,42 +285,49 @@ public sealed class AgentApiServer : IDisposable
         return $"{(int)ago.TotalDays}d ago";
     }
 
-    // ─── JSON utilities ─────────────────────────────────────────────────────────
-
-    private static async Task WriteJsonAsync(HttpListenerResponse res, object data)
-    {
-        res.ContentType = "application/json; charset=utf-8";
-        var bytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(data, JsonOpts));
-        res.ContentLength64 = bytes.Length;
-        await res.OutputStream.WriteAsync(bytes);
-    }
-
-    private static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest req)
-    {
-        using var sr = new StreamReader(req.InputStream, Encoding.UTF8);
-        var json = await sr.ReadToEndAsync();
-        if (string.IsNullOrWhiteSpace(json)) return default;
-        return JsonSerializer.Deserialize<T>(json, JsonOpts);
-    }
-
     public void Dispose()
     {
-        _stopping = true;
-        try { _http.Stop(); } catch { }
-        try { _loop?.Wait(1000); } catch { }
+        if (_app is null) return;
+        try { _app.StopAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult(); }
+        catch { }
+        _app.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        _app = null;
     }
-
-    // ─── Request body records ────────────────────────────────────────────────────
-
-    private sealed class EnrollRequest { public int[]? Ids { get; set; } }
-    private sealed class ConfigRequest
-    {
-        public string? ServerUrl { get; set; }
-        public string? MachineName { get; set; }
-        public bool? StartWithWindows { get; set; }
-        public int? SettleQuietSeconds { get; set; }
-    }
-    private sealed class RegisterRequest { public string? AdminPassword { get; set; } }
-    private sealed class FolderBody { public string? Path { get; set; } }
-    private sealed class DismissWarningBody { public string? GameName { get; set; } }
 }
+
+public sealed record LeaseWarningDto(string GameName, string HolderMachine);
+public sealed record AgentStateDto(
+    bool Connected,
+    string CurrentVersion,
+    string MachineName,
+    string ServerUrl,
+    string ApiKey,
+    bool StartWithWindows,
+    int GamesTracked,
+    int SavesBacked,
+    string LastSyncAgo,
+    LeaseWarningDto[] LeaseWarnings,
+    int SettleQuietSeconds);
+public sealed record CandidateDto(int Id, string Name, string Source, bool HasSteamCloud, string Path);
+public sealed record TrackedGameDto(Guid Id, string Name, string Path);
+public sealed record AgentConfigDto(
+    string ServerUrl,
+    string MachineName,
+    string ApiKey,
+    bool StartWithWindows,
+    int SettleQuietSeconds);
+public sealed record AgentVersionDto(string CurrentVersion, string? LatestVersion, bool UpdateAvailable);
+public sealed record EnrollRequest(int[]? Ids);
+public sealed record ConfigRequest(
+    string? ServerUrl,
+    string? MachineName,
+    bool? StartWithWindows,
+    int? SettleQuietSeconds);
+public sealed record RegisterRequest(string? AdminPassword = null);
+public sealed record FolderRequest(string? Path);
+public sealed record DismissWarningRequest(string? GameName);
+public sealed record OkResponse(bool Ok = true);
+public sealed record ErrorResponse(string Error);
+public sealed record EnrollResponse(int Enrolled, int Skipped);
+public sealed record RegisterResponse(string ApiKey);
+public sealed record FolderResponse(string? Path);

@@ -79,7 +79,6 @@ internal sealed class TrayContext : ApplicationContext
         _apiServer = new AgentApiServer(
             port: AgentApiPort,
             config: _config,
-            ui: _ui,
             doScan: () => _scanner.ScanAsync(),
             enroll: EnrollAsync,
             autoStart: new AutoStart(),

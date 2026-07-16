@@ -23,13 +23,14 @@
 | Per-game exclude globs + 200 MB upload cap (5e) | ✅ v0.1.4; depth-matching fix in v0.1.5 |
 | CI/CD (push → Docker → GHCR; tag → GitHub Release) | ✅ done (Watchtower removed) |
 | Console Help KB (8 articles, search, deep-links) | ✅ done (2026-07-11, `be54374`) |
-| Save-in-use safety (settle gate before auto-push) | ✅ built 2026-07-12 — ⏳ not yet device-verified |
+| Save-in-use safety (settle gate before auto-push) | ✅ built and device-verified |
 | Cross-OS round-trip in CI (Windows agent ↔ Linux agent) | ✅ done 2026-07-13 — byte-identical both ways |
 | **Runtime: .NET 10 (LTS)** | ✅ merged 2026-07-13 (PR #2). net9 was STS, EOL 10 Nov 2026 |
 | **Known vulnerabilities** | ✅ **none** — `dotnet build` reports no NU1903 (PR #3) |
 | Linux agent **Phase 4** — enrollment token + policy import | ✅ done 2026-07-13 — 16/16 + 6/6 TLS (PR #4, merged) |
 | Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
 | Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
+| Agent local API + generated UI types | ✅ ASP.NET Core minimal API + OpenAPI; agent UI schemas generated from the live contract |
 | **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)** — the regression path. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
@@ -79,8 +80,8 @@ Deck-owning beta tester, **before shipping to real users**. Same rule as the Win
 items: **built ≠ verified.** Any KB claim about Game Mode or the Launch Options UI is currently *from
 documentation, not observation* — flag those rather than writing them confidently.
 
-Other open work is in `Backlog.md` — the device-verify items (5e globs, settle gate), code-signing
-the exe, and deploying the net10 server to unRAID.
+Other open work is in `Backlog.md` — fresh installer-enrollment verification, code-signing the exe,
+and deploying the net10 server to unRAID.
 
 ### 🐛 Phase 6 fixed a REAL data-loss bug (2026-07-14) — worth knowing about
 
@@ -126,8 +127,6 @@ server stores a hash.
 ## Open (not blocking Phase 4)
 
 - ⚠️ **The unRAID server may still be running the OLD image.** `main` now builds on `aspnet:10.0` with SQLite 3.50.4. To deploy: **take a `/data/backups/` snapshot first**, then `docker compose pull && docker compose up -d`. Old **net9 agents are compatible** with the net10 server (tested 12/12 against a real v0.1.5 agent), so the fleet does not need a coordinated upgrade.
-- **Device-verify 5e** on v0.1.5 (add `*.log` to a game → nested + root excluded; log-only change → no new version). Both agents must be on the same version for consistent hashing.
-- **Device-verify the settle gate** — exit a slow-flushing game, confirm the agent log shows the wait, then `save files settled.` before the push.
 - **Code-sign the exe** — SmartScreen warns for unsigned installers.
 
 **Gotcha surfaced 2026-07-12:** with two agents, saves diverge → dashboard conflict when the pushing machine's known head ≠ current server head (another machine advanced it). A "behind" machine keeps conflicting until resolved (dashboard resolve → pull, or tray Force Pull); the agent doesn't auto-advance its parent on conflict. Version/glob skew between agents guarantees this — keep both agents identical. (This is the seed for the Help KB "Understanding conflicts" article.)
