@@ -38,6 +38,7 @@ If an agent keeps downloading the installer but stays on the old version:
 
 - **"No prefix found"** — the game has never been launched through Proton, so Steam hasn't created its Wine prefix yet. Launch the game once, then try again.
 - **"No tracked game matches this launch"** — the game has no `--appid`, so the `savelocker run` wrapper can't match it to a tracked game. Re-add it with `savelocker add-game --name … --dir … --appid <id>`.
+- **"Wine PREFIX, not a save folder"** — the mapped path is the root of the game's Wine prefix instead of its actual save folder. Do not map `compatdata/<appid>`, `pfx`, or `drive_c`: that would try to archive gigabytes of Windows runtime files. Map the specific save directory instead, usually below `pfx/drive_c/users/steamuser/AppData/` or `Documents/`.
 - **A non-Steam game isn't syncing at all** — its Steam entry must have **"Force the use of a specific Steam Play compatibility tool"** ticked (Properties → Compatibility). Without it Steam runs the game without Proton, no prefix is created, and there is nothing to sync. `doctor` reports the missing prefix.
 - **Game not in the Ludusavi manifest** — common for standalone builds, and not a failure. Map the save folder yourself: `savelocker add-game --name … --dir <path>`. On Linux this is the normal path, not a fallback.
 - **The daemon isn't running** — check it with `systemctl --user status savelocker`. If it stops when you log out, enable lingering: `sudo loginctl enable-linger $USER`.

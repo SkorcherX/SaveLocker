@@ -6,6 +6,7 @@ import deckSupportedGames from './deck-supported-games.md?raw';
 import saveInUseSafety from './save-in-use-safety.md?raw';
 import globPatterns from './glob-patterns.md?raw';
 import addingGames from './adding-games.md?raw';
+import emulatorBackups from './emulator-backups.md?raw';
 import saveRetention from './save-retention.md?raw';
 import agentUpdate from './agent-update.md?raw';
 import cliReference from './cli-reference.md?raw';
@@ -26,6 +27,7 @@ export const articles: Article[] = [
   { slug: 'multi-machine',   title: 'Best practices for multiple machines',   category: 'Syncing',        content: multiMachine },
   { slug: 'deck-supported-games', title: 'What syncs on Steam Deck (and what doesn\'t)', category: 'Syncing', content: deckSupportedGames },
   { slug: 'save-in-use-safety', title: 'Save-in-use safety (the settle gate)', category: 'Syncing',      content: saveInUseSafety },
+  { slug: 'emulator-backups', title: 'Emulator backup best practices',       category: 'Syncing',        content: emulatorBackups },
   { slug: 'glob-patterns',   title: 'Exclude patterns (glob filters)',         category: 'Configuration',  content: globPatterns },
   { slug: 'adding-games',    title: 'Adding games & mapping save folders',     category: 'Configuration',  content: addingGames },
   { slug: 'save-retention',  title: 'Save retention',                         category: 'Configuration',  content: saveRetention },

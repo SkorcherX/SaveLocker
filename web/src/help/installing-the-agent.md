@@ -105,6 +105,20 @@ savelocker enroll --file ~/Downloads/savelocker-enroll-steamdeck.json
 savelocker doctor
 ```
 
+Enrollment over HTTPS also records the server's TLS public key. If that identity later changes, the
+agent warns but does not stop syncing — a legitimate certificate renewal may rotate the key, and a
+hard failure would strand a headless Deck. If you expected the certificate or reverse-proxy change,
+inspect the current pin and accept the new one:
+
+```bash
+savelocker trust
+savelocker trust --accept
+```
+
+If you did not expect the change, stop and verify the server URL, DNS, tunnel, and certificate before
+accepting it. A pull restores files into your save folders, so an unexpected server identity matters.
+Plain `http://` connections have no TLS identity to pin.
+
 **`savelocker doctor` is the command to remember.** On a machine with no UI, it is how you find out
 what is wrong: it checks the whole chain — server reachable, Steam found, shortcuts parsed, Proton
 prefixes located, save folders present and writable — and prints a `✗` next to anything broken. If
