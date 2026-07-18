@@ -4,11 +4,23 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** v0.1.7 (tagged 2026-07-14 — **fixes a v0.1.6 regression that broke silent auto-update**: the installer's enroll page validated in `NextButtonClick`, which Inno still calls under `/SILENT`, and returning False there aborts the update. See `Gotchas.md`). **v0.1.6 must not be hosted for auto-update.** v0.1.6 added installer GUI enrollment; v0.1.5 released glob depth-matching; v0.1.4 shipped 5e glob filters. Recently-shipped work indexed in `logs/shipped-2026-07.md`.
+**Current version:** **v0.2.0** (tagged 2026-07-18, PR #8 — **Linux/Deck security hardening**; see the §7–§9 block in `Decisions.md`).
+⚠️ **BREAKING: `savelocker daemon --lan` is REMOVED** and now exits non-zero. Remote access is an SSH
+tunnel: `ssh -L 5178:localhost:5178 <user>@<host>`.
+**The key-rotation follow-up is DONE** (2026-07-18): container updated, both Windows agents upgraded
+to 0.2.0 and re-registered, so no machine still holds a key issued by a version that served it.
+
+Earlier: v0.1.8 (agent UI types from the local OpenAPI); v0.1.7 fixed a v0.1.6 regression that broke
+silent auto-update (`NextButtonClick` fires under `/SILENT`; see `Gotchas.md`) — **v0.1.6 must never
+be hosted for auto-update**. v0.1.5 released glob depth-matching; v0.1.4 shipped 5e glob filters.
+Recently-shipped work indexed in `logs/shipped-2026-07.md`.
+
+⚠️ **Check `git tag -l` before tagging.** This file claimed v0.1.7 while v0.1.8 was already pushed,
+which nearly caused a duplicate tag on 2026-07-18.
 
 ---
 
-## Status (2026-07-13)
+## Status (2026-07-18)
 
 | Area | State |
 |------|-------|
@@ -31,22 +43,45 @@
 | Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
 | Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
 | Agent local API + generated UI types | ✅ ASP.NET Core minimal API + OpenAPI; agent UI schemas generated from the live contract |
-| **Local agent API hardening** | ✅ 2026-07-18 — 15/15 (`run-local-api-tests.ps1`, in CI). Token-auth + Host/Origin validation, no CORS, `--lan` withdrawn, machine key no longer served. `Decisions.md` §7. ⏳ **fleet keys still need rotating** |
+| **Local agent API hardening** | ✅ 2026-07-18 — 15/15 (`run-local-api-tests.ps1`, in CI). Token-auth + Host/Origin validation, no CORS, `--lan` withdrawn, machine key no longer served. `Decisions.md` §7. ✅ **fleet keys rotated 2026-07-18** |
+| **unRAID server on the current image** | ✅ 2026-07-18 — container updated by the maintainer. Was flagged as possibly still running a pre-net10 image |
 | **Cross-process state safety** | ✅ 2026-07-18 — 12/12 (`run-concurrency-tests.ps1`, in CI). Fixed a **self-conflict bug**: a daemon's stale `config.json` write erased another process's parent version, so the next push was rejected as a conflict. `Decisions.md` §8 |
 | **Restore treats archives as hostile** | ✅ 2026-07-18 — hardening now 27 (Win) / 28 (Linux), **7 flip against pre-fix code**. Closed a **proven arbitrary-file-overwrite**: the copy pass wrote through a symlink in the save folder. Plus zip-bomb entry/byte caps. `Decisions.md` §9 |
-| **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)** — the regression path. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
+| **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)**, and again 0.1.8 → **0.2.0 on two machines (2026-07-18)**. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
+| **0.2.0 upgrade + re-register on device** | ✅ 2026-07-18 — two Windows agents upgraded and re-registered with the admin password. Proves the upgrade path and registration survive the local-API auth change. ⏳ **Not** recorded: whether re-register went through the agent window or the CLI, so the **WebView2 → token → `/api/*` path is not confirmed rendered on a device** |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: **Finish device-verifying the fresh-install enroll path (v0.1.7)**
+## ▶ NEXT ACTION: **Linux Help-KB articles** — `tasks/linux-kb-articles.md`
 
-The 🚨 silent-upgrade regression — the one that could have broken every Windows machine — is **done**:
-a silent auto-update of an already-enrolled agent to v0.1.7 completed cleanly on device (2026-07-14),
-no prompt, config intact. What's left is the **fresh-install** side of the wizard (scenarios in the
-archived task `logs/2026-07-14_installer-enrollment.md`):
+The security work that was blocking everything is shipped and deployed (v0.2.0, PR #8; fleet rotated).
+The KB is now the top open item, and it is **not documentation-as-nicety**: a Deck is headless by
+design, so **the console + KB are its only support surface**. A Windows user who hits a problem gets a
+balloon; a Deck user sees nothing.
+
+What remains: `deck-supported-games`, `deck-troubleshooting`, and edits to the existing articles.
+"Installing the agent" shipped 2026-07-14 and covers that task's §1.
+
+Write it against what actually shipped, which changed three of the task file's assumptions:
+- **§1 setup is the enrollment flow** — *download a policy file from the console →
+  `savelocker enroll --file <policy>`* — **not** `set-server` + `register` (Phase 4).
+- **§4's `conflicts.md` edit can say conflicts ARE visible** on a Deck: Phase 5 landed health
+  reporting, so the console shows a problem badge and per-machine health.
+- 🆕 **`--lan` NO LONGER EXISTS** (v0.2.0). Any KB text recommending it is wrong. The replacement is
+  `ssh -L 5178:localhost:5178 <user>@<host>`. Three articles were already corrected
+  (`installing-the-agent`, `save-in-use-safety`, `cli-reference`); check any new text against this.
+
+---
+
+## Then: **Finish device-verifying the fresh-install enroll path**
+
+Requires a machine where `%PROGRAMDATA%\SaveLocker` does **not** exist — i.e. not the maintainer's
+daily driver. The *upgrade* path is well verified (0.1.8 → 0.2.0 on two machines, 2026-07-18); it is
+the **fresh install** that has never been exercised (scenarios in the archived task
+`logs/2026-07-14_installer-enrollment.md`):
 
 - **Happy path:** on a machine where `%PROGRAMDATA%\SaveLocker` does *not* exist, run the installer,
   choose an enrollment file → the page shows the right server + machine name → install → the machine
@@ -57,22 +92,12 @@ archived task `logs/2026-07-14_installer-enrollment.md`):
 - Also: expired-token (page says so, install still succeeds), skip path (installs unenrolled), and the
   unattended switch `Setup.exe /SILENT /ENROLL="C:\path\policy.json"`.
 
-**Do not host v0.1.6 for auto-update** — it aborts under /SILENT. Host **v0.1.7** or newer.
+Also unverified on a device: the **agent window itself** since the local-API auth change. The token is
+injected into `index.html` and WebView2 must send it back on every `/api/*` call. It is proven in
+tests and in a real browser, but nobody has confirmed the WinForms/WebView2 window renders and
+functions on a device post-0.2.0 (the two re-registrations may have been done via the CLI).
 
-## Also queued: **Linux Help-KB articles** — `tasks/linux-kb-articles.md` (UNBLOCKED)
-
-The "Installing the agent" article shipped 2026-07-14 (Windows + Linux + Deck, `Getting started`),
-which covers that task's §1. What remains is `deck-supported-games`, `deck-troubleshooting`, and the
-edits to the existing articles.
-
-**All six phases of the Linux agent are done** (archived: `logs/2026-07-14_linux-agent.md`). The KB
-task was explicitly blocked on Phases 4–6 and is now the natural next step — and it is **not
-documentation-as-nicety**: a Deck is headless by design, so **the console + KB are its only support
-surface**. A Windows user who hits a problem gets a balloon; a Deck user sees nothing.
-
-Write it against what actually shipped, which changed two of its assumptions:
-- **§1 setup is now the enrollment flow** — *download a policy file from the console → `savelocker enroll --file <policy>`* — **not** `set-server` + `register` (Phase 4).
-- **§4's `conflicts.md` edit can now say conflicts ARE visible** on a Deck: Phase 5 landed health reporting, so the console shows a problem badge and per-machine health.
+**Do not host v0.1.6 for auto-update** — it aborts under /SILENT. Host **v0.2.0** or newer.
 
 ### ⚠️ Standing deferred risk: NO HARDWARE
 
@@ -127,10 +152,11 @@ server stores a hash.
 
 ---
 
-## Open (not blocking Phase 4)
+## Open
 
-- ⚠️ **The unRAID server may still be running the OLD image.** `main` now builds on `aspnet:10.0` with SQLite 3.50.4. To deploy: **take a `/data/backups/` snapshot first**, then `docker compose pull && docker compose up -d`. Old **net9 agents are compatible** with the net10 server (tested 12/12 against a real v0.1.5 agent), so the fleet does not need a coordinated upgrade.
-- **Code-sign the exe** — SmartScreen warns for unsigned installers.
+- **Code-sign the exe** — SmartScreen warns for unsigned installers. Explicitly deferred by the maintainer.
+- ⚠️ **`%PROGRAMDATA%\SaveLocker` ACLs on a multi-user Windows box.** v0.2.0 added `api-token` (the local-API secret) to that directory. **Not a new exposure** — `config.json`'s machine key already sat there under the same ACL — but both are readable by other local users on a shared machine. `Backlog.md`, medium priority.
+- **Deploy note for next time:** old agents are wire-compatible with the current server (v0.1.8 ↔ v0.2.0 changed **nothing** in `Contracts.cs`, `src/Server/` or `ApiClient.cs`), so the container and the fleet can be upgraded in either order and independently.
 
 **Gotcha surfaced 2026-07-12:** with two agents, saves diverge → dashboard conflict when the pushing machine's known head ≠ current server head (another machine advanced it). A "behind" machine keeps conflicting until resolved (dashboard resolve → pull, or tray Force Pull); the agent doesn't auto-advance its parent on conflict. Version/glob skew between agents guarantees this — keep both agents identical. (This is the seed for the Help KB "Understanding conflicts" article.)
 

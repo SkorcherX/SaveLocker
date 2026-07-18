@@ -5,6 +5,75 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-18 — Linux/Deck security hardening → v0.2.0 (PR #8)
+
+Closed all three high-priority hardening items, shipped v0.2.0, and completed the operational
+follow-up (container update + fleet key rotation). Code-signing was explicitly set aside.
+
+**Three fixes, each with a test proven to fail against the pre-fix code:**
+
+- **The local agent API was an unauthenticated management API.** `AgentApiServer` — shared by the
+  Windows tray and the Linux daemon — rewrites `config.json`, re-registers the machine and changes
+  what syncs, but shipped with no auth, `AllowAnyOrigin`, and the machine's server API key in
+  `/api/state` and `/api/config`. "Only binds loopback" is not authentication: every process running
+  as that user reaches it, as does any web page the user has open. Now: 32-byte token
+  (`{configDir}/api-token`, 0600) on every `/api/*`, fixed-time compared; Host + Origin validated so
+  a DNS-rebinding page is refused even with a correct token; no CORS policy at all; the key is never
+  serialized. The token reaches the bundled UI by injection into `index.html`.
+  **`daemon --lan` was removed** — it bound all of the above to every interface. It now exits
+  non-zero with an SSH-tunnel instruction rather than being silently ignored.
+- **A machine could conflict with itself.** The agent is not one process: autorun keeps the daemon
+  alive while Steam starts `savelocker run` as a second one. Each held its own `AgentConfig` loaded
+  at startup, and a whole-object `Save()` erased the `LastKnownVersionId` the other had just
+  recorded. The next push then presented a stale parent and the server rejected it as a conflict —
+  **indistinguishable in the dashboard from genuine two-machine divergence.** Fixed with a
+  per-game cross-process lock (`AgentStateLock`) held *alongside* the in-process semaphore (a flock
+  is per-process, so two threads in one process both acquire it), atomic writes (`AtomicFile`), and
+  read-merge-write for config sync state, the offline queue and health events.
+- **A pulled archive could overwrite files outside the save folder.** Phase 6 made the restore's
+  *delete* pass no-follow but left the *copy* pass following links: with `linkdir -> /elsewhere` in
+  the target and `linkdir/secret.txt` in the archive, `File.Copy` wrote straight through. Proven
+  exploitable — the test fails exactly there against pre-fix code. Destination paths now refuse to
+  traverse a link below the save root (the root itself is *followed*, deliberately: it is
+  user-chosen, and symlinking saves onto an SD card is legitimate). Added zip-bomb caps (100k
+  entries, 2 GB uncompressed) checked against declared sizes *and* bytes written.
+
+**Incidental fixes:** agent state resolved to the machine-default dir rather than beside its
+`--config`; a one-shot CLI `push` never queued a failed upload.
+
+**Verified on Windows and Linux** (WSL Ubuntu 24.04, ext4 — real symlinks and real `flock`, not just
+Windows junctions and share-deny): hardening 28/28, concurrency 12/12, local-API 15/15, health 17/17,
+enrollment 16/16, Linux harness 33/33. Two new suites wired into CI.
+
+**Three testing lessons, all recorded in `Gotchas.md` — every one produced a green result that meant
+nothing:**
+1. The first concurrency test raced four identical `push` processes and **passed against fully
+   reverted code**: process startup dominates, so the writes never overlapped. Rewritten around a
+   long-lived daemon vs. a short-lived process, which makes the stale copy deterministic.
+2. The first archive tests **passed vacuously** — the upload planting the hostile archive was 404ing
+   inside a bare `catch {}`, so the server had no archive at all. Every fixture step that must
+   succeed is now its own assertion.
+3. A queue assertion aimed at a game the daemon *watched* proved nothing, since its folder watcher
+   had already pulled that game into memory.
+   **Rule: revert the fix and confirm the test fails.** Nothing else caught these.
+
+**Environment lessons:** WSL is a working test bed — `dotnet`/`pwsh` are simply absent from a
+non-interactive PATH, which made it look unprovisioned; `dotnet build a.csproj b.csproj` silently
+does not build both (a stale `Shared.dll` made the fix look broken on Linux); a dirty dev DB fails
+the enrollment suite 12/16 in a way that reads as a code regression.
+
+**CI gap found by CI:** `agent-tests-linux` never built `agent-ui`, and the agent csproj's copy target
+is conditional on `dist` existing — so it silently skipped, the daemon served no UI, and the
+token-injection assertion failed. Invisible locally where `dist` already existed.
+
+**Ops (maintainer, same day):** container updated; both Windows agents upgraded 0.1.8 → 0.2.0 and
+re-registered with the admin password. Rotation had to come *after* the agent upgrade — rotating on
+0.1.8 would have re-exposed the new key through the same hole. Verified beforehand that v0.1.8 →
+v0.2.0 changed **nothing** in `Contracts.cs`, `src/Server/` or `ApiClient.cs`, so container and agent
+upgrades were order-independent.
+
+---
+
 ## 2026-07-15 — Agent local API and generated UI types
 
 - Replaced the raw `HttpListener` and anonymous JSON responses with an in-process ASP.NET Core minimal API shared by the Windows tray and Linux daemon.
