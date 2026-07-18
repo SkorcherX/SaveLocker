@@ -42,12 +42,36 @@ public sealed class HealthReporter
     };
 
     private readonly string _path;
+    private readonly string _stateDir;
     private readonly object _lock = new();
     private readonly State _state = new();
+    /// <summary>Games this process saw sync cleanly — their stale events must not come back from disk.</summary>
+    private readonly HashSet<Guid> _resolvedThisSession = new();
+    /// <summary>Resolutions this process has already delivered, so the merge does not re-send them forever.</summary>
+    private readonly HashSet<Guid> _sentResolvedThisSession = new();
+    /// <summary>
+    /// Events this process has delivered. Without this the merge re-adopts them straight back off
+    /// disk — the copy another process wrote is still sitting there — and every heartbeat re-sends
+    /// a fault that was resolved hours ago.
+    /// </summary>
+    private readonly List<(string Code, Guid? GameId, DateTime OccurredAt)> _sentEvents = new();
+
+    private bool AlreadySent(Pending candidate) =>
+        _sentEvents.Any(s => s.Code == candidate.Code && s.GameId == candidate.GameId &&
+                             s.OccurredAt >= candidate.OccurredAt);
+
+    /// <summary>
+    /// The event store that belongs to this config — beside its config file, not in the machine
+    /// default. See <see cref="OfflineQueue.For"/>: a process that resolves a different path keeps
+    /// a private set of events nobody delivers.
+    /// </summary>
+    public static HealthReporter For(AgentConfig config) =>
+        new(Path.Combine(config.StateDir, "health-events.json"));
 
     public HealthReporter(string? path = null)
     {
         _path = path ?? Path.Combine(AgentConfig.DefaultDir, "health-events.json");
+        _stateDir = Path.GetDirectoryName(Path.GetFullPath(_path))!;
         Load();
     }
 
@@ -87,6 +111,8 @@ public sealed class HealthReporter
     {
         lock (_lock)
         {
+            _resolvedThisSession.Add(gameId);
+            _sentResolvedThisSession.Remove(gameId);
             _state.Events.RemoveAll(e => e.GameId == gameId);
             if (!_state.ResolvedGameIds.Contains(gameId))
                 _state.ResolvedGameIds.Add(gameId);
@@ -106,6 +132,19 @@ public sealed class HealthReporter
         Guid[] resolved;
         lock (_lock)
         {
+            // Adopt anything another process left behind. The launch wrapper records an event and
+            // exits; on a Deck the daemon's heartbeat is the only thing that will ever deliver it.
+            var disk = ReadDisk();
+            foreach (var d in disk.Events)
+            {
+                if (_resolvedThisSession.Contains(d.GameId ?? Guid.Empty)) continue;
+                if (AlreadySent(d)) continue;
+                if (_state.Events.Any(e => e.Code == d.Code && e.GameId == d.GameId)) continue;
+                _state.Events.Add(d);
+            }
+            foreach (var id in disk.ResolvedGameIds)
+                if (!_state.ResolvedGameIds.Contains(id)) _state.ResolvedGameIds.Add(id);
+
             events = _state.Events.ToArray();
             resolved = _state.ResolvedGameIds.ToArray();
         }
@@ -136,9 +175,16 @@ public sealed class HealthReporter
         lock (_lock)
         {
             foreach (var sent in events)
+            {
                 _state.Events.RemoveAll(e => e.Code == sent.Code && e.GameId == sent.GameId &&
                                              e.OccurredAt <= sent.OccurredAt);
-            foreach (var id in resolved) _state.ResolvedGameIds.Remove(id);
+                _sentEvents.Add((sent.Code, sent.GameId, sent.OccurredAt));
+            }
+            foreach (var id in resolved)
+            {
+                _state.ResolvedGameIds.Remove(id);
+                _sentResolvedThisSession.Add(id);
+            }
             Persist();
         }
         return true;
@@ -157,13 +203,52 @@ public sealed class HealthReporter
         catch { /* corrupt — start fresh; health must never block startup */ }
     }
 
+    /// <summary>
+    /// Merge over what is on disk, then write atomically.
+    ///
+    /// The launch wrapper writes here and exits; the daemon is what actually delivers on the next
+    /// heartbeat. A whole-state overwrite meant whichever process persisted last erased the other's
+    /// pending events — losing exactly the reports this file exists to preserve, since the file is
+    /// only load-bearing when the server was unreachable.
+    /// </summary>
     private void Persist()
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-            File.WriteAllText(_path, JsonSerializer.Serialize(_state, JsonOpts));
+            using var guard = AgentStateLock.Acquire("health-events", _stateDir);
+
+            var disk = ReadDisk();
+
+            // Ours wins per (code, game) — we just observed it — but an event only the other process
+            // recorded is kept. Events we deliberately dropped (MarkSynced) stay dropped: this
+            // process just proved that game is healthy, which is newer information than the disk's.
+            var merged = disk.Events
+                .Where(d => !_resolvedThisSession.Contains(d.GameId ?? Guid.Empty))
+                .Where(d => !AlreadySent(d))
+                .Where(d => !_state.Events.Any(e => e.Code == d.Code && e.GameId == d.GameId))
+                .Concat(_state.Events)
+                .ToList();
+
+            var mergedResolved = disk.ResolvedGameIds
+                .Concat(_state.ResolvedGameIds)
+                .Distinct()
+                .Where(id => !_sentResolvedThisSession.Contains(id))
+                .ToList();
+
+            AtomicFile.WriteAllText(_path,
+                JsonSerializer.Serialize(new State { Events = merged, ResolvedGameIds = mergedResolved }, JsonOpts),
+                restrictPermissions: true);
         }
         catch { /* best-effort; the next write catches up */ }
+    }
+
+    private State ReadDisk()
+    {
+        try
+        {
+            if (!File.Exists(_path)) return new State();
+            return JsonSerializer.Deserialize<State>(File.ReadAllText(_path), JsonOpts) ?? new State();
+        }
+        catch { return new State(); }
     }
 }

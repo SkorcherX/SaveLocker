@@ -34,8 +34,8 @@ internal sealed class TrayContext : ApplicationContext
     private readonly GameScanner _scanner;
     private readonly CommandPoller _commandPoller;
     private readonly AgentApiServer _apiServer;
-    private readonly OfflineQueue _offlineQueue = new();
-    private readonly HealthReporter _health = new();
+    private readonly OfflineQueue _offlineQueue;
+    private readonly HealthReporter _health;
     private readonly OfflineQueueDrainer _drainer;
     private AgentWindow? _window;
     private ProcessWatcher _processWatcher;
@@ -51,6 +51,8 @@ internal sealed class TrayContext : ApplicationContext
     public TrayContext(AgentConfig config)
     {
         _config = config;
+        _offlineQueue = OfflineQueue.For(config);
+        _health = HealthReporter.For(config);
         _ui = SynchronizationContext.Current ?? new SynchronizationContext();
         _detection = new Detection(config);
         _scanner = new GameScanner(_detection);

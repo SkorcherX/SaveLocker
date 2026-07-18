@@ -210,6 +210,70 @@ check "both games have a head on the server" \
   "$([ "$(grep -c 'head=' <<<"${out}")" = "2" ] && echo 0 || echo 1)"
 check "no conflicts" "$(grep -q 'CONFLICT' <<<"${out}" && echo 1 || echo 0)"
 
+# ── Daemon and launch wrapper, concurrently, on the SAME game ────────────────────────────────
+# This is the Deck's real configuration and it is the one shape no other harness reproduces:
+# autorun keeps the daemon running (watching every mapped save folder) while Steam starts
+# `savelocker run` as a second process. Both sync the same game, through the same config.json,
+# offline queue and health-event file.
+#
+# The damage to look for is NOT a crash. It is the daemon writing its stale in-memory config back
+# over the parent version the wrapper just recorded: the next push then presents a stale parent and
+# the server rejects it as a conflict — one machine, conflicting with itself, with nothing in the
+# log to say why. `tests/run-concurrency-tests.ps1` covers the same contention cross-platform with a
+# CLI push as the second actor; this covers it with the real launch wrapper.
+echo "==> Daemon + launch wrapper on the same game, concurrently"
+
+dotnet "${agent_dir}/bin/Debug/net10.0/savelocker.dll" daemon \
+  --config "${deck_cfg}" --port 5189 >"${scratch}/daemon.log" 2>&1 &
+daemon_pid=$!
+for _ in $(seq 1 40); do
+  curl -sf "http://localhost:5189/" >/dev/null 2>&1 && break
+  sleep 0.5
+done
+check "daemon started alongside the wrapper" \
+  "$(kill -0 "${daemon_pid}" 2>/dev/null && echo 0 || echo 1)"
+
+# The daemon now holds a config loaded BEFORE anything below happens.
+export STEAM_COMPAT_DATA_PATH="${PREFIX}"
+export SteamAppId="${PREFIX_APPID}"
+# Third arg is the GAME's exit code, which the wrapper propagates verbatim — so it must be 0 here
+# for "exits cleanly" to mean anything. (Propagation itself is asserted earlier, with a 7.)
+out="$(agent run --config "${deck_cfg}" -- "${fixtures}/slow-game.sh" "${PREFIX_SAVE}" 5 0)"
+wrapper_rc=$?
+unset STEAM_COMPAT_DATA_PATH SteamAppId
+check "wrapper still exits cleanly with a daemon running" \
+  "$([ "${wrapper_rc}" = "0" ] && echo 0 || echo 1)"
+
+# Let the daemon's watcher react to the same writes and persist its own view.
+sleep 12
+
+version_after_wrapper="$(python3 - "${deck_cfg}" <<'PY'
+import json,sys
+cfg=json.load(open(sys.argv[1]))
+g=[x for x in cfg["Games"] if x["Name"]=="Fake Prefix Game"]
+print(g[0].get("LastKnownVersionId") or "" if g else "")
+PY
+)"
+check "the game still has a parent version after both processes wrote" \
+  "$([ -n "${version_after_wrapper}" ] && echo 0 || echo 1)"
+
+check "config.json is still valid JSON" \
+  "$(python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "${deck_cfg}" >/dev/null 2>&1 && echo 0 || echo 1)"
+
+# The payoff: a lost parent version shows up HERE, as a conflict against the machine's own push.
+out="$(agent push --config "${deck_cfg}" "Fake Prefix Game")"
+check "a later push does not conflict with itself" \
+  "$(grep -q 'CONFLICT' <<<"${out}" && echo 1 || echo 0)"
+
+# Temp archives must be per-process, or one push deletes the other's mid-upload.
+# State lives beside the config file it belongs to, so with --config that is ${scratch}, not the
+# machine default under XDG_DATA_HOME.
+leftover_tmp="$(find "${scratch}/tmp" -name '*.zip' 2>/dev/null | wc -l)"
+check "no temp archives leaked" "$([ "${leftover_tmp}" = "0" ] && echo 0 || echo 1)"
+
+kill "${daemon_pid}" 2>/dev/null
+wait "${daemon_pid}" 2>/dev/null
+
 echo
 echo "==== LINUX AGENT RESULT: ${pass} passed, ${fail} failed ===="
 [ "${fail}" = "0" ]

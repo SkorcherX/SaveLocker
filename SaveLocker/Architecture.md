@@ -35,7 +35,7 @@ Hub-and-spoke (not peer-to-peer). See `Decisions.md` for why unRAID is the keyst
 ### Agent (`src/Agent`)
 - `Program.cs` — entry point: no args → tray (`TrayApp.cs`); args → CLI commands.
 - `TrayApp.cs` — tray icon + menu, engine/poller lifecycle, update-check startup + 24 h timer.
-- `AgentApiServer.cs` — `HttpListener` on port 5178. Serves static `agent-ui/dist/` files (SPA fallback) and JSON API routes for the React agent UI.
+- `AgentApiServer.cs` — ASP.NET Core minimal API on **localhost:5178** (loopback only, never LAN). Serves static `agent-ui/dist/` files (SPA fallback) and JSON API routes for the React agent UI. Every `/api/*` call requires the local token from `{configDir}/api-token`, which is injected into `index.html` when the SPA shell is served; Host and Origin are validated to defeat DNS rebinding. It is a *management* API — see `Decisions.md` §7.
 - `AgentWindow.cs` — WinForms form hosting WebView2. Hides instead of closing (re-showable from tray). DPI-scaled `ClientSize` (see `Gotchas.md`).
 - `SyncEngine.cs` — push (archive→hash→upload), pull (download→restore), pre-launch (lease + pull), post-exit (push + release).
 - `UpdateChecker.cs` — polls `GET /api/agent/latest`, compares with `Assembly.GetEntryAssembly().GetName().Version`, respects `AgentConfig.SkipVersion`. Downloads installer to `%TEMP%`, launches with `/SILENT /FORCECLOSEAPPLICATIONS /NORESTART`.

@@ -102,6 +102,28 @@ public static class SaveArchive
         new(path, FileMode.Open, FileAccess.Read,
             FileShare.ReadWrite | FileShare.Delete);
 
+    /// <summary>Thrown when an archive is refused before anything is written. Never a partial restore.</summary>
+    public sealed class UnsafeArchiveException(string message) : Exception(message);
+
+    /// <summary>
+    /// Ceiling on entries in one archive. A restore that needs more than this is not a save folder.
+    /// Override with <c>SAVELOCKER_MAX_RESTORE_ENTRIES</c>.
+    /// </summary>
+    public static int MaxRestoreEntries =>
+        ReadLimit("SAVELOCKER_MAX_RESTORE_ENTRIES", 100_000);
+
+    /// <summary>
+    /// Ceiling on TOTAL UNCOMPRESSED bytes. The upload cap (200 MB) applies to the compressed body,
+    /// so a legitimate archive can expand well past it — but not without bound. A zip bomb expands a
+    /// few KB into terabytes and fills the disk of a Deck that has no screen to complain on.
+    /// Override with <c>SAVELOCKER_MAX_RESTORE_MB</c>.
+    /// </summary>
+    public static long MaxRestoreBytes =>
+        ReadLimit("SAVELOCKER_MAX_RESTORE_MB", 2048) * 1024L * 1024L;
+
+    private static int ReadLimit(string envVar, int fallback) =>
+        int.TryParse(Environment.GetEnvironmentVariable(envVar), out var v) && v > 0 ? v : fallback;
+
     /// <summary>
     /// Restore an archive into <paramref name="targetDir"/>. Staging is done in
     /// <paramref name="stagingRoot"/> when provided (recommended for paths inside
@@ -109,6 +131,11 @@ public static class SaveArchive
     /// filesystem filter driver). Falls back to a temp folder beside the target when
     /// omitted. Files are copied individually so no directory rename ever touches the
     /// target tree; files absent from the archive are deleted from the target.
+    /// <para>
+    /// The archive is treated as <b>hostile input</b>: it arrives over the network from a server the
+    /// agent may have been pointed at by a forged enrollment file (Decisions.md §4). It is size- and
+    /// count-checked before extraction, and no destination path may traverse a symlink.
+    /// </para>
     /// </summary>
     public static void RestoreArchive(string archiveZip, string targetDir, string? stagingRoot = null)
     {
@@ -123,16 +150,30 @@ public static class SaveArchive
         try
         {
             Directory.CreateDirectory(stagingDir);
-            ZipFile.ExtractToDirectory(archiveZip, stagingDir, overwriteFiles: true);
+            ExtractChecked(archiveZip, stagingDir);
 
             Directory.CreateDirectory(targetDir);
 
+            // Resolve the target root through a link before anything else. A user symlinking their
+            // save folder (onto an SD card, say) is legitimate and must keep working — so the root
+            // is FOLLOWED. What must not be followed is any component BELOW it, because those come
+            // from paths the archive chose.
+            var targetFull = ResolveRoot(targetDir);
+
             // Copy every file from staging into the target (overwrite existing).
             var stagingFull = Path.GetFullPath(stagingDir);
+            var checkedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var src in Directory.EnumerateFiles(stagingDir, "*", SearchOption.AllDirectories))
             {
                 var rel = Path.GetRelativePath(stagingFull, src);
-                var dst = Path.Combine(targetDir, rel);
+                var dst = Path.Combine(targetFull, rel);
+
+                // The delete pass below is no-follow, but this copy pass was not: if the target
+                // already contained a symlinked directory and the archive carried a matching path,
+                // File.Copy wrote straight THROUGH the link and overwrote a file outside the save
+                // folder. Creating the parents here is what made it reachable.
+                EnsureNoLinkBelowRoot(targetFull, dst, checkedDirs);
+
                 Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
                 File.Copy(src, dst, overwrite: true);
             }
@@ -144,7 +185,6 @@ public static class SaveArchive
             // entirely (a link to $HOME in a Wine prefix is not hypothetical). Links themselves are
             // skipped, never deleted — we did not archive them, so their absence from the archive
             // must not read as "the user removed this file".
-            var targetFull = Path.GetFullPath(targetDir);
             var archiveRel = EnumerateFilesNoFollow(stagingFull)
                 .Select(f => Path.GetRelativePath(stagingFull, f))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -167,6 +207,139 @@ public static class SaveArchive
         {
             if (Directory.Exists(stagingDir))
                 Directory.Delete(stagingDir, true);
+        }
+    }
+
+    /// <summary>
+    /// Extract with the archive treated as hostile: bounded entry count, bounded uncompressed size,
+    /// and no path escaping the staging directory.
+    /// <para>
+    /// The declared sizes in the central directory are checked first because it is cheap and rejects
+    /// an obvious bomb before a single byte lands — but <b>they are attacker-controlled and may lie</b>,
+    /// so the real cap is enforced against bytes actually written. A zip that understates its size
+    /// hits the running total instead.
+    /// </para>
+    /// </summary>
+    private static void ExtractChecked(string archiveZip, string stagingDir)
+    {
+        var maxEntries = MaxRestoreEntries;
+        var maxBytes = MaxRestoreBytes;
+
+        using var zip = ZipFile.OpenRead(archiveZip);
+
+        if (zip.Entries.Count > maxEntries)
+            throw new UnsafeArchiveException(
+                $"Archive has {zip.Entries.Count:N0} entries, over the {maxEntries:N0} limit. " +
+                "Refusing to extract it. If this is genuinely your save, raise SAVELOCKER_MAX_RESTORE_ENTRIES.");
+
+        long declared = 0;
+        foreach (var entry in zip.Entries)
+        {
+            declared += entry.Length;
+            if (declared > maxBytes)
+                throw new UnsafeArchiveException(
+                    $"Archive expands to at least {Mb(declared)}, over the {Mb(maxBytes)} limit. " +
+                    "Refusing to extract it. If this is genuinely your save, raise SAVELOCKER_MAX_RESTORE_MB.");
+        }
+
+        var stagingFull = Path.GetFullPath(stagingDir);
+        long written = 0;
+
+        foreach (var entry in zip.Entries)
+        {
+            // A directory entry (trailing separator, no name) carries no content.
+            if (string.IsNullOrEmpty(entry.Name)) continue;
+
+            var dst = Path.GetFullPath(Path.Combine(stagingFull, entry.FullName));
+
+            // Zip-slip. .NET's ExtractToDirectory also rejects this, but extraction is hand-rolled
+            // here for the size cap, so the check has to be hand-rolled with it.
+            if (!dst.StartsWith(stagingFull + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                throw new UnsafeArchiveException(
+                    $"Archive entry '{entry.FullName}' resolves outside the target directory. Refusing to extract it.");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(dst)!);
+
+            using var src = entry.Open();
+            using var outFile = new FileStream(dst, FileMode.Create, FileAccess.Write);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = src.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                written += read;
+                if (written > maxBytes)
+                    throw new UnsafeArchiveException(
+                        $"Archive expanded past the {Mb(maxBytes)} limit while extracting " +
+                        $"(its declared size understated it). Refusing to continue.");
+                outFile.Write(buffer, 0, read);
+            }
+        }
+    }
+
+    private static string Mb(long bytes) => $"{bytes / 1024.0 / 1024.0:0.#} MB";
+
+    /// <summary>
+    /// Follow a link on the save root itself — the user configured that path, so a save folder
+    /// symlinked onto an SD card is legitimate and keeps working. Everything below it is not
+    /// user-chosen and is checked by <see cref="EnsureNoLinkBelowRoot"/>.
+    /// </summary>
+    private static string ResolveRoot(string targetDir)
+    {
+        var full = Path.GetFullPath(targetDir);
+        try
+        {
+            var info = new DirectoryInfo(full);
+            if (info.LinkTarget is not null)
+            {
+                var resolved = info.ResolveLinkTarget(returnFinalTarget: true);
+                if (resolved is not null) return Path.GetFullPath(resolved.FullName);
+            }
+        }
+        catch { /* not a link, or unresolvable — treat the path as given */ }
+        return full;
+    }
+
+    /// <summary>
+    /// Refuse a destination whose path crosses a symlink or junction anywhere below the save root.
+    ///
+    /// The archive picks these relative paths. If the target already holds <c>sub -&gt; /home/user</c>
+    /// and the archive carries <c>sub/.bashrc</c>, an unchecked copy overwrites the real
+    /// <c>~/.bashrc</c> — outside the save folder entirely, with attacker-chosen bytes. The whole
+    /// restore is rejected rather than skipping the file, so a partial restore never masquerades as
+    /// a complete one.
+    /// </summary>
+    private static void EnsureNoLinkBelowRoot(string rootFull, string dstFull, HashSet<string> alreadyChecked)
+    {
+        var dir = Path.GetDirectoryName(dstFull);
+        var pending = new List<string>();
+
+        while (dir is not null &&
+               dir.Length > rootFull.Length &&
+               dir.StartsWith(rootFull, StringComparison.OrdinalIgnoreCase))
+        {
+            if (alreadyChecked.Contains(dir)) break;
+            pending.Add(dir);
+            dir = Path.GetDirectoryName(dir);
+        }
+
+        // Shallowest first, so the error names the outermost link rather than a leaf under it.
+        pending.Reverse();
+        foreach (var component in pending)
+        {
+            var info = new DirectoryInfo(component);
+            if (info.Exists && IsLink(info))
+                throw new UnsafeArchiveException(
+                    $"Refusing to restore: '{component}' is a symlink/junction, so writing the archive " +
+                    "there would modify files outside the save folder. Remove the link, or point the " +
+                    "game's save folder at the real directory.");
+
+            // A file sitting where the archive wants a directory is the same escape in a different
+            // shape — Directory.CreateDirectory would fail, but check it while we are here.
+            if (File.Exists(component))
+                throw new UnsafeArchiveException(
+                    $"Refusing to restore: '{component}' is a file, but the archive expects a directory there.");
+
+            alreadyChecked.Add(component);
         }
     }
 

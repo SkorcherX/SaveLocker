@@ -204,3 +204,93 @@ It does not overwrite the destination tree — it nests a copy inside it. A left
 
 ## Docker DB path on existing deployments
 The server Docker image defaults to `/data/savelocker.db` but existing deployments that were created before the rename may have `/data/localgamesync.db`. If the server fails to find the DB, either rename the file on the unRAID share or set the `Storage__DbPath` env var.
+
+## The agent's local API is a *management* API — don't treat loopback as authentication
+`AgentApiServer` (shared by the Windows tray and the Linux daemon) can re-point this machine at
+another server, re-register it, and change what it syncs. It originally shipped unauthenticated with
+`AllowAnyOrigin`, and returned the machine's server API key from `/api/state` and `/api/config`.
+"It only listens on localhost" is **not** a defence: every process running as that user can reach it,
+and so can any web page the user has open — a page can POST to `http://localhost:5178`, and a DNS
+rebind makes the socket loopback while the `Host` header still says `evil.com`.
+- **Fixed 2026-07-18** (`Decisions.md` §7): 32-byte token in `{configDir}/api-token` (0600) required
+  on every `/api/*` call, Host + Origin validated, no CORS policy at all, key never serialized.
+- **`--lan` was withdrawn.** It bound all of the above to every interface. It now *exits non-zero*
+  rather than being ignored — a silently-accepted flag would leave someone believing they still had
+  remote access. Remote access is an SSH tunnel: `ssh -L 5178:localhost:5178 <user>@<host>`.
+- ⚠️ **Don't "fix" the UI by re-adding CORS.** The bundled UI is same-origin; if it cannot call the
+  API, the cause is a missing token, not a missing CORS header. The token arrives by being injected
+  into `index.html` at serve time — so `index.html` must never be served as a plain static file
+  (the guard rewrites `/index.html` to `/` for exactly this reason).
+- Under `vite dev` the page comes from Vite, not the agent, so the placeholder is never replaced;
+  `vite.config.ts` reads the token off disk and injects the header in the proxy instead.
+
+## The agent is two processes — in-process locks and whole-file writes are not enough
+Autorun keeps the **daemon** alive while Steam starts **`savelocker run -- %command%`** as a second
+process (on Windows: the tray, plus any CLI command). They share `config.json`, `offline-queue.json`,
+`health-events.json` and the temp archive dir. A `SemaphoreSlim` or `lock` does **nothing** here.
+- **The symptom is a conflict, not a crash.** A daemon that loaded `config.json` at startup and later
+  calls `Save()` writes its **stale** copy back, erasing the `LastKnownVersionId` the other process
+  just recorded. The next push presents a stale parent, the server rejects it, and the machine
+  **conflicts with itself** — identical in the dashboard to the genuine two-machine divergence, so it
+  is easy to misdiagnose for a long time. Fixed 2026-07-18 (`Decisions.md` §8).
+- **Use `SaveGameSyncState`, not `Save()`, for per-game sync fields.** It re-reads under the lock and
+  merges. `Save()` is still last-writer-wins and that is fine only for settings a human edits.
+- ⚠️ **Take BOTH locks.** `AgentStateLock` is a `flock`, owned by the *process* — two threads in one
+  process both acquire it and neither blocks. The in-process semaphore is still required. Removing
+  either one leaves a real hole.
+- ⚠️ **A lock timeout deliberately proceeds rather than throwing.** A lock file left by a crashed
+  process must not be able to block syncing forever. Do not "harden" this into a hard failure.
+- **Never give a temp archive a fixed name.** `{gameId}-push.zip` was shared by every process; the
+  first push to finish deleted the other's archive mid-upload. Names carry PID + GUID now.
+- **State lives beside its config file**, not in `AgentConfig.DefaultDir`. With `--config` those
+  differ, and a process resolving the wrong one keeps a private queue nobody ever drains.
+
+## A concurrency test that races identical short-lived processes proves nothing
+The first version of `run-concurrency-tests.ps1` launched four `push` processes at once and asserted
+config integrity. It passed **against the broken code**: process startup dominates, so the write
+windows never overlapped. The damage needs the real shape — a **long-lived process holding state it
+loaded minutes ago** (the daemon) versus a short-lived one. Ordering is then enforced by waiting on
+observable state instead of hoping for a race.
+- Same trap in the queue check: asserting on a game the daemon *watches* proves nothing, because its
+  folder watcher already pulled that game into the daemon's memory. The discriminating case is a game
+  **only** the other process ever touches.
+- **Rule: revert the fix and confirm the test fails.** Both traps above were caught that way, and
+  only that way.
+
+## `dotnet` and `pwsh` look "not installed" in WSL from a non-interactive shell
+`wsl -d Ubuntu-24.04 -- bash -lc 'dotnet --version'` reports **command not found** even though the SDK
+is installed, because `~/.dotnet` and `~/.local/bin` are only added to PATH by the interactive
+profile. It is easy to conclude from this that WSL is unprovisioned and to fall back to
+Windows-only testing — which silently skips every Linux-specific behaviour (`flock`, `0600` modes,
+the launch wrapper, the whole `tests/linux/` harness).
+- Always `export DOTNET_ROOT=$HOME/.dotnet; export PATH=$HOME/.dotnet:$HOME/.local/bin:$PATH` first.
+- Quoting through `wsl.exe -- bash -lc '...'` mangles nested `$( )`. Pipe a heredoc to `bash -s` instead.
+
+## A dirty dev DB fails the enrollment suite in a way that looks like a code regression
+Starting the server without isolated storage and then running `run-enrollment-tests.ps1` gives
+**12/16 failures**, beginning at "mint returns a raw token" — which reads as broken enrollment code.
+It is leftover state (an already-redeemed token, an admin password set by an earlier run).
+- Always give a test server its own `Storage__DbPath` and `Storage__ArchiveRoot`, the way
+  `run-health-tests.ps1` and `run-hardening-tests.ps1` already do. With a clean DB: 16/16.
+
+## A test whose setup silently fails passes VACUOUSLY — assert the setup too
+The new write-through-link and zip-bomb checks in `run-hardening-tests.ps1` all passed on the first
+run **while testing nothing**. The `Invoke-RestMethod` upload that plants the hostile archive was
+404ing inside a bare `catch { }`, so the server had no archive, the pull answered *"server has no
+saves yet"*, and every "the outside file was not overwritten" assertion was trivially true.
+- **The 404 cause:** resolving the game id by matching `name` against `/api/games` returned **two**
+  ids, so `"$server/api/games/$id/upload"` interpolated an array and the route did not match. Take
+  the id from the agent's own `config.json` (`.Games[0].GameId`) — that is the id the agent will
+  actually pull, so upload and pull cannot disagree.
+- **The rule:** every fixture step that must succeed gets its own `Check`. "The hostile archive
+  reached the server" is now an assertion, not an assumption.
+- **And still revert the fix to confirm the test fails.** These checks flip 7 results against pre-fix
+  code, including the one that matters: the file outside the save folder IS overwritten.
+
+## `dotnet build a.csproj b.csproj` does not build both
+Passing two project paths to one `dotnet build` silently does not do what it looks like — the second
+is not built. In WSL this left a **17-minute-stale `SaveLocker.Shared.dll`** in the agent's output,
+so the hardening suite ran against the OLD archive code and reported 7 failures that had already been
+fixed. It reads exactly like the fix not working on Linux.
+- Build each project in its own `dotnet build` invocation, and when a result is surprising, check the
+  output DLL's timestamp before debugging the code.

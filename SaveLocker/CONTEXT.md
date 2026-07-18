@@ -31,6 +31,9 @@
 | Linux agent **Phase 5** — agent health reporting | ✅ done 2026-07-14 — 17/17 (PR #5, merged) |
 | Linux agent **Phase 6** — hardening | ✅ done 2026-07-14 — 14/14. **Fixed a real data-loss bug** (below) |
 | Agent local API + generated UI types | ✅ ASP.NET Core minimal API + OpenAPI; agent UI schemas generated from the live contract |
+| **Local agent API hardening** | ✅ 2026-07-18 — 15/15 (`run-local-api-tests.ps1`, in CI). Token-auth + Host/Origin validation, no CORS, `--lan` withdrawn, machine key no longer served. `Decisions.md` §7. ⏳ **fleet keys still need rotating** |
+| **Cross-process state safety** | ✅ 2026-07-18 — 12/12 (`run-concurrency-tests.ps1`, in CI). Fixed a **self-conflict bug**: a daemon's stale `config.json` write erased another process's parent version, so the next push was rejected as a conflict. `Decisions.md` §8 |
+| **Restore treats archives as hostile** | ✅ 2026-07-18 — hardening now 27 (Win) / 28 (Linux), **7 flip against pre-fix code**. Closed a **proven arbitrary-file-overwrite**: the copy pass wrote through a symlink in the save folder. Plus zip-bomb entry/byte caps. `Decisions.md` §9 |
 | **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)** — the regression path. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
@@ -148,6 +151,23 @@ See `Backlog.md` for the full list.
 | Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
+| Local agent API security | `.\tests\run-local-api-tests.ps1` (15 checks). Starts its own daemon on **:5188** via `daemon --port`, so it never collides with a real agent on :5178. Needs nothing running |
+| Cross-process state | `.\tests\run-concurrency-tests.ps1` (12 checks; own server on **:5183**, own daemon on **:5189**). Daemon vs. a second process over `config.json`, the offline queue and health events. Verified to FAIL against pre-fix code |
+
+**WSL is a working test bed — use it.** Ubuntu 24.04 is provisioned (see Toolchain below) with a clone at
+`~/SaveLocker`. `dotnet` and `pwsh` are **not on a non-interactive PATH**, which makes them look absent;
+export first. This is how to run the Linux-only harness and to exercise real `flock` and `0600` semantics
+that Windows cannot show you:
+```sh
+wsl -d Ubuntu-24.04
+export DOTNET_ROOT=$HOME/.dotnet; export PATH=$HOME/.dotnet:$HOME/.local/bin:$PATH
+cd ~/SaveLocker && git fetch /mnt/e/Projects/SaveLocker <branch> && git reset --hard FETCH_HEAD
+cp -r /mnt/e/Projects/SaveLocker/agent-ui/dist/. agent-ui/dist/   # avoids the Windows-npm-on-PATH trap
+dotnet build src/Server/SaveLocker.Server.csproj src/Agent.Linux/SaveLocker.Agent.Linux.csproj --no-incremental
+bash tests/linux/run-linux-tests.sh          # 33 checks
+```
+⚠️ Suites that need a server on :5179 must be given **isolated `Storage__DbPath` / `Storage__ArchiveRoot`**.
+Reusing a dirty dev DB fails 12/16 of the enrollment suite for reasons that look exactly like a code regression.
 | Health tests | `.\tests\run-health-tests.ps1` (17 checks). **Starts and stops its own server on :5181** — it has to, since one check pushes while the server is *down*. Needs nothing running |
 | Hardening tests | `.\tests\run-hardening-tests.ps1` (14 on Linux / 13 on Windows; own server on :5182). Security: symlink escape on archive **and on restore-delete**, zip-slip. Windows uses junctions (no elevation); Linux uses symlinks |
 | TOFU pin tests (TLS) | `.\tests\run-enrollment-tls-tests.ps1` (6 checks; starts its own HTTPS server on :5443). Needs `dotnet dev-certs https --trust` — local only, not in CI |

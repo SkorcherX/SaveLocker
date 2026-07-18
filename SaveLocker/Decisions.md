@@ -87,7 +87,9 @@ All the genuinely hard cross-OS problems (different save formats, different path
 Native Linux builds need a save-*variant* model on the server (a version's lineage would only be valid within a platform family). Deferred until there is a reason to build it. **Do not sync a native-Linux save into a Windows install** — that is the corruption case this scoping avoids.
 
 ### 2. No native UI on Linux — the daemon serves the existing React UI
-In **Game Mode** (gamescope) there is no system tray and no desktop; a tray icon is invisible and a toast is impossible. In **Desktop Mode** it is just KDE with a browser. So the Linux agent is a **headless daemon** that serves the existing `agent-ui` on `localhost:5178` — the same UI, for free, reachable from a browser or another device on the LAN. No WinForms equivalent, no GTK/Qt, no second frontend.
+In **Game Mode** (gamescope) there is no system tray and no desktop; a tray icon is invisible and a toast is impossible. In **Desktop Mode** it is just KDE with a browser. So the Linux agent is a **headless daemon** that serves the existing `agent-ui` on `localhost:5178` — the same UI, for free, reachable from a browser in Desktop Mode. No WinForms equivalent, no GTK/Qt, no second frontend.
+
+**Loopback only — see §7.** An earlier `--lan` flag bound this to every interface; it has been withdrawn.
 
 Consequence, and it is a design obligation rather than a nice-to-have: **a headless spoke cannot tell the user anything.** A conflict that raises a toast on Windows is *silent* on a Deck. The agent must therefore report health and errors to the server so the console can surface them ("Steam Deck: conflict on Hades, 2 days ago"). **The console is the Deck's UI.** This ships *with* the Linux agent, not after it.
 
@@ -128,7 +130,41 @@ The agent never talks to Steam — it reads two env vars and supervises a child 
 
 Not testable without hardware: gamescope/Game Mode, the immutable rootfs, SD-card library paths, suspend/resume. A VM buys only the immutable-rootfs check and makes gamescope worse. **No Deck is owned** — hardware validation is an explicit deferred-risk item, exactly like the existing Windows device-verify pattern.
 
+### 7. The agent's local API is loopback-only, token-authenticated, and never serves the machine key
+`AgentApiServer` is shared by the Windows tray and the Linux daemon, and it is a **management** API: it rewrites `config.json`, re-registers this machine, and changes what syncs. Reaching it is equivalent to owning the box. It originally shipped unauthenticated with `AllowAnyOrigin`, and returned the machine's server API key in `/api/state` and `/api/config`.
+
+Four things, all of which are load-bearing together — none is sufficient alone:
+
+1. **Loopback only, always.** Kestrel binds `localhost`. `daemon --lan` is **withdrawn** and now exits non-zero with an SSH-tunnel instruction, rather than being silently ignored — someone's autostart unit or notes may still carry it, and they need to learn the exposure is gone. Remote access is an **authenticated SSH tunnel**, which supplies the authentication and transport security this API does not have.
+2. **A high-entropy local token** (32 random bytes, `{configDir}/api-token`, `0600`) on every `/api/*` request, compared in fixed time. This is what stops *another process running as this user*, and any web page the user has open, from driving the agent. The bundled UI gets it by having it injected into `index.html` at serve time; the same-origin policy is what stops another page reading it back.
+3. **Host and Origin validation.** A DNS-rebinding page resolves *its own* name to `127.0.0.1`, so the socket is loopback but the `Host` header still carries the attacker's domain — rejected, token or not. A foreign `Origin` is rejected the same way. **No CORS policy exists**: the UI is same-origin, so nothing legitimate needs one.
+4. **The machine API key is never serialized into a response.** Not in `/api/state`, not in `/api/config`, and `/api/register` returns the machine name rather than echoing the new key. The agent UI shows *whether* the machine is registered, not its secret. `whoami` still prints it — that is a local CLI the user runs in their own terminal, not something served over a socket.
+
+`/openapi` is deliberately **not** token-gated: it is a static description of the API with no machine state in it, and the UI's type generator has no way to send a header. Proven by `tests/run-local-api-tests.ps1`, which asserts each attack is refused rather than that the UI still works.
+
+### 8. Two processes own the agent's state, so every shared file is locked, atomic, and merged
+The agent is **not one process**. Autorun keeps the daemon alive while Steam starts `savelocker run -- %command%` as a second one (on Windows, the tray plus any CLI command). They share `config.json`, `offline-queue.json`, `health-events.json` and the temp archive directory. The locks that were here — a `SemaphoreSlim` and a `lock` statement — are in-process, and do nothing across that boundary.
+
+- **A per-game cross-process lock** (`AgentStateLock`, a lock file opened `FileShare.None` → `flock` on Unix, share-deny on Windows) wraps push and pull. It is held **in addition to** the in-process semaphore, not instead: a `flock` is owned by the *process*, so two threads in the same process both acquire it and neither blocks. Each layer covers what the other cannot.
+- **A lock timeout does not throw.** It logs and proceeds. A stale lock file from a crashed process must never be able to stop a game syncing forever — this tool exists to protect saves, and failing closed would lose them.
+- **Temp archives carry PID + GUID.** They were `{gameId}-push.zip`, shared by every process: two pushes of one game wrote the same file, and the first to finish deleted the other's archive mid-upload. A 6-hour sweep reclaims what a killed process leaves behind.
+- **Every write is atomic** (`AtomicFile`: temp file + rename). `File.WriteAllText` truncates before writing, so a second process could read an empty file and — this is the damaging part — `AgentConfig.Load` would fall back to defaults, discarding the machine's API key and game list.
+- **Read-modify-write is merged under the lock, not overwritten.** This is the bug that mattered: the daemon holds a config loaded at startup, and a whole-object `Save()` erased the `LastKnownVersionId` another process had just recorded. The next push then presented a stale parent and the server rejected it — **one machine conflicting with itself**, indistinguishable in the dashboard from the two-machine divergence in `CONTEXT.md`. `SaveGameSyncState` re-reads under the lock and applies only that game's fields; the queue and health files merge the same way.
+
+**State belongs beside the config file it came from**, not in the machine default — with `--config` those diverge, and each process would keep a private queue while believing it shared one.
+
+The long-term shape is **one owner**: wrapper→daemon IPC over a Unix socket, standalone only when no daemon is up. The locking above makes two owners *correct*; IPC would make it *simple*. Deferred, not rejected.
+
+### 9. A pulled archive is hostile input, and the restore is written that way
+The archive arrives over the network from a server the agent may have been pointed at by a **forged enrollment file** (§4 — the policy file is deliberately unsigned, and the threat it accepts is a malicious server URL). Everything in it — entry names, entry count, declared sizes — is attacker-controlled. Phase 6 hardened the restore's *delete* pass; the *copy* pass was still trusting.
+
+- **No destination may traverse a link below the save root.** If the target already held `linkdir -> /home/user` and the archive carried `linkdir/.bashrc`, `File.Copy` wrote **through** the link and overwrote a real file outside the save folder. `run-hardening-tests.ps1` reproduces this against pre-fix code — it is not theoretical.
+- **The root itself IS followed**, which is a deliberate departure from "reject any symlink". The root is *user-chosen* (`add-game --dir`), and a Deck user symlinking saves onto an SD card is a legitimate setup that must keep working. The paths **inside** the archive are not user-chosen, and those are what get checked.
+- **The whole restore is rejected, never partially applied.** Skipping the offending file would leave a half-restored save that reports success.
+- **Size caps** — 100,000 entries, 2 GB uncompressed. Checked against the declared central-directory sizes first (cheap, rejects an obvious bomb before a byte lands) *and* against **bytes actually written**, because the declared size is attacker-controlled and may understate. Env-overridable, which is both an operator escape hatch and what makes the caps testable without a 2 GB fixture.
+- ⚠️ **Extraction is hand-rolled now** (`ExtractChecked`), because a byte cap cannot be enforced through `ZipFile.ExtractToDirectory`. That means the zip-slip rejection it used to give for free is **ours to maintain** — the existing zip-slip test was kept and re-aimed at the replacement rather than deleted.
+- A refused archive is reported to the console as an event, not just thrown: a Deck owner would otherwise see nothing, and "refused" looks identical to "already up to date" from the outside.
+
 ## Environment facts (user-provided)
 - Games are **standalone builds**, not bought on Steam/Epic → save locations unpredictable, hence manifest-based detection + manual `--dir` fallback.
-- User has a domain on CloudFlare and uses **CloudFlare Tunnel** for remote access.
 - Sync trigger: **hybrid** (automatic background + manual override).

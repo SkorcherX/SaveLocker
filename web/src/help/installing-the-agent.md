@@ -156,8 +156,23 @@ to exit, waits for the save to finish being written, and pushes it.
 ## Reaching the agent's own UI
 
 The daemon serves the same web UI the Windows tray shows, on port **5178**. In Desktop Mode, browse to
-`http://localhost:5178`. To reach it from your PC or phone instead, run the daemon with `--lan` and
-browse to the Deck's IP on port 5178.
+`http://localhost:5178`.
+
+The UI listens on **localhost only, and that is deliberate**. It is a management interface — it can
+re-point this machine at another server, re-register it, and change what it syncs — so putting it on
+your network would let anything on that network do the same. There is no `--lan` flag any more.
+
+To reach it from your PC or phone, forward the port over SSH, which authenticates you and encrypts
+the traffic:
+
+```sh
+# from the other device
+ssh -L 5178:localhost:5178 deck@<deck-ip>
+# then browse to http://localhost:5178 on that device
+```
+
+On the Deck, SSH is off by default: `sudo systemctl enable --now sshd` (and set a password with
+`passwd` first, since SteamOS ships without one).
 
 ## Notes
 

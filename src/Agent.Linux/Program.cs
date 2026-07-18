@@ -28,7 +28,20 @@ static class Program
         switch (command)
         {
             case "daemon":
-                await RunDaemonAsync(config, listenOnAllInterfaces: opts.ContainsKey("lan"));
+                // --lan was withdrawn: it bound an unauthenticated management API to every
+                // interface. Fail loudly rather than silently ignoring a flag someone's autostart
+                // unit or Help-KB notes still carry, so they find out the exposure is gone.
+                if (opts.ContainsKey("lan"))
+                {
+                    Console.Error.WriteLine(
+                        "--lan has been removed: it exposed this machine's management API to the whole network without authentication.");
+                    Console.Error.WriteLine(
+                        $"The daemon serves the UI on localhost only. To reach it from another device, tunnel it:");
+                    Console.Error.WriteLine(
+                        "  ssh -L 5178:localhost:5178 <user>@<this-machine>   # then browse to http://localhost:5178");
+                    return 2;
+                }
+                await RunDaemonAsync(config, ParsePort(opts));
                 return 0;
 
             case "doctor":
@@ -86,7 +99,12 @@ static class Program
         return await ProtonRun.ExecuteAsync(config, childCommand);
     }
 
-    private static async Task RunDaemonAsync(AgentConfig config, bool listenOnAllInterfaces)
+    private static int ParsePort(Dictionary<string, string> opts) =>
+        opts.TryGetValue("port", out var raw) && int.TryParse(raw, out var port)
+            ? port
+            : Daemon.DefaultApiPort;
+
+    private static async Task RunDaemonAsync(AgentConfig config, int apiPort)
     {
         using var cts = new CancellationTokenSource();
 
@@ -103,8 +121,8 @@ static class Program
             cts.Cancel();
         });
 
-        await using var daemon = new Daemon(config);
-        await daemon.RunAsync(listenOnAllInterfaces, cts.Token);
+        await using var daemon = new Daemon(config, apiPort);
+        await daemon.RunAsync(cts.Token);
     }
 
     /// <summary>Config path from --config, else SAVELOCKER_CONFIG (handy in a systemd unit), else the default.</summary>
@@ -136,7 +154,7 @@ static class Program
           run -- %command%                                 Steam launch wrapper: pull, play, push
 
         Daemon
-          daemon [--lan]                                   Run headless; serves the agent UI on :5178
+          daemon [--port <n>]                              Run headless; serves the agent UI on localhost:5178
           autostart --enable | --disable                   systemd --user unit
 
         Add this to a game's Steam launch options to sync it automatically:

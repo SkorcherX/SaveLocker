@@ -49,3 +49,5 @@ installer/dist/
 .verify-health/
 artifacts/
 .verify-harden/
+.verify-localapi/
+.verify-concurrency/

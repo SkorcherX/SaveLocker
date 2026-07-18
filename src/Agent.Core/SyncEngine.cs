@@ -37,8 +37,40 @@ public sealed class SyncEngine
         _notify = notify ?? (_ => { });
         _health = health;
         _offlineQueue = offlineQueue;
-        _tempDir = Path.Combine(AgentConfig.DefaultDir, "tmp");
+        _tempDir = Path.Combine(config.StateDir, "tmp");
         Directory.CreateDirectory(_tempDir);
+        CleanStaleTemps();
+    }
+
+    /// <summary>
+    /// A temp archive name that no other process can be using. It used to be
+    /// <c>{gameId}-push.zip</c>, shared by every process on the box: the daemon's watch-push and the
+    /// launch wrapper's exit-push for the same game wrote the same file at the same time, and
+    /// whichever finished first had its archive deleted mid-upload by the other's <c>finally</c>.
+    /// </summary>
+    private string TempArchive(Guid gameId, string kind) =>
+        Path.Combine(_tempDir, $"{gameId:N}-{kind}-{Environment.ProcessId}-{Guid.NewGuid():N}.zip");
+
+    /// <summary>
+    /// Sweep archives abandoned by a process that was killed mid-sync (a Deck suspending, Steam
+    /// force-closing the wrapper). Unique names mean nothing reclaims them otherwise, and a save
+    /// archive is not small.
+    /// </summary>
+    private void CleanStaleTemps()
+    {
+        try
+        {
+            var cutoff = DateTime.UtcNow - TimeSpan.FromHours(6);
+            foreach (var file in Directory.EnumerateFiles(_tempDir, "*.zip"))
+            {
+                try
+                {
+                    if (File.GetLastWriteTimeUtc(file) < cutoff) File.Delete(file);
+                }
+                catch { /* in use by a live process, or not ours to delete */ }
+            }
+        }
+        catch { /* the sweep is a courtesy; never let it break startup */ }
     }
 
     /// <summary>An event the user should see as a toast — also written to the log.</summary>
@@ -69,11 +101,18 @@ public sealed class SyncEngine
     /// </summary>
     public async Task<UploadResult?> PushAsync(TrackedGame game, bool force = false, bool settle = false, CancellationToken ct = default)
     {
-        // The exit push now waits for the save to settle, and the folder watcher fires during that
-        // wait — without this, the two would archive and upload the same game concurrently.
+        // Two layers, and both are needed. The semaphore stops two THREADS here racing: the exit
+        // push waits for the save to settle, and the folder watcher fires during that wait. The
+        // file lock stops two PROCESSES racing — the daemon and the Steam launch wrapper sync the
+        // same game — which a semaphore cannot do, and a flock alone cannot do either (it is held
+        // per process, so both threads would sail through it).
         var gate = _pushLocks.GetOrAdd(game.GameId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
-        try { return await PushCoreAsync(game, force, settle, ct); }
+        try
+        {
+            using var crossProcess = AgentStateLock.ForGame(game.GameId, _config.StateDir);
+            return await PushCoreAsync(game, force, settle, ct);
+        }
         finally { gate.Release(); }
     }
 
@@ -111,26 +150,28 @@ public sealed class SyncEngine
             return new UploadResult(UploadStatus.NoChange, null, null);
         }
 
-        var archive = Path.Combine(_tempDir, $"{game.GameId:N}-push.zip");
+        var archive = TempArchive(game.GameId, "push");
         SaveArchive.CreateArchive(game.SaveDirectory, archive, game.ExcludeGlobs);
 
         try
         {
             var result = await _api.UploadAsync(game.GameId, hash, game.LastKnownVersionId, force, archive, ct);
+            var countPush = false;
+            var touchSyncTime = false;
             switch (result.Status)
             {
                 case UploadStatus.Created:
                     game.LastKnownVersionId = result.Version!.Id;
                     game.LastSyncedHash = hash;
-                    _config.TotalSavesPushed++;
-                    _config.LastSyncTime = DateTime.UtcNow;
+                    countPush = true;
+                    touchSyncTime = true;
                     _log($"[{game.Name}] pushed new version.");
                     _health?.MarkSynced(game.GameId);
                     break;
                 case UploadStatus.NoChange:
                     game.LastKnownVersionId = result.Version?.Id ?? game.LastKnownVersionId;
                     game.LastSyncedHash = hash;
-                    _config.LastSyncTime = DateTime.UtcNow;
+                    touchSyncTime = true;
                     _log($"[{game.Name}] server already had this content.");
                     _health?.MarkSynced(game.GameId);
                     break;
@@ -142,7 +183,7 @@ public sealed class SyncEngine
                         AgentEventCodes.Conflict, AgentEventSeverity.Error, game.GameId);
                     break;
             }
-            _config.Save();
+            _config.SaveGameSyncState(game, countPush, touchSyncTime);
             return result;
         }
         // A non-null StatusCode means the server ANSWERED and rejected us (e.g. 413: the save blew
@@ -183,7 +224,8 @@ public sealed class SyncEngine
     /// <summary>Download the server head and restore it locally if it differs.</summary>
     public async Task<bool> PullAsync(TrackedGame game, bool force = false, CancellationToken ct = default)
     {
-        var archive = Path.Combine(_tempDir, $"{game.GameId:N}-pull.zip");
+        var archive = TempArchive(game.GameId, "pull");
+        using var crossProcess = AgentStateLock.ForGame(game.GameId, _config.StateDir);
         try
         {
             var head = await _api.DownloadHeadAsync(game.GameId, archive, ct);
@@ -199,7 +241,7 @@ public sealed class SyncEngine
             {
                 game.LastKnownVersionId = versionId;
                 game.LastSyncedHash = headHash;
-                _config.Save();
+                _config.SaveGameSyncState(game);
                 _log($"[{game.Name}] already up to date.");
                 _health?.MarkSynced(game.GameId);
                 return false;
@@ -221,11 +263,23 @@ public sealed class SyncEngine
                 return false;
             }
 
-            SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir);
+            try
+            {
+                SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir);
+            }
+            catch (SaveArchive.UnsafeArchiveException ex)
+            {
+                // The server sent something we refuse to write — a zip bomb, an escaping path, or a
+                // destination that traverses a symlink. Nothing was restored. This must be loud:
+                // silently declining to pull looks identical to "already up to date", and on a Deck
+                // the console is the only place anyone would ever find out (Decisions.md §2).
+                Alert($"[{game.Name}] REFUSED the server's save: {ex.Message}",
+                    AgentEventCodes.PullBlocked, AgentEventSeverity.Error, game.GameId);
+                return false;
+            }
             game.LastKnownVersionId = versionId;
             game.LastSyncedHash = headHash;
-            _config.LastSyncTime = DateTime.UtcNow;
-            _config.Save();
+            _config.SaveGameSyncState(game, touchSyncTime: true);
             _log($"[{game.Name}] restored latest save from server.");
             _health?.MarkSynced(game.GameId);
             return true;

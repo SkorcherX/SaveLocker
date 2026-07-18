@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { FolderOpen, Trash2, Copy } from 'lucide-react'
+import { FolderOpen, Trash2 } from 'lucide-react'
 import type { AgentState, TrackedGame } from '../types'
 import { api } from '../api'
 
@@ -36,10 +36,8 @@ export function SettingsView({ state, onSaved }: Props) {
   const [serverUrl, setServerUrl] = useState('')
   const [machineName, setMachineName] = useState('')
   const [adminPassword, setAdminPassword] = useState('')
-  const [apiKey, setApiKey] = useState('')
   const [startWithWindows, setStartWithWindows] = useState(false)
   const [settleQuietSeconds, setSettleQuietSeconds] = useState('10')
-  const [copied, setCopied] = useState(false)
   const [games, setGames] = useState<TrackedGame[]>([])
   const [selectedGames, setSelectedGames] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -53,7 +51,6 @@ export function SettingsView({ state, onSaved }: Props) {
       if (!dirtyFields.current.has('machineName')) setMachineName(state.machineName)
       if (!dirtyFields.current.has('settleQuietSeconds'))
         setSettleQuietSeconds(String(state.settleQuietSeconds))
-      setApiKey(state.apiKey)
       setStartWithWindows(state.startWithWindows)
     }
   }, [state])
@@ -89,8 +86,7 @@ export function SettingsView({ state, onSaved }: Props) {
     setStatus('Registering…')
     try {
       await api.saveConfig({ serverUrl, machineName })
-      const result = await api.register(adminPassword || undefined)
-      setApiKey(result.apiKey)
+      await api.register(adminPassword || undefined)
       setAdminPassword('')
       dirtyFields.current.clear()
       onSaved()
@@ -100,12 +96,6 @@ export function SettingsView({ state, onSaved }: Props) {
     } finally {
       setRegistering(false)
     }
-  }
-
-  const copyKey = () => {
-    navigator.clipboard.writeText(apiKey).catch(() => {})
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
   }
 
   const toggleStartup = async (val: boolean) => {
@@ -183,26 +173,15 @@ export function SettingsView({ state, onSaved }: Props) {
           </div>
 
           <div>
-            <label style={LABEL}>API Key</label>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <input
-                type="text" value={apiKey} readOnly
-                style={{ ...INPUT, flex: 1, minWidth: 0, fontSize: 12, fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace" }}
-              />
-              <button
-                onClick={copyKey}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px',
-                  background: copied ? 'rgba(18,146,113,0.1)' : 'transparent',
-                  border: `1px solid ${copied ? '#129271' : '#494949'}`,
-                  borderRadius: 4, color: copied ? '#129271' : '#ECEFF1',
-                  fontSize: 12, cursor: 'pointer', fontFamily: 'inherit',
-                  flexShrink: 0, whiteSpace: 'nowrap',
-                }}
-              >
-                <Copy size={13} strokeWidth={1.75} color={copied ? '#129271' : '#9CA3AF'} />
-                <span>{copied ? '✓ Copied' : 'Copy'}</span>
-              </button>
+            <label style={LABEL}>Connection Status</label>
+            <div style={{ color: state?.connected ? '#129271' : '#f4a60d', fontSize: 13 }}>
+              {state?.connected
+                ? 'Registered — this machine holds a key for the server.'
+                : 'Not registered yet.'}
+            </div>
+            <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 5, lineHeight: 1.5 }}>
+              The machine key is kept in the agent's config file and never shown here. If it is ever
+              exposed, use Register / Re-register above to rotate it.
             </div>
           </div>
 
