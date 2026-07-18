@@ -169,6 +169,20 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
+      # The agent UI must be built BEFORE the agent, whose build copies agent-ui/dist next to the
+      # binary. Without it the daemon serves no UI — and the local-API suite asserts the auth token
+      # is injected into index.html, which is the ONLY way the bundled UI ever receives a token. A
+      # missing dist fails that check, correctly: an agent that cannot hand its UI a token is broken.
+      # (This gap was invisible locally, where dist already existed from a previous build.)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: agent-ui/package-lock.json
+      - name: Build the agent UI
+        run: npm ci && npm run build
+        working-directory: agent-ui
+
       - name: Build server + Linux agent
         run: |
           dotnet build src/Server/SaveLocker.Server.csproj --no-incremental
