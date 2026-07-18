@@ -11,6 +11,7 @@ import saveRetention from './save-retention.md?raw';
 import agentUpdate from './agent-update.md?raw';
 import cliReference from './cli-reference.md?raw';
 import troubleshooting from './troubleshooting.md?raw';
+import restoreSafety from './restore-safety.md?raw';
 
 export interface Article {
   slug: string;
@@ -34,6 +35,7 @@ export const articles: Article[] = [
   { slug: 'agent-update',    title: 'Agent auto-update & fetching from GitHub','category': 'Maintenance', content: agentUpdate },
   { slug: 'cli-reference',   title: 'Agent CLI reference',                    category: 'Reference',      content: cliReference },
   { slug: 'troubleshooting', title: 'Troubleshooting',                        category: 'Troubleshooting',content: troubleshooting },
+  { slug: 'restore-safety',  title: 'When a save is refused on restore',      category: 'Troubleshooting',content: restoreSafety },
 ];
 
 export const categories = [...new Set(articles.map(a => a.category))];

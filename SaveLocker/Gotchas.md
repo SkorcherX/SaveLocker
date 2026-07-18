@@ -294,3 +294,15 @@ so the hardening suite ran against the OLD archive code and reported 7 failures 
 fixed. It reads exactly like the fix not working on Linux.
 - Build each project in its own `dotnet build` invocation, and when a result is surprising, check the
   output DLL's timestamp before debugging the code.
+
+## The vault can point at a task file that no longer exists
+`CONTEXT.md` and `Backlog.md` both named `tasks/linux-kb-articles.md` as the next action for days
+after that file was **deleted** (in `ff2c375`), and both listed articles — `deck-supported-games`,
+the four §4 edits — that had **already shipped**. Starting from either doc would have meant
+rewriting finished work.
+- **Check the filesystem before trusting a task pointer.** `ls web/src/help/` answered in one command
+  what the vault got wrong in two files.
+- A deleted task file is recoverable and worth recovering: `git log --all -- <path>` then
+  `git show <commit>:<path>`. That is what established the real remaining scope here.
+- The same class of staleness put `v0.1.7` in `CONTEXT.md` while `v0.1.8` was tagged. **This vault
+  drifts; verify claims against the repo.**

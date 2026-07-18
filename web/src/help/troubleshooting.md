@@ -42,6 +42,11 @@ If an agent keeps downloading the installer but stays on the old version:
 - **A non-Steam game isn't syncing at all** — its Steam entry must have **"Force the use of a specific Steam Play compatibility tool"** ticked (Properties → Compatibility). Without it Steam runs the game without Proton, no prefix is created, and there is nothing to sync. `doctor` reports the missing prefix.
 - **Game not in the Ludusavi manifest** — common for standalone builds, and not a failure. Map the save folder yourself: `savelocker add-game --name … --dir <path>`. On Linux this is the normal path, not a fallback.
 - **The daemon isn't running** — check it with `systemctl --user status savelocker`. If it stops when you log out, enable lingering: `sudo loginctl enable-linger $USER`.
+- **"REFUSED the server's save"** — the agent checked the incoming archive and declined to write it, so nothing was changed. Usually a symlink inside the save folder, or a save larger than the restore limits. See [When a save is refused on restore](#help/restore-safety).
+
+## A pull says "REFUSED the server's save"
+
+Nothing was written — a refused restore is never a partial one. The agent inspects an incoming archive before unpacking it, because that archive arrives over the network. The three causes (a symlink inside the save folder, an archive over the size or file-count limit, and a path that escapes the save folder) each have a specific fix in [When a save is refused on restore](#help/restore-safety).
 
 ## Dashboard shows wrong data after a change
 

@@ -48,31 +48,26 @@ which nearly caused a duplicate tag on 2026-07-18.
 | **Cross-process state safety** | ✅ 2026-07-18 — 12/12 (`run-concurrency-tests.ps1`, in CI). Fixed a **self-conflict bug**: a daemon's stale `config.json` write erased another process's parent version, so the next push was rejected as a conflict. `Decisions.md` §8 |
 | **Restore treats archives as hostile** | ✅ 2026-07-18 — hardening now 27 (Win) / 28 (Linux), **7 flip against pre-fix code**. Closed a **proven arbitrary-file-overwrite**: the copy pass wrote through a symlink in the save folder. Plus zip-bomb entry/byte caps. `Decisions.md` §9 |
 | **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)**, and again 0.1.8 → **0.2.0 on two machines (2026-07-18)**. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
-| **0.2.0 upgrade + re-register on device** | ✅ 2026-07-18 — two Windows agents upgraded and re-registered with the admin password. Proves the upgrade path and registration survive the local-API auth change. ⏳ **Not** recorded: whether re-register went through the agent window or the CLI, so the **WebView2 → token → `/api/*` path is not confirmed rendered on a device** |
+| **0.2.0 upgrade + re-register on device** | ✅ 2026-07-18 — two Windows agents upgraded and re-registered **from the agent window**, confirmed working by the maintainer. That exercises the whole new auth path on real hardware: WebView2 loads the injected token from `index.html` and sends it on every `/api/*` call. The local-API change is device-verified |
+| **Help KB** | ✅ complete 2026-07-18 — 14 articles. `restore-safety.md` added for v0.2.0's refusal messages; Deck troubleshooting lives in `troubleshooting.md` |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
 Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
-## ▶ NEXT ACTION: **Linux Help-KB articles** — `tasks/linux-kb-articles.md`
+## ▶ NEXT ACTION: **Device-verify the fresh-install enroll path**
 
-The security work that was blocking everything is shipped and deployed (v0.2.0, PR #8; fleet rotated).
-The KB is now the top open item, and it is **not documentation-as-nicety**: a Deck is headless by
-design, so **the console + KB are its only support surface**. A Windows user who hits a problem gets a
-balloon; a Deck user sees nothing.
+Everything else that was queued is done: the three security-hardening items shipped in v0.2.0, the
+container is updated, the fleet is rotated, and the Help KB is complete (below).
 
-What remains: `deck-supported-games`, `deck-troubleshooting`, and edits to the existing articles.
-"Installing the agent" shipped 2026-07-14 and covers that task's §1.
-
-Write it against what actually shipped, which changed three of the task file's assumptions:
-- **§1 setup is the enrollment flow** — *download a policy file from the console →
-  `savelocker enroll --file <policy>`* — **not** `set-server` + `register` (Phase 4).
-- **§4's `conflicts.md` edit can say conflicts ARE visible** on a Deck: Phase 5 landed health
-  reporting, so the console shows a problem badge and per-machine health.
-- 🆕 **`--lan` NO LONGER EXISTS** (v0.2.0). Any KB text recommending it is wrong. The replacement is
-  `ssh -L 5178:localhost:5178 <user>@<host>`. Three articles were already corrected
-  (`installing-the-agent`, `save-in-use-safety`, `cli-reference`); check any new text against this.
+**The Help KB is DONE (2026-07-18).** ⚠️ Do not restart it from `CONTEXT.md`/`Backlog.md` history —
+both files spent days pointing at `tasks/linux-kb-articles.md`, which had *already been deleted*, and
+listing articles that had *already shipped*. On checking: `deck-supported-games` was written and
+registered; `deck-troubleshooting` was folded into `troubleshooting.md` (the task file explicitly
+allowed that); all four §4 edits were applied. The one real gap was newer than the task file —
+v0.2.0's restore-refusal messages were undocumented — and is now `restore-safety.md`.
+**Lesson: check the filesystem before trusting a task pointer in this vault.**
 
 ---
 
