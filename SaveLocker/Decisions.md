@@ -155,6 +155,16 @@ The agent is **not one process**. Autorun keeps the daemon alive while Steam sta
 
 The long-term shape is **one owner**: wrapper→daemon IPC over a Unix socket, standalone only when no daemon is up. The locking above makes two owners *correct*; IPC would make it *simple*. Deferred, not rejected.
 
+### 9. A pulled archive is hostile input, and the restore is written that way
+The archive arrives over the network from a server the agent may have been pointed at by a **forged enrollment file** (§4 — the policy file is deliberately unsigned, and the threat it accepts is a malicious server URL). Everything in it — entry names, entry count, declared sizes — is attacker-controlled. Phase 6 hardened the restore's *delete* pass; the *copy* pass was still trusting.
+
+- **No destination may traverse a link below the save root.** If the target already held `linkdir -> /home/user` and the archive carried `linkdir/.bashrc`, `File.Copy` wrote **through** the link and overwrote a real file outside the save folder. `run-hardening-tests.ps1` reproduces this against pre-fix code — it is not theoretical.
+- **The root itself IS followed**, which is a deliberate departure from "reject any symlink". The root is *user-chosen* (`add-game --dir`), and a Deck user symlinking saves onto an SD card is a legitimate setup that must keep working. The paths **inside** the archive are not user-chosen, and those are what get checked.
+- **The whole restore is rejected, never partially applied.** Skipping the offending file would leave a half-restored save that reports success.
+- **Size caps** — 100,000 entries, 2 GB uncompressed. Checked against the declared central-directory sizes first (cheap, rejects an obvious bomb before a byte lands) *and* against **bytes actually written**, because the declared size is attacker-controlled and may understate. Env-overridable, which is both an operator escape hatch and what makes the caps testable without a 2 GB fixture.
+- ⚠️ **Extraction is hand-rolled now** (`ExtractChecked`), because a byte cap cannot be enforced through `ZipFile.ExtractToDirectory`. That means the zip-slip rejection it used to give for free is **ours to maintain** — the existing zip-slip test was kept and re-aimed at the replacement rather than deleted.
+- A refused archive is reported to the console as an event, not just thrown: a Deck owner would otherwise see nothing, and "refused" looks identical to "already up to date" from the outside.
+
 ## Environment facts (user-provided)
 - Games are **standalone builds**, not bought on Steam/Epic → save locations unpredictable, hence manifest-based detection + manual `--dir` fallback.
 - Sync trigger: **hybrid** (automatic background + manual override).

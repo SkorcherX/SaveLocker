@@ -155,8 +155,12 @@ try {
     # Any sync check placed after it would be testing against a poisoned head and fail for reasons
     # that have nothing to do with the code under test.
     # Uploaded straight to the server (the agent would never build such a zip), then pulled, so the
-    # real RestoreArchive path runs on it. `ZipFile.ExtractToDirectory` is expected to reject it --
-    # this check exists to make sure nobody ever "optimises" that into a hand-rolled extractor.
+    # real RestoreArchive path runs on it.
+    #
+    # NOTE (2026-07-18): extraction IS now hand-rolled — `ExtractChecked` replaced
+    # `ZipFile.ExtractToDirectory` so the uncompressed-size cap can be enforced against bytes actually
+    # written. This check therefore stopped being a guard against someone doing that and became the
+    # thing that proves the replacement still rejects zip-slip itself. Do not delete it.
     # BOTH assemblies: ZipFile lives in System.IO.Compression.FileSystem, ZipArchiveMode in
     # System.IO.Compression. Missing the second one throws a TERMINATING type error that skips the
     # rest of this try block -- i.e. it would silently skip the security checks below. So building the
@@ -198,7 +202,159 @@ try {
     Check "zip-slip did not land in the save folder"  (-not (Test-Path (Join-Path $deckSave "ESCAPED.txt")))
 
     # =================================================================================
-    # 5. PREFIX-ROOT SANITY (doctor names the real mistake)
+    # 5. WRITE THROUGH A LINK ON THE COPY PASS (the restore's other half)
+    # =================================================================================
+    # The delete pass was made no-follow in Phase 6, but the COPY pass was not. If the save folder
+    # already contains a symlinked directory and the archive carries a matching path, File.Copy
+    # writes straight through the link and OVERWRITES a file outside the save folder with
+    # attacker-chosen bytes. The archive picks those paths, and the archive comes from the network.
+    #
+    # This asserts on the OUTSIDE file, because that is the only thing that actually matters.
+    $linkVictim = Join-Path $scratch "OUTSIDE_linkvictim"
+    New-Item -ItemType Directory -Force $linkVictim | Out-Null
+    "original contents" | Set-Content (Join-Path $linkVictim "secret.txt") -Encoding utf8
+
+    $copySave = Join-Path $scratch "copy_save"
+    New-Item -ItemType Directory -Force $copySave | Out-Null
+    "a real save" | Set-Content (Join-Path $copySave "save.dat") -Encoding utf8
+    New-DirLink (Join-Path $copySave "linkdir") $linkVictim
+
+    $throughZip = Join-Path $scratch "through-link.zip"
+    $builtThroughZip = $false
+    try {
+        $zip = [System.IO.Compression.ZipFile]::Open($throughZip, [System.IO.Compression.ZipArchiveMode]::Create)
+        $entry = $zip.CreateEntry("linkdir/secret.txt")
+        $sw = New-Object System.IO.StreamWriter($entry.Open())
+        $sw.Write("PWNED THROUGH THE LINK"); $sw.Close()
+        $zip.Dispose()
+        $builtThroughZip = $true
+    } catch {
+        Write-Host "  (could not build the write-through-link zip: $($_.Exception.Message))"
+    }
+    Check "the write-through-link fixture was built" $builtThroughZip
+
+    $copyCfg = Join-Path $scratch "copy.json"
+    @{ ServerUrl = $server; Games = @() } | ConvertTo-Json | Set-Content $copyCfg -Encoding utf8
+    Agent register --name "HardenCopy-$stamp" --config $copyCfg | Out-Null
+    $copyGame = "CopyThroughGame-$stamp"
+    Agent add-game --name $copyGame --dir $copySave --config $copyCfg | Out-Null
+
+    # Take the id from the AGENT'S OWN CONFIG, not by matching names against /api/games. A name
+    # lookup there returned TWO ids, so the upload URL became malformed and 404'd -- and because the
+    # upload error was swallowed, every security assertion below passed VACUOUSLY against an archive
+    # the server never had. Using the id the agent will actually pull guarantees they refer to the
+    # same game.
+    $copyKey = (Get-Content $copyCfg -Raw | ConvertFrom-Json).ApiKey
+    $copyGameId = (Get-Content $copyCfg -Raw | ConvertFrom-Json).Games[0].GameId
+    Check "the write-through-link target game resolved" ($null -ne $copyGameId)
+
+    # The upload MUST be asserted. Swallowing its failure is how these checks passed vacuously:
+    # with no archive on the server the pull answers "nothing to pull", the outside file is
+    # untouched, and the security assertions look green while testing nothing at all.
+    $uploadedThrough = $false
+    try {
+        Invoke-RestMethod "$server/api/games/$copyGameId/upload?hash=deadbeef2&force=true" -Method Post `
+            -Headers @{ "X-Api-Key" = $copyKey } -ContentType "application/zip" `
+            -InFile $throughZip | Out-Null
+        $uploadedThrough = $true
+    } catch { Write-Host "  (write-through-link upload failed: $($_.Exception.Message))" }
+    Check "the hostile archive reached the server" $uploadedThrough
+
+    $throughOut = Agent pull $copyGame --force --config $copyCfg
+
+    $victimNow = Get-Content (Join-Path $linkVictim "secret.txt") -Raw
+    Check "the file OUTSIDE the save folder was NOT overwritten" ($victimNow -match "original contents")
+    Check "the restore was refused, not silently skipped"        ("$throughOut" -match "REFUSED|symlink|junction")
+
+    # =================================================================================
+    # 6. ARCHIVE EXHAUSTION (zip bomb) — refused BEFORE it fills the disk
+    # =================================================================================
+    # A few KB of zip can expand to terabytes. On a Deck that fills the disk with nobody watching.
+    # The limits are env-overridable, which is what makes this testable without writing a 2 GB
+    # fixture: the cap is lowered instead of the bomb being made bigger.
+    $bombSave = Join-Path $scratch "bomb_save"
+    New-Item -ItemType Directory -Force $bombSave | Out-Null
+    "a real save" | Set-Content (Join-Path $bombSave "save.dat") -Encoding utf8
+
+    $bombZip = Join-Path $scratch "bomb.zip"
+    $builtBomb = $false
+    try {
+        $zip = [System.IO.Compression.ZipFile]::Open($bombZip, [System.IO.Compression.ZipArchiveMode]::Create)
+        # 8 MB of zeros — compresses to a few KB, and blows a 1 MB cap decisively.
+        $entry = $zip.CreateEntry("huge.bin")
+        $stream = $entry.Open()
+        $chunk = New-Object byte[] (1024 * 1024)
+        foreach ($i in 1..8) { $stream.Write($chunk, 0, $chunk.Length) }
+        $stream.Close()
+        $zip.Dispose()
+        $builtBomb = $true
+    } catch {
+        Write-Host "  (could not build the zip bomb: $($_.Exception.Message))"
+    }
+    Check "the zip-bomb fixture was built" $builtBomb
+
+    $bombCfg = Join-Path $scratch "bomb.json"
+    @{ ServerUrl = $server; Games = @() } | ConvertTo-Json | Set-Content $bombCfg -Encoding utf8
+    Agent register --name "HardenBomb-$stamp" --config $bombCfg | Out-Null
+    $bombGame = "BombGame-$stamp"
+    Agent add-game --name $bombGame --dir $bombSave --config $bombCfg | Out-Null
+
+    $bombKey = (Get-Content $bombCfg -Raw | ConvertFrom-Json).ApiKey
+    $bombGameId = (Get-Content $bombCfg -Raw | ConvertFrom-Json).Games[0].GameId
+
+    $uploadedBomb = $false
+    try {
+        Invoke-RestMethod "$server/api/games/$bombGameId/upload?hash=deadbeef3&force=true" -Method Post `
+            -Headers @{ "X-Api-Key" = $bombKey } -ContentType "application/zip" `
+            -InFile $bombZip | Out-Null
+        $uploadedBomb = $true
+    } catch { Write-Host "  (bomb upload failed: $($_.Exception.Message))" }
+    Check "the zip bomb reached the server" $uploadedBomb
+
+    $env:SAVELOCKER_MAX_RESTORE_MB = "1"
+    $bombOut = Agent pull $bombGame --force --config $bombCfg
+    Remove-Item Env:SAVELOCKER_MAX_RESTORE_MB -ErrorAction SilentlyContinue
+
+    Check "an oversized archive is refused"        ("$bombOut" -match "REFUSED|limit")
+    Check "the bomb's payload never landed"        (-not (Test-Path (Join-Path $bombSave "huge.bin")))
+    Check "the existing save was left intact"      (Test-Path (Join-Path $bombSave "save.dat"))
+
+    # Entry count is the other exhaustion axis: many tiny files are cheap to ship and expensive to
+    # write, and they exhaust inodes rather than bytes.
+    $manyZip = Join-Path $scratch "many.zip"
+    try {
+        $zip = [System.IO.Compression.ZipFile]::Open($manyZip, [System.IO.Compression.ZipArchiveMode]::Create)
+        foreach ($i in 1..40) {
+            $entry = $zip.CreateEntry("f$i.txt")
+            $sw = New-Object System.IO.StreamWriter($entry.Open())
+            $sw.Write("x"); $sw.Close()
+        }
+        $zip.Dispose()
+    } catch { }
+
+    $uploadedMany = $false
+    try {
+        Invoke-RestMethod "$server/api/games/$bombGameId/upload?hash=deadbeef4&force=true" -Method Post `
+            -Headers @{ "X-Api-Key" = $bombKey } -ContentType "application/zip" `
+            -InFile $manyZip | Out-Null
+        $uploadedMany = $true
+    } catch { Write-Host "  (many-entry upload failed: $($_.Exception.Message))" }
+    Check "the many-entry archive reached the server" $uploadedMany
+
+    $env:SAVELOCKER_MAX_RESTORE_ENTRIES = "10"
+    $manyOut = Agent pull $bombGame --force --config $bombCfg
+    Remove-Item Env:SAVELOCKER_MAX_RESTORE_ENTRIES -ErrorAction SilentlyContinue
+
+    Check "an archive with too many entries is refused" ("$manyOut" -match "REFUSED|limit")
+    Check "none of its entries landed"                  (-not (Test-Path (Join-Path $bombSave "f1.txt")))
+
+    # And the limits must NOT reject an ordinary save — a security control that blocks real use gets
+    # turned off, which is worse than not having it.
+    $okOut = Agent pull $bombGame --force --config $bombCfg
+    Check "a normal-sized archive still restores"       (-not ("$okOut" -match "REFUSED"))
+
+    # =================================================================================
+    # 7. PREFIX-ROOT SANITY (doctor names the real mistake)
     # =================================================================================
     # Only the Linux agent has `doctor`. A save path that is really a Wine prefix must be NAMED as
     # such, not left to fail later as a baffling "your save is too big".

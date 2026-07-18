@@ -33,6 +33,7 @@
 | Agent local API + generated UI types | ✅ ASP.NET Core minimal API + OpenAPI; agent UI schemas generated from the live contract |
 | **Local agent API hardening** | ✅ 2026-07-18 — 15/15 (`run-local-api-tests.ps1`, in CI). Token-auth + Host/Origin validation, no CORS, `--lan` withdrawn, machine key no longer served. `Decisions.md` §7. ⏳ **fleet keys still need rotating** |
 | **Cross-process state safety** | ✅ 2026-07-18 — 12/12 (`run-concurrency-tests.ps1`, in CI). Fixed a **self-conflict bug**: a daemon's stale `config.json` write erased another process's parent version, so the next push was rejected as a conflict. `Decisions.md` §8 |
+| **Restore treats archives as hostile** | ✅ 2026-07-18 — hardening now 27 (Win) / 28 (Linux), **7 flip against pre-fix code**. Closed a **proven arbitrary-file-overwrite**: the copy pass wrote through a symlink in the save folder. Plus zip-bomb entry/byte caps. `Decisions.md` §9 |
 | **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)** — the regression path. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.

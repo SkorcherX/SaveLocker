@@ -263,7 +263,20 @@ public sealed class SyncEngine
                 return false;
             }
 
-            SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir);
+            try
+            {
+                SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir);
+            }
+            catch (SaveArchive.UnsafeArchiveException ex)
+            {
+                // The server sent something we refuse to write — a zip bomb, an escaping path, or a
+                // destination that traverses a symlink. Nothing was restored. This must be loud:
+                // silently declining to pull looks identical to "already up to date", and on a Deck
+                // the console is the only place anyone would ever find out (Decisions.md §2).
+                Alert($"[{game.Name}] REFUSED the server's save: {ex.Message}",
+                    AgentEventCodes.PullBlocked, AgentEventSeverity.Error, game.GameId);
+                return false;
+            }
             game.LastKnownVersionId = versionId;
             game.LastSyncedHash = headHash;
             _config.SaveGameSyncState(game, touchSyncTime: true);

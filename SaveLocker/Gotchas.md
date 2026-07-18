@@ -272,3 +272,25 @@ Starting the server without isolated storage and then running `run-enrollment-te
 It is leftover state (an already-redeemed token, an admin password set by an earlier run).
 - Always give a test server its own `Storage__DbPath` and `Storage__ArchiveRoot`, the way
   `run-health-tests.ps1` and `run-hardening-tests.ps1` already do. With a clean DB: 16/16.
+
+## A test whose setup silently fails passes VACUOUSLY — assert the setup too
+The new write-through-link and zip-bomb checks in `run-hardening-tests.ps1` all passed on the first
+run **while testing nothing**. The `Invoke-RestMethod` upload that plants the hostile archive was
+404ing inside a bare `catch { }`, so the server had no archive, the pull answered *"server has no
+saves yet"*, and every "the outside file was not overwritten" assertion was trivially true.
+- **The 404 cause:** resolving the game id by matching `name` against `/api/games` returned **two**
+  ids, so `"$server/api/games/$id/upload"` interpolated an array and the route did not match. Take
+  the id from the agent's own `config.json` (`.Games[0].GameId`) — that is the id the agent will
+  actually pull, so upload and pull cannot disagree.
+- **The rule:** every fixture step that must succeed gets its own `Check`. "The hostile archive
+  reached the server" is now an assertion, not an assumption.
+- **And still revert the fix to confirm the test fails.** These checks flip 7 results against pre-fix
+  code, including the one that matters: the file outside the save folder IS overwritten.
+
+## `dotnet build a.csproj b.csproj` does not build both
+Passing two project paths to one `dotnet build` silently does not do what it looks like — the second
+is not built. In WSL this left a **17-minute-stale `SaveLocker.Shared.dll`** in the agent's output,
+so the hardening suite ran against the OLD archive code and reported 7 failures that had already been
+fixed. It reads exactly like the fix not working on Linux.
+- Build each project in its own `dotnet build` invocation, and when a result is surprising, check the
+  output DLL's timestamp before debugging the code.
