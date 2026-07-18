@@ -10,8 +10,9 @@ namespace SaveLocker.Agent.Linux;
 /// </summary>
 public sealed class Daemon : IAsyncDisposable
 {
-    private const int AgentApiPort = 5178;
+    public const int DefaultApiPort = 5178;
 
+    private readonly int _apiPort;
     private readonly AgentConfig _config;
     private readonly Detection _detection;
     private readonly LinuxGameScanner _scanner;
@@ -24,8 +25,13 @@ public sealed class Daemon : IAsyncDisposable
     private OfflineQueueDrainer? _drainer;
     private SyncEngine _engine;
 
-    public Daemon(AgentConfig config)
+    /// <summary>
+    /// <paramref name="apiPort"/> is overridable so a test harness can run a daemon alongside the
+    /// real agent. It is still loopback-only — the port moves, the exposure does not.
+    /// </summary>
+    public Daemon(AgentConfig config, int apiPort = DefaultApiPort)
     {
+        _apiPort = apiPort;
         _config = config;
         _detection = new Detection(config);
         _scanner = new LinuxGameScanner(_detection);
@@ -44,12 +50,12 @@ public sealed class Daemon : IAsyncDisposable
     /// </summary>
     private static void Notify(string message) => AgentLogger.Log(message);
 
-    public async Task RunAsync(bool listenOnAllInterfaces, CancellationToken ct)
+    public async Task RunAsync(CancellationToken ct)
     {
         AgentLogger.Log($"SaveLocker daemon starting — machine '{_config.MachineName}', server {_config.ServerUrl}");
 
         _apiServer = new AgentApiServer(
-            port: AgentApiPort,
+            port: _apiPort,
             config: _config,
             doScan: () => _scanner.ScanAsync(),
             enroll: async (candidates, ids) =>
@@ -61,8 +67,7 @@ public sealed class Daemon : IAsyncDisposable
             autoStart: new SystemdAutoStart(),
             pickFolder: null, // headless: no native dialog, so the UI takes a typed path
             onRegistered: () => _engine = BuildEngine(),
-            getUpdateResult: () => null, // self-update is Windows-only (installer-based)
-            listenOnAllInterfaces: listenOnAllInterfaces);
+            getUpdateResult: () => null); // self-update is Windows-only (installer-based)
         _apiServer.Start();
 
         _drainer = new OfflineQueueDrainer(_offlineQueue, _config, () => _engine, Notify);
@@ -81,9 +86,10 @@ public sealed class Daemon : IAsyncDisposable
 
         StartFolderWatchers();
 
-        var where = listenOnAllInterfaces ? $"http://0.0.0.0:{AgentApiPort}/" : $"http://localhost:{AgentApiPort}/";
+        var where = $"http://localhost:{_apiPort}/";
         AgentLogger.Log($"daemon ready — agent UI on {where}");
         Console.WriteLine($"SaveLocker daemon running. Agent UI: {where}");
+        Console.WriteLine($"To reach it from another device, tunnel it: ssh -L {_apiPort}:localhost:{_apiPort} <user>@<this-machine>");
 
         try { await Task.Delay(Timeout.Infinite, ct); }
         catch (OperationCanceledException) { /* SIGTERM / Ctrl-C */ }

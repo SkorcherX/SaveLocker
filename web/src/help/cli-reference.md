@@ -78,7 +78,7 @@ These commands exist only in the Linux agent, which has no tray or window to do 
 |---------|---------|-------------|
 | `run` | `-- %command%` | The **Steam launch wrapper**. Add `savelocker run -- %command%` to a game's **Launch Options** and Steam runs the game *through* the agent: it pulls the latest save before launch, waits for the game to exit, waits for the save to settle, and pushes. Everything after `--` is the game's own command line, untouched. This is how a Deck syncs — it has no process watcher. |
 | `doctor` | | **The first thing to run when something is wrong.** Checks the whole chain — server reachable, Steam roots found, shortcuts parsed, Proton prefixes located, save folders present and writable — and prints a mark next to anything broken. On a headless machine it is the only diagnostic UI; paste its output when asking for help. |
-| `daemon` | `[--lan]` | Run the agent headless (the foreground process the systemd unit runs). It serves the same agent UI on port **5178**. By default it listens on localhost only; `--lan` binds all interfaces so you can reach the UI from another device — the practical way to see a Deck's UI, since Game Mode has no browser. |
+| `daemon` | `[--port <n>]` | Run the agent headless (the foreground process the systemd unit runs). It serves the same agent UI on **localhost:5178** — loopback only, always, because that UI can re-point this machine at another server. To see it from another device, forward the port over SSH: `ssh -L 5178:localhost:5178 deck@<deck-ip>`. `--port` moves the listener (for running a second agent alongside a real one); it does not change what it binds to. |
 | `autostart` | `--enable`<br>`--disable` | Enable or disable the `systemd --user` unit that starts the daemon with your session. With no flag, prints whether it is currently enabled. (`install.sh` enables it for you.) |
 
 > On a Deck, the agent stops when you log out unless *lingering* is enabled: `sudo loginctl enable-linger $USER`. Usually unnecessary — you are logged in whenever you are playing.
@@ -109,7 +109,8 @@ On Linux / Steam Deck the binary prints normally, so drop the `dotnet` wrapper:
 savelocker enroll --file ~/Downloads/savelocker-enroll-steamdeck.json
 savelocker doctor
 savelocker add-game --name "Hollow Knight" --dir ~/.local/share/Steam/steamapps/compatdata/367520/pfx/... --appid 367520
-savelocker daemon --lan          # reach the agent UI at http://<deck-ip>:5178
+savelocker daemon                # agent UI at http://localhost:5178 (loopback only)
+# from another device:  ssh -L 5178:localhost:5178 deck@<deck-ip>
 
 # In the game's Steam launch options:
 #   savelocker run -- %command%

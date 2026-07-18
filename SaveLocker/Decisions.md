@@ -87,7 +87,9 @@ All the genuinely hard cross-OS problems (different save formats, different path
 Native Linux builds need a save-*variant* model on the server (a version's lineage would only be valid within a platform family). Deferred until there is a reason to build it. **Do not sync a native-Linux save into a Windows install** — that is the corruption case this scoping avoids.
 
 ### 2. No native UI on Linux — the daemon serves the existing React UI
-In **Game Mode** (gamescope) there is no system tray and no desktop; a tray icon is invisible and a toast is impossible. In **Desktop Mode** it is just KDE with a browser. So the Linux agent is a **headless daemon** that serves the existing `agent-ui` on `localhost:5178` — the same UI, for free, reachable from a browser or another device on the LAN. No WinForms equivalent, no GTK/Qt, no second frontend.
+In **Game Mode** (gamescope) there is no system tray and no desktop; a tray icon is invisible and a toast is impossible. In **Desktop Mode** it is just KDE with a browser. So the Linux agent is a **headless daemon** that serves the existing `agent-ui` on `localhost:5178` — the same UI, for free, reachable from a browser in Desktop Mode. No WinForms equivalent, no GTK/Qt, no second frontend.
+
+**Loopback only — see §7.** An earlier `--lan` flag bound this to every interface; it has been withdrawn.
 
 Consequence, and it is a design obligation rather than a nice-to-have: **a headless spoke cannot tell the user anything.** A conflict that raises a toast on Windows is *silent* on a Deck. The agent must therefore report health and errors to the server so the console can surface them ("Steam Deck: conflict on Hades, 2 days ago"). **The console is the Deck's UI.** This ships *with* the Linux agent, not after it.
 
@@ -128,7 +130,18 @@ The agent never talks to Steam — it reads two env vars and supervises a child 
 
 Not testable without hardware: gamescope/Game Mode, the immutable rootfs, SD-card library paths, suspend/resume. A VM buys only the immutable-rootfs check and makes gamescope worse. **No Deck is owned** — hardware validation is an explicit deferred-risk item, exactly like the existing Windows device-verify pattern.
 
+### 7. The agent's local API is loopback-only, token-authenticated, and never serves the machine key
+`AgentApiServer` is shared by the Windows tray and the Linux daemon, and it is a **management** API: it rewrites `config.json`, re-registers this machine, and changes what syncs. Reaching it is equivalent to owning the box. It originally shipped unauthenticated with `AllowAnyOrigin`, and returned the machine's server API key in `/api/state` and `/api/config`.
+
+Four things, all of which are load-bearing together — none is sufficient alone:
+
+1. **Loopback only, always.** Kestrel binds `localhost`. `daemon --lan` is **withdrawn** and now exits non-zero with an SSH-tunnel instruction, rather than being silently ignored — someone's autostart unit or notes may still carry it, and they need to learn the exposure is gone. Remote access is an **authenticated SSH tunnel**, which supplies the authentication and transport security this API does not have.
+2. **A high-entropy local token** (32 random bytes, `{configDir}/api-token`, `0600`) on every `/api/*` request, compared in fixed time. This is what stops *another process running as this user*, and any web page the user has open, from driving the agent. The bundled UI gets it by having it injected into `index.html` at serve time; the same-origin policy is what stops another page reading it back.
+3. **Host and Origin validation.** A DNS-rebinding page resolves *its own* name to `127.0.0.1`, so the socket is loopback but the `Host` header still carries the attacker's domain — rejected, token or not. A foreign `Origin` is rejected the same way. **No CORS policy exists**: the UI is same-origin, so nothing legitimate needs one.
+4. **The machine API key is never serialized into a response.** Not in `/api/state`, not in `/api/config`, and `/api/register` returns the machine name rather than echoing the new key. The agent UI shows *whether* the machine is registered, not its secret. `whoami` still prints it — that is a local CLI the user runs in their own terminal, not something served over a socket.
+
+`/openapi` is deliberately **not** token-gated: it is a static description of the API with no machine state in it, and the UI's type generator has no way to send a header. Proven by `tests/run-local-api-tests.ps1`, which asserts each attack is refused rather than that the UI still works.
+
 ## Environment facts (user-provided)
 - Games are **standalone builds**, not bought on Steam/Epic → save locations unpredictable, hence manifest-based detection + manual `--dir` fallback.
-- User has a domain on CloudFlare and uses **CloudFlare Tunnel** for remote access.
 - Sync trigger: **hybrid** (automatic background + manual override).

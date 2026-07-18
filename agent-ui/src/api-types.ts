@@ -538,7 +538,6 @@ export interface components {
         AgentConfigDto: {
             serverUrl: string;
             machineName: string;
-            apiKey: string;
             startWithWindows: boolean;
             /** Format: int32 */
             settleQuietSeconds: number | string;
@@ -548,7 +547,6 @@ export interface components {
             currentVersion: string;
             machineName: string;
             serverUrl: string;
-            apiKey: string;
             startWithWindows: boolean;
             /** Format: int32 */
             gamesTracked: number | string;
@@ -612,7 +610,7 @@ export interface components {
             adminPassword?: null | string;
         };
         RegisterResponse: {
-            apiKey: string;
+            machineName: string;
         };
         TrackedGameDto: {
             /** Format: uuid */

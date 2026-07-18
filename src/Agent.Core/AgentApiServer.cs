@@ -23,7 +23,7 @@ public sealed class AgentApiServer : IDisposable
     private readonly Action? _onRegistered;
     private readonly Func<UpdateResult?> _getUpdateResult;
     private readonly string _uiRoot;
-    private readonly bool _listenOnAllInterfaces;
+    private readonly LocalAuth _auth;
     private readonly Dictionary<string, string> _leaseWarnings = new();
 
     private IReadOnlyList<ScanCandidate>? _candidateCache;
@@ -39,8 +39,7 @@ public sealed class AgentApiServer : IDisposable
         IAutoStart autoStart,
         Func<Task<string?>>? pickFolder = null,
         Action? onRegistered = null,
-        Func<UpdateResult?>? getUpdateResult = null,
-        bool listenOnAllInterfaces = false)
+        Func<UpdateResult?>? getUpdateResult = null)
     {
         Port = port;
         _config = config;
@@ -51,7 +50,7 @@ public sealed class AgentApiServer : IDisposable
         _onRegistered = onRegistered;
         _getUpdateResult = getUpdateResult ?? (() => null);
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
-        _listenOnAllInterfaces = listenOnAllInterfaces;
+        _auth = LocalAuth.LoadOrCreate(config.ConfigPath);
     }
 
     public void AddLeaseWarning(string gameName, string holderMachine)
@@ -75,24 +74,54 @@ public sealed class AgentApiServer : IDisposable
             WebRootPath = Directory.Exists(_uiRoot) ? _uiRoot : null,
         };
         var builder = WebApplication.CreateSlimBuilder(options);
-        builder.WebHost.ConfigureKestrel(server =>
-        {
-            if (_listenOnAllInterfaces) server.ListenAnyIP(Port);
-            else server.ListenLocalhost(Port);
-        });
-        builder.Services.AddCors(cors => cors.AddDefaultPolicy(policy =>
-            policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader()));
+
+        // Loopback only, always. The management API hands out control of this machine, and binding
+        // it to a LAN interface would expose that to the whole network — see Decisions.md.
+        builder.WebHost.ConfigureKestrel(server => server.ListenLocalhost(Port));
+
+        // No CORS policy on purpose: the bundled UI is same-origin, so nothing legitimate needs
+        // one, and the previous AllowAnyOrigin let any web page read this API's responses.
         builder.Services.AddOpenApi();
 
         _app = builder.Build();
-        _app.UseCors();
+        _app.Use(GuardAsync);
         _app.MapOpenApi();
         MapApi(_app);
         MapUi(_app);
         _app.StartAsync().GetAwaiter().GetResult();
 
-        var host = _listenOnAllInterfaces ? "0.0.0.0" : "localhost";
-        AgentLogger.Log($"AgentApiServer listening on http://{host}:{Port}/ — UI root: {_uiRoot} (exists: {Directory.Exists(_uiRoot)})");
+        AgentLogger.Log($"AgentApiServer listening on http://localhost:{Port}/ — UI root: {_uiRoot} (exists: {Directory.Exists(_uiRoot)})");
+    }
+
+    /// <summary>
+    /// Every request must come from this machine (loopback Host, no foreign Origin), and every
+    /// request except the UI itself must carry the local token. The UI is exempt because it is how
+    /// the token is delivered — it has nothing to present yet.
+    /// </summary>
+    private async Task GuardAsync(HttpContext context, RequestDelegate next)
+    {
+        if (!LocalAuth.IsLoopbackHost(context.Request.Host.Host) ||
+            !LocalAuth.IsAllowedOrigin(context.Request.Headers.Origin))
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            return;
+        }
+
+        // /openapi is deliberately not token-gated: it is a static description of the API, holds no
+        // machine state and no secrets, and the UI's type generator (openapi-typescript) has no way
+        // to send a header. Everything that reads or changes state does need the token.
+        if (context.Request.Path.StartsWithSegments("/api") &&
+            !_auth.IsValid(context.Request.Headers[LocalAuth.HeaderName]))
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        // Static-file middleware would otherwise hand out index.html verbatim, placeholder and all.
+        if (context.Request.Path.Equals("/index.html", StringComparison.OrdinalIgnoreCase))
+            context.Request.Path = "/";
+
+        await next(context);
     }
 
     private void MapApi(WebApplication app)
@@ -112,7 +141,6 @@ public sealed class AgentApiServer : IDisposable
                 UpdateChecker.CurrentVersion.ToString(3),
                 _config.MachineName,
                 _config.ServerUrl,
-                _config.ApiKey ?? "",
                 _autoStart.IsEnabled(),
                 _config.Games.Count,
                 _config.TotalSavesPushed,
@@ -146,7 +174,6 @@ public sealed class AgentApiServer : IDisposable
         app.MapGet("/api/config", () => new AgentConfigDto(
             _config.ServerUrl,
             _config.MachineName,
-            _config.ApiKey ?? "",
             _autoStart.IsEnabled(),
             _config.SettleQuietSeconds)).Produces<AgentConfigDto>();
 
@@ -175,7 +202,9 @@ public sealed class AgentApiServer : IDisposable
                 _config.MachineId = reg.MachineId;
                 _config.Save();
                 _onRegistered?.Invoke();
-                return TypedResults.Ok(new RegisterResponse(reg.ApiKey));
+                // The key itself is never returned — it is written to config and used from there.
+                // Nothing in the UI needs its value, and echoing it only creates a way to exfiltrate it.
+                return TypedResults.Ok(new RegisterResponse(_config.MachineName));
             }
             catch (Exception ex)
             {
@@ -240,10 +269,13 @@ public sealed class AgentApiServer : IDisposable
     {
         if (!Directory.Exists(_uiRoot)) return;
 
+        // No UseDefaultFiles: "/" must go through SendIndexAsync so the token is injected. Serving
+        // index.html as a plain static file would hand out a UI that cannot call its own API.
         var provider = new PhysicalFileProvider(_uiRoot);
-        app.UseDefaultFiles(new DefaultFilesOptions { FileProvider = provider });
         app.UseStaticFiles(new StaticFileOptions { FileProvider = provider });
-        app.MapFallback(async context =>
+
+        app.MapGet("/", SendIndexAsync);
+        app.MapFallback(async (HttpContext context) =>
         {
             if (context.Request.Path.StartsWithSegments("/api") ||
                 context.Request.Path.StartsWithSegments("/openapi"))
@@ -251,15 +283,30 @@ public sealed class AgentApiServer : IDisposable
                 context.Response.StatusCode = StatusCodes.Status404NotFound;
                 return;
             }
-            var index = Path.Combine(_uiRoot, "index.html");
-            if (!File.Exists(index))
-            {
-                context.Response.StatusCode = StatusCodes.Status404NotFound;
-                return;
-            }
-            context.Response.ContentType = "text/html; charset=utf-8";
-            await context.Response.SendFileAsync(index);
+            await SendIndexAsync(context);
         });
+    }
+
+    /// <summary>
+    /// Serve the SPA shell with the local token baked in. This is the one place the token crosses
+    /// into the browser, and it is safe because the same-origin policy stops any other page from
+    /// reading the response — which is exactly why the Guard rejects a non-loopback Host first.
+    /// </summary>
+    private async Task SendIndexAsync(HttpContext context)
+    {
+        var index = Path.Combine(_uiRoot, "index.html");
+        if (!File.Exists(index))
+        {
+            context.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+
+        var html = await File.ReadAllTextAsync(index);
+        html = html.Replace(LocalAuth.TokenPlaceholder, _auth.Token);
+
+        context.Response.ContentType = "text/html; charset=utf-8";
+        context.Response.Headers.CacheControl = "no-store";
+        await context.Response.WriteAsync(html);
     }
 
     private async Task<IReadOnlyList<ScanCandidate>> RescanAsync()
@@ -301,7 +348,6 @@ public sealed record AgentStateDto(
     string CurrentVersion,
     string MachineName,
     string ServerUrl,
-    string ApiKey,
     bool StartWithWindows,
     int GamesTracked,
     int SavesBacked,
@@ -313,7 +359,6 @@ public sealed record TrackedGameDto(Guid Id, string Name, string Path);
 public sealed record AgentConfigDto(
     string ServerUrl,
     string MachineName,
-    string ApiKey,
     bool StartWithWindows,
     int SettleQuietSeconds);
 public sealed record AgentVersionDto(string CurrentVersion, string? LatestVersion, bool UpdateAvailable);
@@ -329,5 +374,5 @@ public sealed record DismissWarningRequest(string? GameName);
 public sealed record OkResponse(bool Ok = true);
 public sealed record ErrorResponse(string Error);
 public sealed record EnrollResponse(int Enrolled, int Skipped);
-public sealed record RegisterResponse(string ApiKey);
+public sealed record RegisterResponse(string MachineName);
 public sealed record FolderResponse(string? Path);

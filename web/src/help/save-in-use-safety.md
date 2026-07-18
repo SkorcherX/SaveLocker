@@ -57,7 +57,7 @@ Manual actions are never delayed — you chose the moment, so the agent trusts y
 
 The delay is per-machine, in the agent (not the dashboard):
 
-1. Open the agent window from the tray icon (**Windows**). On a **Steam Deck** there is no tray — browse to the agent UI the daemon serves on port 5178 instead (`savelocker daemon --lan`, then `http://<deck-ip>:5178` from another device).
+1. Open the agent window from the tray icon (**Windows**). On a **Steam Deck** there is no tray — browse to `http://localhost:5178` in Desktop Mode. The UI is localhost-only; to reach it from another device, forward the port over SSH (`ssh -L 5178:localhost:5178 deck@<deck-ip>`).
 2. Go to **Settings → Sync Safety**.
 3. Set **Wait for saves to settle (seconds)** and click **Save**.
 

@@ -62,13 +62,23 @@ jobs:
           daemon_pid=$!
           trap 'kill "$daemon_pid" 2>/dev/null || true' EXIT
           for _ in $(seq 1 30); do
-            curl -sf http://localhost:5178/api/state >/dev/null 2>&1 && break
+            curl -sf http://localhost:5178/ >/dev/null 2>&1 && break
             sleep 1
           done
           curl -sf http://localhost:5178/ >/dev/null \
             || { echo "packaged agent UI was not served"; cat "$fake_home/daemon.log"; exit 1; }
           curl -sf http://localhost:5178/openapi/v1.json >/dev/null \
             || { echo "agent OpenAPI document was not served"; cat "$fake_home/daemon.log"; exit 1; }
+
+          # The management API must refuse an unauthenticated caller. If this ever returns 200 the
+          # local API is wide open again — which is how it shipped before, so assert it every build.
+          code="$(curl -s -o /dev/null -w '%{http_code}' http://localhost:5178/api/state)"
+          test "$code" = "401" || { echo "agent API answered an unauthenticated caller: HTTP $code"; exit 1; }
+
+          # The token lives beside the config file the daemon was started with, not in the default dir.
+          token="$(cat "$fake_home/api-token")"
+          curl -sf -H "X-SaveLocker-Token: $token" http://localhost:5178/api/state >/dev/null \
+            || { echo "agent API refused the local token"; cat "$fake_home/daemon.log"; exit 1; }
           npm --prefix agent-ui run gen:api -- --check
           kill "$daemon_pid"
           wait "$daemon_pid" || true
@@ -202,6 +212,12 @@ jobs:
       # save folder. Linux is where this matters most: a Wine prefix is full of symlinks.
       - name: Hardening tests (symlink escape, zip-slip)
         run: pwsh tests/run-hardening-tests.ps1
+
+      # The agent's own management API. It rewrites config and re-registers this machine, so an
+      # unauthenticated caller owns the box — and it used to answer every one of them, CORS wide
+      # open, handing back the machine's server key. Proves each attack is refused.
+      - name: Local agent API security tests
+        run: pwsh tests/run-local-api-tests.ps1
 
   # ── Cross-OS round-trip ──────────────────────────────────────────────────────────────────
   # Prove a Windows save and a Proton save are actually interchangeable.

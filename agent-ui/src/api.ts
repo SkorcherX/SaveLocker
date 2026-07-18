@@ -1,7 +1,19 @@
 import type { AgentState, Candidate, TrackedGame } from './types'
 
+// The agent injects the local API token into index.html when it serves the page; the same-origin
+// policy is what keeps any other page from reading it. Left as the literal placeholder under
+// `vite dev`, where the proxy supplies the header instead.
+const TOKEN = document
+  .querySelector<HTMLMetaElement>('meta[name="savelocker-token"]')
+  ?.content ?? ''
+
+function authHeaders(extra?: HeadersInit): HeadersInit | undefined {
+  if (!TOKEN || TOKEN.startsWith('__')) return extra
+  return { ...(extra as Record<string, string> | undefined), 'X-SaveLocker-Token': TOKEN }
+}
+
 async function req<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(path, options)
+  const res = await fetch(path, { ...options, headers: authHeaders(options?.headers) })
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText })) as { error?: string }
     throw new Error(err.error ?? res.statusText)
@@ -29,7 +41,7 @@ export const api = {
     settleQuietSeconds?: number
   }) => post('/api/config', body),
   register: (adminPassword?: string) =>
-    post<{ apiKey: string }>('/api/register', { adminPassword }),
+    post<{ machineName: string }>('/api/register', { adminPassword }),
   games: () => req<TrackedGame[]>('/api/games'),
   removeGame: (id: string) => post(`/api/games/${id}/remove`),
   setGameFolder: (id: string, path: string) => post(`/api/games/${id}/folder`, { path }),

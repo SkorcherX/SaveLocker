@@ -204,3 +204,22 @@ It does not overwrite the destination tree — it nests a copy inside it. A left
 
 ## Docker DB path on existing deployments
 The server Docker image defaults to `/data/savelocker.db` but existing deployments that were created before the rename may have `/data/localgamesync.db`. If the server fails to find the DB, either rename the file on the unRAID share or set the `Storage__DbPath` env var.
+
+## The agent's local API is a *management* API — don't treat loopback as authentication
+`AgentApiServer` (shared by the Windows tray and the Linux daemon) can re-point this machine at
+another server, re-register it, and change what it syncs. It originally shipped unauthenticated with
+`AllowAnyOrigin`, and returned the machine's server API key from `/api/state` and `/api/config`.
+"It only listens on localhost" is **not** a defence: every process running as that user can reach it,
+and so can any web page the user has open — a page can POST to `http://localhost:5178`, and a DNS
+rebind makes the socket loopback while the `Host` header still says `evil.com`.
+- **Fixed 2026-07-18** (`Decisions.md` §7): 32-byte token in `{configDir}/api-token` (0600) required
+  on every `/api/*` call, Host + Origin validated, no CORS policy at all, key never serialized.
+- **`--lan` was withdrawn.** It bound all of the above to every interface. It now *exits non-zero*
+  rather than being ignored — a silently-accepted flag would leave someone believing they still had
+  remote access. Remote access is an SSH tunnel: `ssh -L 5178:localhost:5178 <user>@<host>`.
+- ⚠️ **Don't "fix" the UI by re-adding CORS.** The bundled UI is same-origin; if it cannot call the
+  API, the cause is a missing token, not a missing CORS header. The token arrives by being injected
+  into `index.html` at serve time — so `index.html` must never be served as a plain static file
+  (the guard rewrites `/index.html` to `/` for exactly this reason).
+- Under `vite dev` the page comes from Vite, not the agent, so the placeholder is never replaced;
+  `vite.config.ts` reads the token off disk and injects the header in the proxy instead.
