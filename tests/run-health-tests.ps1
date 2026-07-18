@@ -81,11 +81,13 @@ function Start-TestServer {
 
 $serverProc = Start-TestServer
 
-# The agent writes its pending-event file next to its other state, NOT next to --config, so both
-# "machines" below share one. Each Agent invocation is its own process, so that is fine - but the
-# test must reset it between phases or a stale event leaks across checks.
-$stateDir = if ($onWindows) { Join-Path $env:ProgramData "SaveLocker" }
-            else { Join-Path $env:HOME ".local/share/SaveLocker" }
+# The agent writes its pending-event file BESIDE the config it was given (2026-07-18). It used to go
+# to the machine-default state dir regardless of --config, which meant a process pointed at one
+# config silently kept a private event set under another - see Decisions.md #8. Both "machines"
+# below still share one file, because both configs live in $scratch. Each Agent invocation is its
+# own process, so that is fine - but the test must reset it between phases or a stale event leaks
+# across checks.
+$stateDir = $scratch
 $eventsFile = Join-Path $stateDir "health-events.json"
 function ClearEvents { Remove-Item $eventsFile -Force -ErrorAction SilentlyContinue }
 
