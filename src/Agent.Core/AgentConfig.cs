@@ -88,10 +88,79 @@ public sealed class AgentConfig
         return cfg;
     }
 
+    [JsonIgnore] public string StateDir => Path.GetDirectoryName(Path.GetFullPath(ConfigPath))!;
+
+    /// <summary>
+    /// Write the whole config. Atomic, and serialized against other processes — but still
+    /// last-writer-wins for anything another process changed in the meantime.
+    /// <para>
+    /// That is fine for settings a human edits (nobody changes the server URL in two places at
+    /// once) and NOT fine for per-game sync state, which the daemon and the launch wrapper both
+    /// rewrite on every sync. Use <see cref="SaveGameSyncState"/> for that.
+    /// </para>
+    /// </summary>
     public void Save()
     {
-        Directory.CreateDirectory(Path.GetDirectoryName(ConfigPath)!);
-        File.WriteAllText(ConfigPath, JsonSerializer.Serialize(this, JsonOpts));
+        using var guard = AgentStateLock.Acquire("config", StateDir);
+        AtomicFile.WriteAllText(ConfigPath, JsonSerializer.Serialize(this, JsonOpts),
+            restrictPermissions: true);
+    }
+
+    /// <summary>
+    /// Persist one game's sync bookkeeping without clobbering concurrent changes to anything else.
+    ///
+    /// This is the lost-update that mattered. The daemon and the launch wrapper each hold their own
+    /// <see cref="AgentConfig"/>, loaded at startup. The wrapper pushes on game exit and records the
+    /// new parent version; the daemon's folder watcher then saves ITS copy, which still carries the
+    /// old <c>LastKnownVersionId</c>, and the new one is gone. The next push then presents a stale
+    /// parent and the server rejects it as a conflict — the machine is stuck, and nothing in the
+    /// logs says why. It looks exactly like the two-machine divergence in CONTEXT.md, but there is
+    /// only one machine.
+    ///
+    /// So: re-read what is on disk under the lock, apply only this game's fields plus the counters
+    /// this call earned, and write that back.
+    /// </summary>
+    public void SaveGameSyncState(TrackedGame game, bool countPush = false, bool touchSyncTime = false)
+    {
+        using var guard = AgentStateLock.Acquire("config", StateDir);
+
+        AgentConfig onDisk;
+        try
+        {
+            onDisk = File.Exists(ConfigPath)
+                ? JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(ConfigPath), JsonOpts) ?? this
+                : this;
+        }
+        catch
+        {
+            // Unreadable on disk — our in-memory copy is the best truth available.
+            onDisk = this;
+        }
+        onDisk.ConfigPath = ConfigPath;
+
+        var target = onDisk.Games.FirstOrDefault(g => g.GameId == game.GameId);
+        if (target is null)
+        {
+            // The other process removed this game while we were syncing it. Respect that rather
+            // than resurrecting an entry the user deleted.
+            onDisk.Games.Add(game);
+            target = game;
+        }
+
+        target.LastKnownVersionId = game.LastKnownVersionId;
+        target.LastSyncedHash = game.LastSyncedHash;
+        target.SaveDirectory = game.SaveDirectory;
+
+        if (countPush) onDisk.TotalSavesPushed++;
+        if (touchSyncTime) onDisk.LastSyncTime = DateTime.UtcNow;
+
+        AtomicFile.WriteAllText(ConfigPath, JsonSerializer.Serialize(onDisk, JsonOpts),
+            restrictPermissions: true);
+
+        // Keep our own copy consistent with what we just wrote, so a later full Save() from this
+        // process does not push a stale counter back over it.
+        TotalSavesPushed = onDisk.TotalSavesPushed;
+        LastSyncTime = onDisk.LastSyncTime;
     }
 
     public TrackedGame? FindGame(string name) =>

@@ -50,3 +50,4 @@ installer/dist/
 artifacts/
 .verify-harden/
 .verify-localapi/
+.verify-concurrency/

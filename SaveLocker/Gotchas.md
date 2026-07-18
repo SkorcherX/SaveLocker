@@ -223,3 +223,36 @@ rebind makes the socket loopback while the `Host` header still says `evil.com`.
   (the guard rewrites `/index.html` to `/` for exactly this reason).
 - Under `vite dev` the page comes from Vite, not the agent, so the placeholder is never replaced;
   `vite.config.ts` reads the token off disk and injects the header in the proxy instead.
+
+## The agent is two processes — in-process locks and whole-file writes are not enough
+Autorun keeps the **daemon** alive while Steam starts **`savelocker run -- %command%`** as a second
+process (on Windows: the tray, plus any CLI command). They share `config.json`, `offline-queue.json`,
+`health-events.json` and the temp archive dir. A `SemaphoreSlim` or `lock` does **nothing** here.
+- **The symptom is a conflict, not a crash.** A daemon that loaded `config.json` at startup and later
+  calls `Save()` writes its **stale** copy back, erasing the `LastKnownVersionId` the other process
+  just recorded. The next push presents a stale parent, the server rejects it, and the machine
+  **conflicts with itself** — identical in the dashboard to the genuine two-machine divergence, so it
+  is easy to misdiagnose for a long time. Fixed 2026-07-18 (`Decisions.md` §8).
+- **Use `SaveGameSyncState`, not `Save()`, for per-game sync fields.** It re-reads under the lock and
+  merges. `Save()` is still last-writer-wins and that is fine only for settings a human edits.
+- ⚠️ **Take BOTH locks.** `AgentStateLock` is a `flock`, owned by the *process* — two threads in one
+  process both acquire it and neither blocks. The in-process semaphore is still required. Removing
+  either one leaves a real hole.
+- ⚠️ **A lock timeout deliberately proceeds rather than throwing.** A lock file left by a crashed
+  process must not be able to block syncing forever. Do not "harden" this into a hard failure.
+- **Never give a temp archive a fixed name.** `{gameId}-push.zip` was shared by every process; the
+  first push to finish deleted the other's archive mid-upload. Names carry PID + GUID now.
+- **State lives beside its config file**, not in `AgentConfig.DefaultDir`. With `--config` those
+  differ, and a process resolving the wrong one keeps a private queue nobody ever drains.
+
+## A concurrency test that races identical short-lived processes proves nothing
+The first version of `run-concurrency-tests.ps1` launched four `push` processes at once and asserted
+config integrity. It passed **against the broken code**: process startup dominates, so the write
+windows never overlapped. The damage needs the real shape — a **long-lived process holding state it
+loaded minutes ago** (the daemon) versus a short-lived one. Ordering is then enforced by waiting on
+observable state instead of hoping for a race.
+- Same trap in the queue check: asserting on a game the daemon *watches* proves nothing, because its
+  folder watcher already pulled that game into the daemon's memory. The discriminating case is a game
+  **only** the other process ever touches.
+- **Rule: revert the fix and confirm the test fails.** Both traps above were caught that way, and
+  only that way.

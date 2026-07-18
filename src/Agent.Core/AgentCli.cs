@@ -31,8 +31,14 @@ public static class AgentCli
         // A one-shot `push`/`pull` can hit a conflict or a blocked pull just as the daemon can, and
         // on a headless box the console is the only place anyone would ever see it. The command
         // flushes the reporter before it exits (see below) — there is no poller in this process.
-        var health = new HealthReporter();
-        SyncEngine Engine() => new(config, Api(), Log, health: health);
+        var health = HealthReporter.For(config);
+
+        // Share the durable queue too. A one-shot push that fails because the server is down used to
+        // drop the save on the floor: nothing retried it, and on a headless box nobody saw the error
+        // scroll past. Queuing it means the daemon's drainer picks it up on the next pass — the same
+        // treatment the launch wrapper already gets.
+        var offlineQueue = OfflineQueue.For(config);
+        SyncEngine Engine() => new(config, Api(), Log, offlineQueue: offlineQueue, health: health);
         var detection = new Detection(config);
 
         try

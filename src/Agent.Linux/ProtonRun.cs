@@ -38,12 +38,12 @@ public static class ProtonRun
         Log($"launch: appid={appId ?? "(none)"} prefix={prefix ?? "(none)"}");
 
         var api = ApiClient.For(config);
-        var offlineQueue = new OfflineQueue();
+        var offlineQueue = OfflineQueue.For(config);
 
         // The launch wrapper IS the sync path for a Proton game, so it is where a Deck's conflicts
         // and blocked pulls actually happen. Without a reporter here the console would never hear
         // about the failures that matter most (Decisions.md §2).
-        var health = new HealthReporter();
+        var health = HealthReporter.For(config);
         var engine = new SyncEngine(config, api, log: Log, notify: Log,
             offlineQueue: offlineQueue, health: health);
 

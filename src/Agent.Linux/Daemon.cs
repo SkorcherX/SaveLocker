@@ -16,8 +16,8 @@ public sealed class Daemon : IAsyncDisposable
     private readonly AgentConfig _config;
     private readonly Detection _detection;
     private readonly LinuxGameScanner _scanner;
-    private readonly OfflineQueue _offlineQueue = new();
-    private readonly HealthReporter _health = new();
+    private readonly OfflineQueue _offlineQueue;
+    private readonly HealthReporter _health;
     private readonly List<FolderWatcher> _folderWatchers = new();
 
     private AgentApiServer? _apiServer;
@@ -33,6 +33,8 @@ public sealed class Daemon : IAsyncDisposable
     {
         _apiPort = apiPort;
         _config = config;
+        _offlineQueue = OfflineQueue.For(config);
+        _health = HealthReporter.For(config);
         _detection = new Detection(config);
         _scanner = new LinuxGameScanner(_detection);
         _engine = BuildEngine();

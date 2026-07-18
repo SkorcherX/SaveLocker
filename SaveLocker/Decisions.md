@@ -142,6 +142,19 @@ Four things, all of which are load-bearing together — none is sufficient alone
 
 `/openapi` is deliberately **not** token-gated: it is a static description of the API with no machine state in it, and the UI's type generator has no way to send a header. Proven by `tests/run-local-api-tests.ps1`, which asserts each attack is refused rather than that the UI still works.
 
+### 8. Two processes own the agent's state, so every shared file is locked, atomic, and merged
+The agent is **not one process**. Autorun keeps the daemon alive while Steam starts `savelocker run -- %command%` as a second one (on Windows, the tray plus any CLI command). They share `config.json`, `offline-queue.json`, `health-events.json` and the temp archive directory. The locks that were here — a `SemaphoreSlim` and a `lock` statement — are in-process, and do nothing across that boundary.
+
+- **A per-game cross-process lock** (`AgentStateLock`, a lock file opened `FileShare.None` → `flock` on Unix, share-deny on Windows) wraps push and pull. It is held **in addition to** the in-process semaphore, not instead: a `flock` is owned by the *process*, so two threads in the same process both acquire it and neither blocks. Each layer covers what the other cannot.
+- **A lock timeout does not throw.** It logs and proceeds. A stale lock file from a crashed process must never be able to stop a game syncing forever — this tool exists to protect saves, and failing closed would lose them.
+- **Temp archives carry PID + GUID.** They were `{gameId}-push.zip`, shared by every process: two pushes of one game wrote the same file, and the first to finish deleted the other's archive mid-upload. A 6-hour sweep reclaims what a killed process leaves behind.
+- **Every write is atomic** (`AtomicFile`: temp file + rename). `File.WriteAllText` truncates before writing, so a second process could read an empty file and — this is the damaging part — `AgentConfig.Load` would fall back to defaults, discarding the machine's API key and game list.
+- **Read-modify-write is merged under the lock, not overwritten.** This is the bug that mattered: the daemon holds a config loaded at startup, and a whole-object `Save()` erased the `LastKnownVersionId` another process had just recorded. The next push then presented a stale parent and the server rejected it — **one machine conflicting with itself**, indistinguishable in the dashboard from the two-machine divergence in `CONTEXT.md`. `SaveGameSyncState` re-reads under the lock and applies only that game's fields; the queue and health files merge the same way.
+
+**State belongs beside the config file it came from**, not in the machine default — with `--config` those diverge, and each process would keep a private queue while believing it shared one.
+
+The long-term shape is **one owner**: wrapper→daemon IPC over a Unix socket, standalone only when no daemon is up. The locking above makes two owners *correct*; IPC would make it *simple*. Deferred, not rejected.
+
 ## Environment facts (user-provided)
 - Games are **standalone builds**, not bought on Steam/Epic → save locations unpredictable, hence manifest-based detection + manual `--dir` fallback.
 - Sync trigger: **hybrid** (automatic background + manual override).
