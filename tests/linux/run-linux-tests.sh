@@ -236,7 +236,9 @@ check "daemon started alongside the wrapper" \
 # The daemon now holds a config loaded BEFORE anything below happens.
 export STEAM_COMPAT_DATA_PATH="${PREFIX}"
 export SteamAppId="${PREFIX_APPID}"
-out="$(agent run --config "${deck_cfg}" -- "${fixtures}/slow-game.sh" "${PREFIX_SAVE}" 5 4)"
+# Third arg is the GAME's exit code, which the wrapper propagates verbatim — so it must be 0 here
+# for "exits cleanly" to mean anything. (Propagation itself is asserted earlier, with a 7.)
+out="$(agent run --config "${deck_cfg}" -- "${fixtures}/slow-game.sh" "${PREFIX_SAVE}" 5 0)"
 wrapper_rc=$?
 unset STEAM_COMPAT_DATA_PATH SteamAppId
 check "wrapper still exits cleanly with a daemon running" \
