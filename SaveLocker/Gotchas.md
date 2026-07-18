@@ -256,3 +256,19 @@ observable state instead of hoping for a race.
   **only** the other process ever touches.
 - **Rule: revert the fix and confirm the test fails.** Both traps above were caught that way, and
   only that way.
+
+## `dotnet` and `pwsh` look "not installed" in WSL from a non-interactive shell
+`wsl -d Ubuntu-24.04 -- bash -lc 'dotnet --version'` reports **command not found** even though the SDK
+is installed, because `~/.dotnet` and `~/.local/bin` are only added to PATH by the interactive
+profile. It is easy to conclude from this that WSL is unprovisioned and to fall back to
+Windows-only testing — which silently skips every Linux-specific behaviour (`flock`, `0600` modes,
+the launch wrapper, the whole `tests/linux/` harness).
+- Always `export DOTNET_ROOT=$HOME/.dotnet; export PATH=$HOME/.dotnet:$HOME/.local/bin:$PATH` first.
+- Quoting through `wsl.exe -- bash -lc '...'` mangles nested `$( )`. Pipe a heredoc to `bash -s` instead.
+
+## A dirty dev DB fails the enrollment suite in a way that looks like a code regression
+Starting the server without isolated storage and then running `run-enrollment-tests.ps1` gives
+**12/16 failures**, beginning at "mint returns a raw token" — which reads as broken enrollment code.
+It is leftover state (an already-redeemed token, an admin password set by an earlier run).
+- Always give a test server its own `Storage__DbPath` and `Storage__ArchiveRoot`, the way
+  `run-health-tests.ps1` and `run-hardening-tests.ps1` already do. With a clean DB: 16/16.

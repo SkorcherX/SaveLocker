@@ -152,6 +152,21 @@ See `Backlog.md` for the full list.
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
 | Local agent API security | `.\tests\run-local-api-tests.ps1` (15 checks). Starts its own daemon on **:5188** via `daemon --port`, so it never collides with a real agent on :5178. Needs nothing running |
 | Cross-process state | `.\tests\run-concurrency-tests.ps1` (12 checks; own server on **:5183**, own daemon on **:5189**). Daemon vs. a second process over `config.json`, the offline queue and health events. Verified to FAIL against pre-fix code |
+
+**WSL is a working test bed — use it.** Ubuntu 24.04 is provisioned (see Toolchain below) with a clone at
+`~/SaveLocker`. `dotnet` and `pwsh` are **not on a non-interactive PATH**, which makes them look absent;
+export first. This is how to run the Linux-only harness and to exercise real `flock` and `0600` semantics
+that Windows cannot show you:
+```sh
+wsl -d Ubuntu-24.04
+export DOTNET_ROOT=$HOME/.dotnet; export PATH=$HOME/.dotnet:$HOME/.local/bin:$PATH
+cd ~/SaveLocker && git fetch /mnt/e/Projects/SaveLocker <branch> && git reset --hard FETCH_HEAD
+cp -r /mnt/e/Projects/SaveLocker/agent-ui/dist/. agent-ui/dist/   # avoids the Windows-npm-on-PATH trap
+dotnet build src/Server/SaveLocker.Server.csproj src/Agent.Linux/SaveLocker.Agent.Linux.csproj --no-incremental
+bash tests/linux/run-linux-tests.sh          # 33 checks
+```
+⚠️ Suites that need a server on :5179 must be given **isolated `Storage__DbPath` / `Storage__ArchiveRoot`**.
+Reusing a dirty dev DB fails 12/16 of the enrollment suite for reasons that look exactly like a code regression.
 | Health tests | `.\tests\run-health-tests.ps1` (17 checks). **Starts and stops its own server on :5181** — it has to, since one check pushes while the server is *down*. Needs nothing running |
 | Hardening tests | `.\tests\run-hardening-tests.ps1` (14 on Linux / 13 on Windows; own server on :5182). Security: symlink escape on archive **and on restore-delete**, zip-slip. Windows uses junctions (no elevation); Linux uses symlinks |
 | TOFU pin tests (TLS) | `.\tests\run-enrollment-tls-tests.ps1` (6 checks; starts its own HTTPS server on :5443). Needs `dotnet dev-certs https --trust` — local only, not in CI |
