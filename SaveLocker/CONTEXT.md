@@ -270,6 +270,11 @@ unit. **Never `/usr`** — SteamOS's rootfs is immutable and wiped on update (`D
 
 - ⚠️ **The Linux tarball MUST be built on `ubuntu-latest`.** A self-contained .NET binary binds to the **build host's glibc**, and an older-glibc build runs on newer systems but *never the reverse*. Ubuntu 24.04 (glibc 2.39) is older than SteamOS's rolling Arch, so Ubuntu → Deck is forward-compatible. Build it on anything newer and users get `GLIBC_2.4x not found` — an error you cannot reproduce on the machine that built it.
 - CI's **`package-linux`** job builds the tarball on every PR and *installs it into a throwaway HOME*, so packaging cannot rot silently between releases (it is otherwise only exercised on a tag — i.e. too late).
+- **That tarball is now kept as a run artifact** (`savelocker-linux-x64-<sha>`, 14 days), so **you can put any commit on a real Deck without tagging**. Download it from the run's Artifacts, then
+  `tar -xzf savelocker-9.9.9-ci-linux-x64.tar.gz && ./SaveLocker/install.sh`. It is stamped
+  **9.9.9-ci** on purpose — the agent reports its version in every heartbeat, so a test build must be
+  impossible to mistake for a release in the console. Before this, hand-building one in WSL was the
+  only way to get code onto hardware, which is precisely why Deck-only paths stayed unverified.
 - **Linux has no auto-update** (deliberate, not shipped). The update channel is installer-shaped and Windows-only; a Deck user re-runs `install.sh` from a newer tarball. See `Backlog.md`.
 
 ---

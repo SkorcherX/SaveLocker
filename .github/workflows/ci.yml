@@ -120,6 +120,26 @@ jobs:
             exit 1
           fi
 
+      # Keep the tarball this job already built. Without this it was thrown away, so there was no
+      # installable Deck build anywhere between merges — the only way to get code onto real hardware
+      # was to hand-build one in WSL, which is exactly the friction that keeps Deck-only paths
+      # unverified. Download it from the run's Artifacts, then:
+      #   tar -xzf savelocker-9.9.9-ci-linux-x64.tar.gz && ./SaveLocker/install.sh
+      #
+      # Deliberately the LAST step: an artifact published here is one that installed, ran, served
+      # its UI, refused an unauthenticated caller and cleared the glibc floor. A tarball that failed
+      # any of those is not something anyone should be putting on a Deck.
+      #
+      # It is stamped 9.9.9-ci by the build above, and that is left alone on purpose: the agent
+      # reports its version in every heartbeat, so a test build must be impossible to mistake for a
+      # release in the dashboard. Releases are built by release.yml from a tag.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: savelocker-linux-x64-${{ github.sha }}
+          path: artifacts/linux/savelocker-9.9.9-ci-linux-x64.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
   build-web:
     runs-on: ubuntu-latest
     steps:
