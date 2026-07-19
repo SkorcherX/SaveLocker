@@ -91,6 +91,22 @@ public static class Doctor
                 continue;
             }
             Info("    save dir", g.SaveDirectory);
+
+            // A non-Steam shortcut's AppID is crc32(exe + name) with the high bit set — stable across
+            // launches and Desktop/Game Mode, but RECOMPUTED if the shortcut is renamed, re-pointed, or
+            // removed and re-added. Steam then makes a fresh empty prefix, and a save folder mapped to
+            // the old compatdata id keeps working perfectly while the game writes somewhere else
+            // entirely. Nothing else in the chain notices: the folder exists, is readable, and syncs.
+            if (g.SteamAppId is { Length: > 0 } appId &&
+                CompatDataIdIn(g.SaveDirectory) is { } mappedId &&
+                !mappedId.Equals(appId, StringComparison.Ordinal))
+            {
+                Problem($"'{g.Name}' syncs prefix {mappedId}, but its shortcut is AppID {appId}. " +
+                        $"Steam launches the game into compatdata/{appId}, so saves written now are " +
+                        $"NOT being backed up. This happens when a shortcut is renamed or re-pointed. " +
+                        $"Check which prefix has recent files, then re-add with --dir under {appId}.");
+            }
+
             if (!Directory.Exists(g.SaveDirectory))
                 Problem($"'{g.Name}' save directory does not exist: {g.SaveDirectory}");
             else if (!IsWritable(g.SaveDirectory))
@@ -181,6 +197,14 @@ public static class Doctor
             return true;
         }
         catch { return false; }
+    }
+
+    /// <summary>The <c>compatdata/&lt;id&gt;</c> segment of a path, or null if it is not in a prefix.</summary>
+    private static string? CompatDataIdIn(string path)
+    {
+        var parts = path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var i = Array.FindIndex(parts, p => p.Equals("compatdata", StringComparison.OrdinalIgnoreCase));
+        return i >= 0 && i + 1 < parts.Length && parts[i + 1].Length > 0 ? parts[i + 1] : null;
     }
 
     private static void Section(string name) => Console.WriteLine($"── {name} ──");
