@@ -91,7 +91,10 @@ public sealed class AgentApiServer : IDisposable
         _app.MapOpenApi();
         MapApi(_app);
         MapUi(_app);
-        _app.StartAsync().GetAwaiter().GetResult();
+        // Task.Run for the same reason as Dispose: this runs on the WinForms UI thread, and awaiting
+        // there directly risks the continuation needing the very thread that is blocking. Exceptions
+        // still propagate — a server that did not start must not be reported as started.
+        Task.Run(() => _app.StartAsync()).GetAwaiter().GetResult();
 
         AgentLogger.Log($"AgentApiServer listening on http://localhost:{Port}/ — UI root: {_uiRoot} (exists: {Directory.Exists(_uiRoot)})");
     }
@@ -364,13 +367,38 @@ public sealed class AgentApiServer : IDisposable
         return $"{(int)ago.TotalDays}d ago";
     }
 
+    /// <summary>
+    /// Shut the host down without deadlocking the caller's thread.
+    /// <para>
+    /// <b>This must never await on the calling thread.</b> The Windows tray disposes this from the
+    /// WinForms UI thread (Exit → <c>Application.ThreadContext.DisposeThreadWindows</c>), where a
+    /// <c>SynchronizationContext</c> is installed: blocking there with <c>GetAwaiter().GetResult()</c>
+    /// froze the whole agent. Kestrel stopped listening, so the port closed and it looked half-dead,
+    /// but the process never exited, the tray menu stuck on screen, and only Task Manager could end
+    /// it. A captured stack showed the UI thread parked in <c>TaskAwaiter</c> inside this method
+    /// while another thread waited on <c>Control.Invoke</c> for that same UI thread.
+    /// </para>
+    /// <para>
+    /// <c>Task.Run</c> moves the continuations onto the thread pool, which has no
+    /// <c>SynchronizationContext</c> to post back to, and the bounded wait means a host that refuses
+    /// to stop delays exit instead of preventing it — we are tearing down either way.
+    /// </para>
+    /// </summary>
     public void Dispose()
     {
-        if (_app is null) return;
-        try { _app.StopAsync(TimeSpan.FromSeconds(1)).GetAwaiter().GetResult(); }
-        catch { }
-        _app.DisposeAsync().AsTask().GetAwaiter().GetResult();
-        _app = null;
+        var app = Interlocked.Exchange(ref _app, null);
+        if (app is null) return;
+
+        try
+        {
+            Task.Run(async () =>
+            {
+                try { await app.StopAsync(TimeSpan.FromSeconds(1)).ConfigureAwait(false); }
+                catch { /* stopping is best-effort; we still have to dispose */ }
+                await app.DisposeAsync().ConfigureAwait(false);
+            }).Wait(TimeSpan.FromSeconds(5));
+        }
+        catch { /* faulted or timed out — the process is going away regardless */ }
     }
 }
 

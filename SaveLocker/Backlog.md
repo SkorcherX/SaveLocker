@@ -133,6 +133,30 @@ work — SteamOS Desktop Mode maps the right stick to the cursor and the left st
 D-pad to neither. Point-and-click is the real interaction. And "headless" was misleading readers
 into thinking there was no UI at all; both articles now say what it does and does not mean.
 
+## High priority — version the console/server release
+
+**Today there is no way to tell what the console is running.** The agents report a real version in
+every heartbeat and show it in `doctor` and the tray; the server and dashboard report nothing. The
+only identifier is the last few characters of a commit SHA on the Docker image tag, visible solely
+inside unRAID — not in the console, not in any API response, and not written down anywhere a user
+would look. So "is the fix deployed?" is currently unanswerable from the console itself, which is
+the exact question every deploy raises.
+
+This bit during v0.3.0: confirming whether the server had picked up a change meant reading a Docker
+tag on another machine.
+
+What it should cover:
+- **Stamp the server build** with a version and a build date. `docker-publish.yml` builds on every
+  `main` push, so there is no tag to derive from — use `<nearest tag>+<short sha>` and the build
+  timestamp, passed in as build args and baked into the image.
+- **Serve it**: add the version, commit SHA and build date to `/api/admin/status` (already public
+  and already the reachability probe, so nothing new to authenticate).
+- **Show it** in the dashboard — footer or the Configuration page, beside the agent versions that
+  are already listed there, so console and fleet versions are read in one place.
+- **Tag the image with the version too**, not only `latest`, so a rollback has something to name.
+- Consider surfacing a mismatch: the console knowing its own version means it can warn when an agent
+  is newer than the server, which is the combination that produced the `status` 401 confusion.
+
 ## Medium priority
 - **Windows: `%PROGRAMDATA%\SaveLocker` ACLs on a multi-user box.** The local API token (`api-token`, 0600 on Linux) has **no POSIX mode on Windows** — it inherits the ACL of `%PROGRAMDATA%\SaveLocker`, which the installer widens to give the interactive user Modify. On a machine with several local users, another user may be able to read it and drive this machine's agent. Note this is **not a new exposure**: `config.json` in the same directory already holds the long-lived machine key under the same ACL. Fix both together — tighten the directory ACL to the enrolling user + SYSTEM, or move mutable per-user state out of the machine-wide directory. `run-local-api-tests.ps1` only asserts the file *exists* on Windows; give it a real ACL assertion once the model is decided.
 - **Linux agent secret permissions and state layout.** `config.json` contains a long-lived machine key, but file privacy currently depends on the launching shell's umask. Enforce `0700` on private state directories and `0600` on config, queue, health, and log files in code, including CLI enrollment paths. Consider separating immutable app files from mutable XDG config/state so upgrades and permission repair cannot overlap the executable tree.
