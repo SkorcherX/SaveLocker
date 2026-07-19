@@ -14,10 +14,43 @@ unitdir="${HOME}/.config/systemd/user"
 echo "==> Installing to ${prefix}"
 mkdir -p "${prefix}" "${bindir}" "${unitdir}"
 
-# Copy everything except this script and the unit template.
-find "${src}" -maxdepth 1 -mindepth 1 \
-  ! -name install.sh ! -name savelocker.service \
-  -exec cp -r {} "${prefix}/" \;
+# Upgrading over a RUNNING agent used to corrupt the install silently, so stop it first.
+#
+# Two separate failures, both invisible: Linux refuses to write to a file it is executing
+# (`cp: Text file busy`), so the binary was never replaced; and the managed DLLs beside it ARE
+# writable while mapped, so overwriting them killed the running daemon with SIGBUS. The script then
+# printed "Installed." and exited 0, because `find -exec` does not report its child's exit status
+# and `set -e` therefore never fired. Re-running install.sh from a newer tarball is THE documented
+# Linux update path, so this hit every upgrade.
+restart_after=0
+if command -v systemctl >/dev/null 2>&1 && systemctl --user is-active --quiet savelocker.service 2>/dev/null; then
+  echo "==> Stopping the running agent before replacing its files"
+  systemctl --user stop savelocker.service 2>/dev/null || true
+  restart_after=1
+fi
+
+# A daemon started by hand is not under systemd's control, and we must not kill something the user
+# is running deliberately — but they need to know this install will not take effect until it restarts.
+stray_daemon=0
+if command -v pgrep >/dev/null 2>&1 && pgrep -f "savelocker daemon" >/dev/null 2>&1; then
+  stray_daemon=1
+fi
+
+# --remove-destination unlinks each target before writing, so the replacement gets a NEW inode and
+# anything still running keeps the old one. That is what makes the copy safe even if a process we
+# could not stop is holding these files: it survives on the old inode instead of taking a SIGBUS.
+copy_failed=0
+while IFS= read -r -d '' item; do
+  cp -r --remove-destination "${item}" "${prefix}/" || copy_failed=1
+done < <(find "${src}" -maxdepth 1 -mindepth 1 ! -name install.sh ! -name savelocker.service -print0)
+
+if [ "${copy_failed}" -ne 0 ]; then
+  echo "!! Install FAILED: could not replace files in ${prefix}"
+  echo "   Something is still using them. Stop the agent and re-run:"
+  echo "       systemctl --user stop savelocker.service"
+  exit 1
+fi
+
 chmod +x "${prefix}/savelocker"
 
 ln -sf "${prefix}/savelocker" "${bindir}/savelocker"
@@ -63,6 +96,17 @@ install_unit() {
 
 if ! install_unit; then
   echo "   You can always run the agent directly:  ${prefix}/savelocker daemon"
+  # We stopped a working agent for the upgrade and could not bring it back. Say so loudly: on a
+  # headless Deck the only symptom otherwise is the machine quietly going offline in the console.
+  if [ "${restart_after}" -eq 1 ]; then
+    echo "!! The agent was RUNNING before this upgrade and is now STOPPED."
+    echo "   Start it from a desktop session with:  systemctl --user start savelocker.service"
+  fi
+fi
+
+if [ "${stray_daemon}" -eq 1 ]; then
+  echo "!! A 'savelocker daemon' you started by hand is still running the PREVIOUS version."
+  echo "   It was left alone on purpose. Restart it to pick up this one."
 fi
 
 if ! echo "${PATH}" | tr ':' '\n' | grep -qx "${bindir}"; then

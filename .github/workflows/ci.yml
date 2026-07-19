@@ -80,6 +80,22 @@ jobs:
           curl -sf -H "X-SaveLocker-Token: $token" http://localhost:5178/api/state >/dev/null \
             || { echo "agent API refused the local token"; cat "$fake_home/daemon.log"; exit 1; }
           npm --prefix agent-ui run gen:api -- --check
+
+          # Upgrading OVER a running agent is the documented Linux update path ("re-run install.sh
+          # from a newer tarball"), and it used to destroy the install silently: cp could not replace
+          # the executing binary (Text file busy), overwriting the mapped DLLs killed the daemon with
+          # SIGBUS, and install.sh still exited 0 and printed "Installed." because `find -exec` hides
+          # its child's exit status. Assert the daemon SURVIVES and the script reports honestly.
+          HOME="$fake_home" bash "$fake_home/SaveLocker/install.sh" > "$fake_home/upgrade.log" 2>&1 \
+            || { echo "install.sh failed when run over a running agent"; cat "$fake_home/upgrade.log"; exit 1; }
+          grep -qi "text file busy" "$fake_home/upgrade.log" \
+            && { echo "install.sh could not replace a file in use"; cat "$fake_home/upgrade.log"; exit 1; }
+          sleep 2
+          kill -0 "$daemon_pid" 2>/dev/null \
+            || { echo "the running daemon did not survive an in-place upgrade (SIGBUS?)"; exit 1; }
+          curl -sf http://localhost:5178/ >/dev/null \
+            || { echo "the daemon stopped serving after an in-place upgrade"; exit 1; }
+
           kill "$daemon_pid"
           wait "$daemon_pid" || true
           trap - EXIT
