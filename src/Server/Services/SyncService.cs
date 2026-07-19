@@ -135,6 +135,8 @@ public sealed class SyncService
     public async Task SetMachinePathAsync(Guid machineId, Guid gameId, string path)
     {
         var existing = await _db.MachineSavePaths.FindAsync(machineId, gameId);
+        var unchanged = existing is not null && existing.SavePath == path;
+
         if (existing is null)
             _db.MachineSavePaths.Add(new MachineSavePath { MachineId = machineId, GameId = gameId, SavePath = path });
         else
@@ -145,7 +147,13 @@ public sealed class SyncService
         var guess = await _db.MachineScanCandidates.FindAsync(machineId, gameId);
         if (guess is not null) _db.MachineScanCandidates.Remove(guess);
 
-        await Audit(machineId, gameId, "machine_path.set", path);
+        // Audit only a real change. Agents re-assert their current path on every poll, so auditing
+        // unconditionally writes a row every 20 s per machine per game — ~4,300 a day from one idle
+        // Deck, burying the changes anyone actually wants to find. This is the same reasoning that
+        // makes health events deduplicate rather than append (HealthService).
+        if (!unchanged)
+            await Audit(machineId, gameId, "machine_path.set", path);
+
         await _db.SaveChangesAsync();
     }
 

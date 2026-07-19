@@ -319,6 +319,16 @@ agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http,
     return Results.Ok();
 });
 
+// The same game state the console reads, but reachable with a MACHINE key.
+//
+// `savelocker status` used to call the admin-filtered /games/{id}/state with only X-Api-Key, so it
+// worked exactly until an admin password was set on the server and then returned 401 forever —
+// on the one command a headless Deck user runs to ask "is my save safe?". Everything else the agent
+// does was already on this group; this was the single stray.
+agent.MapGet("/agent/games/{id:guid}/state", async (Guid id, SyncService sync) =>
+    await sync.GetGameStateAsync(id) is { } state ? Results.Ok(state) : Results.NotFound())
+    .Produces<GameStateDto>();
+
 // ---- Agent health (agent) ----
 // Piggybacks the existing ~20 s poll, so it costs no new schedule. This is the channel that makes a
 // headless spoke visible at all: the Deck cannot toast, so it tells the server and the console shows it.
