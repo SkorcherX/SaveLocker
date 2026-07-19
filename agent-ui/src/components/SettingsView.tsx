@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { FolderOpen, Trash2 } from 'lucide-react'
+import { FolderOpen, FolderSearch, Trash2 } from 'lucide-react'
 import type { AgentState, TrackedGame } from '../types'
 import { api } from '../api'
+import { PathBrowserModal } from './PathBrowserModal'
 
 interface Props {
   state: AgentState | null
@@ -43,6 +44,7 @@ export function SettingsView({ state, onSaved }: Props) {
   const [saving, setSaving] = useState(false)
   const [registering, setRegistering] = useState(false)
   const [status, setStatus] = useState('')
+  const [browsing, setBrowsing] = useState<{ game: TrackedGame; start: string | null } | null>(null)
   const dirtyFields = useRef<Set<string>>(new Set())
 
   useEffect(() => {
@@ -121,10 +123,44 @@ export function SettingsView({ state, onSaved }: Props) {
   const setGameFolder = async () => {
     if (selectedGames.size !== 1) return
     const id = [...selectedGames][0]!
-    const result = await api.folderPick()
-    if (result.path) {
-      await api.setGameFolder(id, result.path)
+    const game = games.find(g => g.id === id)
+    if (!game) return
+    // The native dialog only exists on the Windows tray; the Linux daemon returns null. Falling
+    // through to the in-app browser is what makes this work on a Deck, where there is no dialog
+    // and no usable terminal in Game Mode.
+    await pickFolderFor(game)
+  }
+
+  /**
+   * Native dialog first, in-app browser only if there isn't one. On Windows that means the tray
+   * keeps the Explorer dialog it always had — which can also reach paths the browser deliberately
+   * cannot, since the browser is rooted at $HOME + Steam. The Linux daemon returns null here (it is
+   * headless — no dialog to show), and that is what puts a Deck into the browser.
+   */
+  const pickFolderFor = async (game: TrackedGame) => {
+    const native = await api.folderPick().catch(() => ({ path: null }))
+    if (native.path) {
+      await api.setGameFolder(game.id, native.path)
       loadGames()
+      onSaved()
+      return
+    }
+    const suggested = await api.suggestedPath(game.id).catch(() => ({ path: null }))
+    setBrowsing({ game, start: game.path || suggested.path })
+  }
+
+  const applyBrowsedPath = async (path: string) => {
+    if (!browsing) return
+    const { game } = browsing
+    setBrowsing(null)
+    try {
+      await api.setGameFolder(game.id, path)
+      loadGames()
+      onSaved()
+      setStatus(`Save folder for ${game.name} set to ${path}`)
+      setTimeout(() => setStatus(''), 4000)
+    } catch (e) {
+      setStatus('Could not set the save folder: ' + (e as Error).message)
     }
   }
 
@@ -252,13 +288,32 @@ export function SettingsView({ state, onSaved }: Props) {
                 <div style={{ color: '#ECEFF1', fontSize: 13, fontWeight: 500, marginBottom: 3 }}>
                   {g.name}
                 </div>
-                {g.path && (
+                {g.path ? (
                   <div style={{
                     color: '#9CA3AF', fontSize: 10,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
                   }}>
                     {g.path}
+                  </div>
+                ) : (
+                  // An unmapped game used to say nothing here, leaving the user to work out that
+                  // the fix was an `add-game --dir` typed into a terminal the Deck does not have.
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 3 }}>
+                    <span style={{ color: '#f4a60d', fontSize: 11 }}>No save folder set</span>
+                    <button
+                      onClick={() => void pickFolderFor(g)}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: 5,
+                        padding: '5px 10px', background: 'transparent',
+                        border: '1px solid #129271', borderRadius: 4,
+                        color: '#129271', fontSize: 11, fontWeight: 600,
+                        cursor: 'pointer', fontFamily: 'inherit',
+                      }}
+                    >
+                      <FolderSearch size={12} strokeWidth={1.75} />
+                      <span>Set save path</span>
+                    </button>
                   </div>
                 )}
               </div>
@@ -295,6 +350,15 @@ export function SettingsView({ state, onSaved }: Props) {
           </button>
         </div>
       </div>
+
+      {browsing && (
+        <PathBrowserModal
+          gameName={browsing.game.name}
+          initialPath={browsing.start}
+          onConfirm={path => void applyBrowsedPath(path)}
+          onCancel={() => setBrowsing(null)}
+        />
+      )}
     </div>
   )
 }

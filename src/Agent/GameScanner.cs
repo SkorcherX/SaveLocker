@@ -118,6 +118,17 @@ public sealed class GameScanner : IGameScanner
         return results;
     }
 
+    /// <summary>
+    /// Extra roots the agent UI's path browser may descend into, beyond the user's profile.
+    /// Steam libraries are the case that matters: a game installed to <c>D:\SteamLibrary</c> keeps
+    /// its portable saves there, and no amount of probing under the profile will reach them.
+    /// </summary>
+    public static IEnumerable<string> BrowseRoots()
+    {
+        var steamPath = FindSteamPath();
+        return steamPath is null ? Array.Empty<string>() : SteamLibraryPaths(steamPath);
+    }
+
     /// <summary>All Steam library roots: the install itself plus libraryfolders.vdf entries.</summary>
     private static IEnumerable<string> SteamLibraryPaths(string steamPath)
     {

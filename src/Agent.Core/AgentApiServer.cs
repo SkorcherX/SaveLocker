@@ -20,6 +20,7 @@ public sealed class AgentApiServer : IDisposable
     private readonly Func<IReadOnlyList<ScanCandidate>, int[], Task<(int enrolled, int skipped)>> _enroll;
     private readonly IAutoStart _autoStart;
     private readonly Func<Task<string?>> _pickFolder;
+    private readonly PathBrowser _browser;
     private readonly Action? _onRegistered;
     private readonly Func<UpdateResult?> _getUpdateResult;
     private readonly string _uiRoot;
@@ -39,8 +40,10 @@ public sealed class AgentApiServer : IDisposable
         IAutoStart autoStart,
         Func<Task<string?>>? pickFolder = null,
         Action? onRegistered = null,
-        Func<UpdateResult?>? getUpdateResult = null)
+        Func<UpdateResult?>? getUpdateResult = null,
+        IEnumerable<string>? browseRoots = null)
     {
+        _browser = new PathBrowser(browseRoots);
         Port = port;
         _config = config;
         _doScan = doScan;
@@ -253,6 +256,35 @@ public sealed class AgentApiServer : IDisposable
             return TypedResults.Ok(new FolderResponse(path));
         });
 
+        // The Deck's replacement for a folder dialog. Rooted at $HOME + the host's Steam roots;
+        // a path outside them is refused rather than described (see PathBrowser).
+        app.MapGet("/api/browse", Results<Ok<BrowseListing>, BadRequest<ErrorResponse>>
+            (string? path) =>
+        {
+            var listing = _browser.List(path);
+            return listing is null
+                ? TypedResults.BadRequest(new ErrorResponse("That folder is not readable, or is outside the browsable roots."))
+                : TypedResults.Ok(listing);
+        });
+
+        // Where the browser should open for an unmapped game: the scan's guess, if it has one.
+        // Scanning is cached, so clicking "Set save path" does not re-walk the disk every time.
+        app.MapGet("/api/games/{id:guid}/suggested-path", async (Guid id) =>
+        {
+            var game = _config.Games.FirstOrDefault(g => g.GameId == id);
+            if (game is null) return new SuggestedPathDto(null);
+
+            var candidates = _candidateCache ?? await RescanAsync();
+            var match = candidates.FirstOrDefault(c =>
+                string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(c.SuggestedSaveDir));
+
+            // Only offer a path that is actually there — a stale guess sends the browser nowhere.
+            var suggested = match?.SuggestedSaveDir;
+            return new SuggestedPathDto(
+                suggested is not null && Directory.Exists(suggested) ? suggested : null);
+        }).Produces<SuggestedPathDto>();
+
         app.MapGet("/api/agent-version", () =>
         {
             var latest = _getUpdateResult() is UpdateResult.Available available
@@ -376,3 +408,4 @@ public sealed record ErrorResponse(string Error);
 public sealed record EnrollResponse(int Enrolled, int Skipped);
 public sealed record RegisterResponse(string MachineName);
 public sealed record FolderResponse(string? Path);
+public sealed record SuggestedPathDto(string? Path);

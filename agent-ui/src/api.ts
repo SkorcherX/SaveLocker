@@ -1,4 +1,4 @@
-import type { AgentState, Candidate, TrackedGame } from './types'
+import type { AgentState, BrowseListing, Candidate, TrackedGame } from './types'
 
 // The agent injects the local API token into index.html when it serves the page; the same-origin
 // policy is what keeps any other page from reading it. Left as the literal placeholder under
@@ -45,6 +45,9 @@ export const api = {
   games: () => req<TrackedGame[]>('/api/games'),
   removeGame: (id: string) => post(`/api/games/${id}/remove`),
   setGameFolder: (id: string, path: string) => post(`/api/games/${id}/folder`, { path }),
+  browse: (path?: string) =>
+    req<BrowseListing>('/api/browse' + (path ? `?path=${encodeURIComponent(path)}` : '')),
+  suggestedPath: (id: string) => req<{ path: string | null }>(`/api/games/${id}/suggested-path`),
   folderPick: () => post<{ path: string | null }>('/api/folder-pick'),
   candidateFolderPick: (id: number) => post<{ path: string | null }>(`/api/candidates/${id}/folder-pick`),
   dismissLeaseWarning: (gameName: string) => post('/api/lease-warnings/dismiss', { gameName }),

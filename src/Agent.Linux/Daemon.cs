@@ -67,9 +67,10 @@ public sealed class Daemon : IAsyncDisposable
                 return result;
             },
             autoStart: new SystemdAutoStart(),
-            pickFolder: null, // headless: no native dialog, so the UI takes a typed path
+            pickFolder: null, // headless: no native dialog — the UI browses via /api/browse instead
             onRegistered: () => _engine = BuildEngine(),
-            getUpdateResult: () => null); // self-update is Windows-only (installer-based)
+            getUpdateResult: () => null, // self-update is Windows-only (installer-based)
+            browseRoots: SteamRoots.BrowseRoots());
         _apiServer.Start();
 
         _drainer = new OfflineQueueDrainer(_offlineQueue, _config, () => _engine, Notify);
