@@ -102,6 +102,37 @@ rather than trusting the commit message — see the vault-drift entry in `Gotcha
   `GET /api/games/{id}/suggested-path` name-matches the (cached) scan and the browser opens there,
   falling back to the root list when the guess no longer exists on disk.
 
+## Found on real hardware, fixed in v0.3.0 (2026-07-19)
+
+Four bugs from one afternoon with a Deck. Recorded because of what they have in common: **three
+were invisible to the test suite by construction** — it ran in the one state where each could not
+fire. When a suite passes, ask what state it never puts the system in.
+
+- ✅ **`install.sh` destroyed a running agent and reported success.** `cp` cannot replace a running
+  binary (`Text file busy`); overwriting the mapped DLLs killed the daemon with **SIGBUS**; and
+  `find -exec` hides its child's exit status, so `set -euo pipefail` never fired and the script
+  printed "Installed." Fixed by stopping the unit first and copying with `--remove-destination`
+  (new inode, so anything still running survives). CI now upgrades over a live daemon every PR.
+- ✅ **`savelocker status` 401'd wherever an admin password was set.** It called the admin-filtered
+  `/api/games/{id}/state` with a machine key. `AdminPasswordFilter` passes everything through when
+  no password exists, so it worked on a fresh server — and the suite runs without one, so it passed
+  for as long as the bug existed. Now `/api/agent/games/{id}/state`; the test sets a password.
+- ✅ **A renamed Steam shortcut silently stranded the save path.** A non-Steam AppID is
+  `crc32(exe + name)`, recomputed on rename/re-point, and Steam then creates a *fresh* prefix. The
+  old path keeps existing, reading and hashing fine. `doctor` now compares the tracked
+  `compatdata/<id>` against the shortcut's current AppID. **Do not "fix" this with a wildcard** — a
+  glob could match the empty new prefix and push it over a good server head.
+- ✅ **A save folder one level too deep nests itself on restore.** Archives store paths relative to
+  the save root, so pulling an archive rooted at X into X/sub recreates `sub` beneath itself; the
+  pull *succeeds* and the game never sees the files. `SaveDirSanity` now flags a repeated path tail
+  (longest run first, warning only — a game whose save folder legitimately repeats a name must
+  still sync).
+
+Also corrected: the KB claimed **D-pad** navigation in the agent UI's folder browser. It does not
+work — SteamOS Desktop Mode maps the right stick to the cursor and the left stick to scroll, the
+D-pad to neither. Point-and-click is the real interaction. And "headless" was misleading readers
+into thinking there was no UI at all; both articles now say what it does and does not mean.
+
 ## Medium priority
 - **Windows: `%PROGRAMDATA%\SaveLocker` ACLs on a multi-user box.** The local API token (`api-token`, 0600 on Linux) has **no POSIX mode on Windows** — it inherits the ACL of `%PROGRAMDATA%\SaveLocker`, which the installer widens to give the interactive user Modify. On a machine with several local users, another user may be able to read it and drive this machine's agent. Note this is **not a new exposure**: `config.json` in the same directory already holds the long-lived machine key under the same ACL. Fix both together — tighten the directory ACL to the enrolling user + SYSTEM, or move mutable per-user state out of the machine-wide directory. `run-local-api-tests.ps1` only asserts the file *exists* on Windows; give it a real ACL assertion once the model is decided.
 - **Linux agent secret permissions and state layout.** `config.json` contains a long-lived machine key, but file privacy currently depends on the launching shell's umask. Enforce `0700` on private state directories and `0600` on config, queue, health, and log files in code, including CLI enrollment paths. Consider separating immutable app files from mutable XDG config/state so upgrades and permission repair cannot overlap the executable tree.
