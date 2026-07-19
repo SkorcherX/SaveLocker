@@ -162,6 +162,12 @@ to exit, waits for the save to finish being written, and pushes it.
 The daemon serves the same web UI the Windows tray shows, on port **5178**. In Desktop Mode, browse to
 `http://localhost:5178`.
 
+This is the easiest way to **map a save folder without typing a path**: under
+**Settings → Currently Tracked Games**, a game with no folder shows **Set save path**, which opens a
+folder browser you can drive with the D-pad or trackpad. It starts on the path the scan guessed and
+is limited to your home directory, Steam libraries and mounted SD cards. See
+[Adding games](#help/adding-games).
+
 The UI listens on **localhost only, and that is deliberate**. It is a management interface — it can
 re-point this machine at another server, re-register it, and change what it syncs — so putting it on
 your network would let anything on that network do the same. There is no `--lan` flag any more.
