@@ -140,6 +140,14 @@ Running WSL commands from PowerShell, `"...\$HOME..."` does **not** escape `$HOM
 | Server DB only | "Laptop pull restores save" is **BLOCKED**, ~3 fail | `.verify/laptop_save` still holds files from the last run, so the pull correctly refuses to overwrite what looks like un-pushed local progress. |
 
 - **Do:** stop the server, delete `src/Server/localstate/savelocker.db*` **and** `src/Server/localstate/archives/` **and** `.verify/`, restart the server, then run.
+- ⚠️ **Pointing the server at an isolated `Storage__DbPath` counts as "cleared the server DB"** and
+  hits row 2 above. That habit is correct for `run-enrollment-tests.ps1` (whose docs call for it) and
+  actively wrong here on its own — it resets one half of a pair. Walked into again on 2026-07-19: an
+  isolated DB with a stale `.verify/` gave exactly the 3 predicted failures, and they were briefly
+  mistaken for a pre-existing bug in the pull path. Removing `.verify/` gave 10/10 with no code change.
+- The suite does **not** wipe `.verify/` itself, unlike `.verify-health/` and friends, and that is
+  deliberate: wiping it alone against a persistent dev DB triggers row 1 instead. It also shares
+  `.verify/` with the two enrollment suites.
 - Ordering matters when chaining suites: run `run-agent-tests.ps1` (which wants a fresh DB) **before** `run-enrollment-tests.ps1` (which adds a game and a machine to it).
 - The suite also needs `%APPDATA%\LGSTestGame` to exist for the detection check; the script now creates it itself (2026-07-12).
 

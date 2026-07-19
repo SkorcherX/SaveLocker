@@ -81,12 +81,16 @@ rationale in `Backlog.md` under "Steam Deck onboarding UX".
 1. **`npm run gen:api` in `agent-ui/` hardcodes :5178 — an installed agent's port.** It silently
    generated types from the *installed* v0.2.0 build. New schemas were just missing, no error.
    Generate against a dev daemon on a free port. See `Gotchas.md`.
-2. **`tests/run-agent-tests.ps1` fails 3 of 10 on this Windows box** (`Laptop pull restores save`,
-   `pulled file content matches PC`, `second pull is a no-op`). **Pre-existing** — reproduced on a
-   clean `main` with all work stashed and a `--no-incremental` rebuild, against an isolated DB, so
-   it is not the dirty-dev-DB trap. Push and conflict detection pass; only the pull/restore leg
-   fails. CI's Ubuntu `agent-tests-linux` is reportedly green, so suspect Windows-specific or local.
-   **Unresolved — do not assume the pull path is healthy on Windows.**
+2. **Giving `run-agent-tests.ps1` an isolated server DB *causes* 3 failures** unless you clear
+   `.verify/` too. This is the documented "clear the server DB and `.verify/` **TOGETHER**" trap in
+   `Gotchas.md` — its table predicts this exactly: *server DB only → "Laptop pull restores save" is
+   BLOCKED, ~3 fail*, because `.verify/laptop_save` still holds the previous run's file and the pull
+   correctly refuses to overwrite apparent un-pushed progress.
+   - The habit of isolating `Storage__DbPath` (right for the enrollment suite) is **wrong on its own
+     here** — it resets one half of a pair. Delete `.verify/` in the same breath.
+   - Verified 2026-07-19: `.verify/` removed + fresh DB → **10/10**. Nothing was wrong with the code.
+   - The suite does not self-clean on purpose: wiping `.verify/` alone against a persistent dev DB
+     produces the *other* failure mode in that table (initial push reports CONFLICT, ~4 fail).
 
 **Still unverified on hardware:** the browser's D-pad navigation was tested as *keyboard* nav in a
 desktop browser. Whether a Deck's D-pad emits arrow keys to the Steam overlay browser in Game Mode
