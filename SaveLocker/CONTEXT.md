@@ -92,9 +92,17 @@ rationale in `Backlog.md` under "Steam Deck onboarding UX".
    - The suite does not self-clean on purpose: wiping `.verify/` alone against a persistent dev DB
      produces the *other* failure mode in that table (initial push reports CONFLICT, ~4 fail).
 
-**Still unverified on hardware:** the browser's D-pad navigation was tested as *keyboard* nav in a
-desktop browser. Whether a Deck's D-pad emits arrow keys to the Steam overlay browser in Game Mode
-needs the real device. Rows are 44 px, so the trackpad works either way.
+**Verified on a real Deck 2026-07-19.** The browser works; `/run/media` is in the root list, so SD
+cards are reachable. **The D-pad does not work** — Desktop Mode maps the right stick to the cursor
+and the left stick to scroll, the D-pad to neither. Point-and-click is the real interaction (the
+44 px rows already assumed it), so only the KB claim was wrong, and it is corrected. Arrow keys still
+work with a keyboard attached.
+
+⚠️ **"Headless" is actively misleading in our own docs.** The maintainer's first reaction on hardware
+was *"I didn't know we had a UI because we kept calling it headless"* — and `adding-games.md` did
+literally say there was no UI to click. It means **no tray icon and no pop-ups**; the daemon serves
+the full agent UI on :5178. Both KB articles now say so up front. Prefer "no tray, no pop-ups" over
+the bare word.
 
 ---
 

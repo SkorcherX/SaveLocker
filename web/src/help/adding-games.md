@@ -30,7 +30,9 @@ Alternatively, use the **game scanning** feature: the agent can auto-detect save
 
 "Headless" means the Deck agent has no tray icon and no pop-ups — **not** that it has no UI. The daemon serves the same web UI the Windows tray shows on port **5178**. In Desktop Mode, browse to `http://localhost:5178` and use **Settings → Currently Tracked Games**, exactly as above. A game with no folder yet shows **No save folder set** and a **Set save path** button.
 
-Because there is no folder dialog on a Deck, that button opens a built-in folder browser instead. It is navigable with the D-pad or the trackpad — arrows or D-pad move, **Enter** or right enters a folder, **left**/**Backspace** goes up — and it opens on the path the scan already guessed, so usually you only confirm. It browses your home directory, your Steam libraries, and mounted SD cards; anything outside those is deliberately out of reach.
+Because there is no folder dialog on a Deck, that button opens a built-in folder browser instead. In Desktop Mode you drive it the way you drive anything else there: **the right stick (or a trackpad) moves the mouse cursor and the left stick scrolls** — point at a folder and click to open it. Rows are deliberately large enough to hit comfortably. **The D-pad does not work here** — SteamOS maps it to neither the cursor nor the arrow keys. If you have a keyboard attached, arrow keys move the selection, **Enter** or **right** enters a folder and **left**/**Backspace** goes up.
+
+The browser opens on the path the scan already guessed, so usually you only confirm. It browses your home directory, your Steam libraries, and mounted SD cards (`/run/media`); anything outside those is deliberately out of reach.
 
 You never have to type a path. If you would rather not open the UI at all, there are two other routes:
 
