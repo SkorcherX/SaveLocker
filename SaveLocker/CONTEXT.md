@@ -56,6 +56,44 @@ Full record of the .NET 10 upgrade: `logs/2026-07-13_dotnet-10-upgrade.md`.
 
 ---
 
+## Deck path setup — shipped 2026-07-19 (all 5 backlog items)
+
+Setting a save path on a Deck no longer requires a terminal. Three surfaces changed; detail and
+rationale in `Backlog.md` under "Steam Deck onboarding UX".
+
+- **Agent UI path browser** — `GET /api/browse?path=` (`Agent.Core/PathBrowser.cs`), **rooted** at
+  `$HOME` + host Steam roots, containment checked *after* canonicalization, symlinks never followed,
+  `/run/media` included so an **SD card** is reachable. `run-local-api-tests.ps1` is now **22 checks**.
+- **The native dialog still wins where there is one.** The UI calls `folderPick` first: the Windows
+  tray shows Explorer and the browser never appears; the Linux daemon returns null and *that* opens
+  the browser. `agent-ui/` is one shared bundle — this is the seam that keeps the Deck flow off Windows.
+- **Console** — per-machine path editing is now inline in the machine's row, labelled
+  `Save path on <Machine>`; the `prompt()` is gone. Where an agent reported a guess the row offers
+  one-click **Apply**.
+- **Heartbeat carries guesses** — `AgentHeartbeat.PathCandidates`, appended + optional, into the new
+  `MachineScanCandidates` table (migration `20260719190348`). The `openapi.json` diff is **+83 / −0**,
+  so the either-order deploy note below still holds. A guess is deliberately **not** written to
+  `MachineSavePaths`, which is pushed back to agents as authority — it would auto-apply itself.
+- **`scan` offers to map** an unmapped tracked game (`--yes` / `--no-prompt`; prompting is skipped
+  when stdin is redirected, so systemd and the harness never block).
+
+⚠️ **Two things to know before continuing:**
+1. **`npm run gen:api` in `agent-ui/` hardcodes :5178 — an installed agent's port.** It silently
+   generated types from the *installed* v0.2.0 build. New schemas were just missing, no error.
+   Generate against a dev daemon on a free port. See `Gotchas.md`.
+2. **`tests/run-agent-tests.ps1` fails 3 of 10 on this Windows box** (`Laptop pull restores save`,
+   `pulled file content matches PC`, `second pull is a no-op`). **Pre-existing** — reproduced on a
+   clean `main` with all work stashed and a `--no-incremental` rebuild, against an isolated DB, so
+   it is not the dirty-dev-DB trap. Push and conflict detection pass; only the pull/restore leg
+   fails. CI's Ubuntu `agent-tests-linux` is reportedly green, so suspect Windows-specific or local.
+   **Unresolved — do not assume the pull path is healthy on Windows.**
+
+**Still unverified on hardware:** the browser's D-pad navigation was tested as *keyboard* nav in a
+desktop browser. Whether a Deck's D-pad emits arrow keys to the Steam overlay browser in Game Mode
+needs the real device. Rows are 44 px, so the trackpad works either way.
+
+---
+
 ## ▶ NEXT ACTION: **Device-verify the fresh-install enroll path**
 
 Everything else that was queued is done: the three security-hardening items shipped in v0.2.0, the
@@ -171,7 +209,7 @@ See `Backlog.md` for the full list.
 | Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
-| Local agent API security | `.\tests\run-local-api-tests.ps1` (15 checks). Starts its own daemon on **:5188** via `daemon --port`, so it never collides with a real agent on :5178. Needs nothing running |
+| Local agent API security | `.\tests\run-local-api-tests.ps1` (**22** checks). Starts its own daemon on **:5188** via `daemon --port`, so it never collides with a real agent on :5178. Needs nothing running. Now also proves the path browser is **rooted** — outside `$HOME`/Steam is refused, including via `..` and via a symlink that lives *inside* `$HOME` |
 | Cross-process state | `.\tests\run-concurrency-tests.ps1` (12 checks; own server on **:5183**, own daemon on **:5189**). Daemon vs. a second process over `config.json`, the offline queue and health events. Verified to FAIL against pre-fix code |
 
 **WSL is a working test bed — use it.** Ubuntu 24.04 is provisioned (see Toolchain below) with a clone at

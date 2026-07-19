@@ -306,3 +306,20 @@ rewriting finished work.
   `git show <commit>:<path>`. That is what established the real remaining scope here.
 - The same class of staleness put `v0.1.7` in `CONTEXT.md` while `v0.1.8` was tagged. **This vault
   drifts; verify claims against the repo.**
+
+## `npm run gen:api` in `agent-ui/` targets a REAL running agent
+`agent-ui/package.json` hardcodes `openapi-typescript http://localhost:5178/openapi/v1.json`, and
+**:5178 is the port an installed agent already listens on.** On a machine where SaveLocker is
+installed (i.e. the maintainer's), regenerating agent-UI types silently reads the contract from the
+*installed release build* instead of the dev build you just compiled.
+- The symptom is not an error. The new schemas are simply **absent** from `src/api-types.ts`, and
+  `tsc` then fails on the types you expected to exist — which looks like the endpoint being wrong.
+- The local-API test suite already avoids this by using **:5188**; do the same here. Start the dev
+  daemon on a free port and generate against it:
+  ```
+  dotnet src/Agent.Linux/bin/Debug/net10.0/savelocker.dll daemon --port 5190 --config <scratch>/config.json
+  cd agent-ui && npx openapi-typescript http://localhost:5190/openapi/v1.json -o src/api-types.ts
+  ```
+- Before believing a regeneration, grep the output for a symbol you just added.
+- Related: a running agent/daemon also **locks the build output DLLs**. `MSB3027 … locked by ".NET
+  Host (<pid>)"` means a daemon you started for verification is still alive.
