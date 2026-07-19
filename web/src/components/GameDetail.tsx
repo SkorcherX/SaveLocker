@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
-import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath } from '../types';
+import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath, MachineScanCandidate } from '../types';
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
 const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
@@ -19,6 +19,9 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   const [versions, setVersions] = useState<Version[]>([]);
   const [loadingVersions, setLoadingVersions] = useState(true);
   const [machinePaths, setMachinePaths] = useState<MachineSavePath[]>([]);
+  const [pathCandidates, setPathCandidates] = useState<MachineScanCandidate[]>([]);
+  const [editingPathFor, setEditingPathFor] = useState<string | null>(null);
+  const [pathDraft, setPathDraft] = useState('');
   const [excludeText, setExcludeText] = useState((summary.game.excludeGlobs ?? []).join('\n'));
   const [excludeForGameId, setExcludeForGameId] = useState(summary.game.id);
   const [savingExcludes, setSavingExcludes] = useState(false);
@@ -49,6 +52,8 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     setLoadingVersions(true);
     api.versions(game.id).then(vs => { setVersions(vs); setLoadingVersions(false); });
     api.getGamePaths(game.id).then(setMachinePaths).catch(() => {});
+    api.getGamePathCandidates(game.id).then(setPathCandidates).catch(() => {});
+    setEditingPathFor(null);
   }, [game.id]);
 
   // Global exclude defaults (read-only display); fetched once.
@@ -84,14 +89,20 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     try { await api.setSaveDir(game.id, dir.trim()); onRefresh(); } catch (e) { alert('Could not set save folder: ' + (e as Error).message); }
   }
 
-  async function handleSetMachinePath(machineId: string, machineName: string) {
-    const current = machinePaths.find(p => p.machineId === machineId)?.savePath ?? '';
-    const path = prompt(`Save folder for ${machineName}:\n(Leave blank to clear the stored path)`, current);
-    if (path === null) return;
+  async function reloadPaths() {
+    setMachinePaths(await api.getGamePaths(game.id));
+    // A stored path retires its candidate server-side, so refresh both together or the row keeps
+    // offering a guess for a machine that is now mapped.
+    setPathCandidates(await api.getGamePathCandidates(game.id).catch(() => []));
+  }
+
+  /** Write a path for one machine. Blank clears it. */
+  async function saveMachinePath(machineId: string, path: string) {
     try {
       if (path.trim() === '') await api.clearMachinePath(game.id, machineId);
       else await api.setMachinePath(game.id, machineId, path.trim());
-      setMachinePaths(await api.getGamePaths(game.id));
+      setEditingPathFor(null);
+      await reloadPaths();
     } catch (e) { alert('Could not update path: ' + (e as Error).message); }
   }
 
@@ -354,18 +365,79 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               ? <tr><td colSpan={3} style={{ padding: '20px 18px', color: '#556070', fontSize: 13 }}>No machines registered.</td></tr>
               : machines.map(m => {
                   const stored = machinePaths.find(p => p.machineId === m.id);
+                  const candidate = pathCandidates.find(c => c.machineId === m.id);
+                  const editing = editingPathFor === m.id;
                   return (
                     <tr key={m.id} style={rowSep}>
                       <td style={tdStyle}>{m.name}</td>
                       <td style={tdMono}>
-                        {stored
-                          ? stored.savePath
-                          : <span style={{ color: '#556070', fontStyle: 'italic' }}>not set</span>}
+                        {editing ? (
+                          // The label names the machine explicitly. The old prompt() said "Save
+                          // folder for X" in a modal detached from the table, which made it easy to
+                          // type a Deck path into a Windows machine's row.
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                            <label style={{ color: '#9CA3AF', fontSize: 11 }}>
+                              Save path on <span style={{ color: '#ECEFF1', fontWeight: 600 }}>{m.name}</span>
+                            </label>
+                            <input
+                              autoFocus
+                              value={pathDraft}
+                              onChange={e => setPathDraft(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') void saveMachinePath(m.id, pathDraft);
+                                if (e.key === 'Escape') setEditingPathFor(null);
+                              }}
+                              placeholder="Leave blank to clear the stored path"
+                              style={{
+                                background: '#171e23', border: '1px solid #3a464f', borderRadius: 4,
+                                padding: '6px 8px', color: '#ECEFF1', fontSize: 12,
+                                fontFamily: 'ui-monospace, Consolas, monospace', outline: 'none',
+                              }}
+                            />
+                          </div>
+                        ) : stored ? (
+                          stored.savePath
+                        ) : candidate ? (
+                          // The agent found this but has NOT adopted it — a human confirms here.
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                            <span style={{ color: '#556070', fontStyle: 'italic' }}>not set</span>
+                            <span style={{ color: '#9CA3AF', fontSize: 11, fontStyle: 'normal' }}>
+                              {m.name}'s scan found:
+                            </span>
+                            <span style={{ color: '#ECEFF1', fontSize: 12, wordBreak: 'break-all' }}>
+                              {candidate.suggestedPath}
+                            </span>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#556070', fontStyle: 'italic' }}>not set</span>
+                        )}
                       </td>
-                      <td style={{ padding: '11px 18px' }}>
-                        <button style={ghostBtn()} onClick={() => handleSetMachinePath(m.id, m.name)}>
-                          {stored ? 'Edit' : 'Set'}
-                        </button>
+                      <td style={{ padding: '11px 18px', whiteSpace: 'nowrap' }}>
+                        {editing ? (
+                          <div style={{ display: 'flex', gap: 5 }}>
+                            <button
+                              style={{ padding: '4px 10px', border: 'none', color: '#fff', background: '#129271', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 500 }}
+                              onClick={() => void saveMachinePath(m.id, pathDraft)}
+                            >Save</button>
+                            <button style={ghostBtn()} onClick={() => setEditingPathFor(null)}>Cancel</button>
+                          </div>
+                        ) : (
+                          <div style={{ display: 'flex', gap: 5 }}>
+                            {!stored && candidate && (
+                              <button
+                                style={{ padding: '4px 10px', border: 'none', color: '#fff', background: '#129271', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 500 }}
+                                onClick={() => void saveMachinePath(m.id, candidate.suggestedPath)}
+                              >Apply</button>
+                            )}
+                            <button
+                              style={ghostBtn()}
+                              onClick={() => {
+                                setPathDraft(stored?.savePath ?? candidate?.suggestedPath ?? '');
+                                setEditingPathFor(m.id);
+                              }}
+                            >{stored ? 'Edit' : 'Set'}</button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );

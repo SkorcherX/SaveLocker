@@ -55,7 +55,42 @@ public sealed class HealthService
         foreach (var ev in beat.Events ?? Array.Empty<AgentEventReport>())
             await ApplyEventAsync(machineId, ev, now);
 
+        foreach (var candidate in beat.PathCandidates ?? Array.Empty<ScanPathCandidate>())
+            await ApplyPathCandidateAsync(machineId, candidate, now);
+
         await _db.SaveChangesAsync();
+    }
+
+    /// <summary>
+    /// Record this machine's unconfirmed guess at a game's save folder, replacing any previous one.
+    /// <para>
+    /// A guess is dropped the moment the machine has a <b>confirmed</b> path for that game: the
+    /// console would otherwise keep offering "apply this path" for a game that is already mapped.
+    /// </para>
+    /// </summary>
+    private async Task ApplyPathCandidateAsync(Guid machineId, ScanPathCandidate candidate, DateTime now)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.SuggestedPath)) return;
+
+        // Unlike an event, this carries a hard FK to a game — a game deleted server-side has no
+        // candidate worth keeping, so skip rather than degrade to machine-wide.
+        if (!await _db.Games.AnyAsync(g => g.Id == candidate.GameId)) return;
+
+        var confirmed = await _db.MachineSavePaths.AnyAsync(p =>
+            p.MachineId == machineId && p.GameId == candidate.GameId);
+        if (confirmed) return;
+
+        var row = await _db.MachineScanCandidates.FirstOrDefaultAsync(c =>
+            c.MachineId == machineId && c.GameId == candidate.GameId);
+
+        if (row is null)
+        {
+            row = new MachineScanCandidate { MachineId = machineId, GameId = candidate.GameId };
+            _db.MachineScanCandidates.Add(row);
+        }
+
+        row.SuggestedPath = candidate.SuggestedPath;
+        row.LastSeen = now;
     }
 
     /// <summary>

@@ -18,6 +18,7 @@ export type Command = Schemas['AgentCommandDto'];
 export type Conflict = NonNullable<Schemas['ConflictDto']>;
 export type Settings = Schemas['ServerSettingsDto'];
 export type MachineSavePath = Schemas['MachineSavePathDto'];
+export type MachineScanCandidate = Schemas['MachineScanCandidateDto'];
 export type AuditEntry = Schemas['AuditEntryDto'];
 export type AgentHealth = Schemas['AgentHealthDto'];
 export type AgentEvent = Schemas['AgentEventDto'];

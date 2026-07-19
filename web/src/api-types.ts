@@ -1014,6 +1014,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/games/{id}/path-candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MachineScanCandidateDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/overview": {
         parameters: {
             query?: never;
@@ -2083,6 +2120,7 @@ export interface components {
             offlineQueueDepth: number;
             events?: null | components["schemas"]["AgentEventReport"][];
             resolvedGameIds?: null | string[];
+            pathCandidates?: null | components["schemas"]["ScanPathCandidate"][];
         };
         AgentInstallerStatus: {
             version: string;
@@ -2280,6 +2318,14 @@ export interface components {
             machineName: string;
             savePath: string;
         };
+        MachineScanCandidateDto: {
+            /** Format: uuid */
+            machineId: string;
+            machineName: string;
+            suggestedPath: string;
+            /** Format: date-time */
+            lastSeen: string;
+        };
         RedeemEnrollmentRequest: {
             token: string;
             machineName?: null | string;
@@ -2305,6 +2351,11 @@ export interface components {
             size: number;
             /** Format: uuid */
             parentVersionId: null | string;
+        };
+        ScanPathCandidate: {
+            /** Format: uuid */
+            gameId: string;
+            suggestedPath: string;
         };
         ServerSettingsDto: {
             steamGridDbConfigured: boolean;

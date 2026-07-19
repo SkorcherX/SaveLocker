@@ -403,6 +403,12 @@ admin.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid 
     return Results.NoContent();
 });
 
+// Unconfirmed guesses each machine's scan reported for this game. Separate from /paths because
+// they are offers, not settings — applying one is a POST to /paths above.
+admin.MapGet("/games/{id:guid}/path-candidates", async (Guid id, SyncService sync) =>
+    Results.Ok(await sync.GetGameScanCandidatesAsync(id)))
+    .Produces<List<MachineScanCandidateDto>>();
+
 admin.MapGet("/overview", async (SyncService sync) =>
     Results.Ok(await sync.GetOverviewAsync()))
     .Produces<List<GameStateDto>>();

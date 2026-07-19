@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
     public DbSet<MachineSavePath> MachineSavePaths => Set<MachineSavePath>();
+    public DbSet<MachineScanCandidate> MachineScanCandidates => Set<MachineScanCandidate>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<AgentHealth> AgentHealth => Set<AgentHealth>();
     public DbSet<AgentEvent> AgentEvents => Set<AgentEvent>();
@@ -35,6 +36,18 @@ public class AppDbContext : DbContext
         b.Entity<AppSetting>().HasKey(s => s.Key);
 
         b.Entity<MachineSavePath>().HasKey(p => new { p.MachineId, p.GameId });
+
+        // Same key shape as the confirmed path, so a machine reports at most one guess per game.
+        // Both sides cascade: a guess is meaningless once its machine or its game is gone.
+        b.Entity<MachineScanCandidate>().HasKey(c => new { c.MachineId, c.GameId });
+        b.Entity<MachineScanCandidate>()
+            .HasOne<Machine>().WithMany()
+            .HasForeignKey(c => c.MachineId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.Entity<MachineScanCandidate>()
+            .HasOne<Game>().WithMany()
+            .HasForeignKey(c => c.GameId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Redeem looks a token up by hash; unique so a hash can never map to two rows.
         b.Entity<EnrollmentToken>().HasIndex(t => t.TokenHash).IsUnique();

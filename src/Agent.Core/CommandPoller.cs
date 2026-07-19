@@ -29,6 +29,10 @@ public sealed class CommandPoller : IDisposable
     private readonly System.Timers.Timer _timer;
     private int _busy; // 0/1 guard so slow ticks don't overlap
 
+    /// <summary>How often an unmapped game is worth re-scanning for. See UpdatePathCandidatesAsync.</summary>
+    private static readonly TimeSpan CandidateScanInterval = TimeSpan.FromMinutes(15);
+    private DateTime _lastCandidateScan = DateTime.MinValue;
+
     public CommandPoller(
         AgentConfig config,
         Func<ApiClient> api,
@@ -64,6 +68,7 @@ public sealed class CommandPoller : IDisposable
         try
         {
             await ReconcileGamesAsync();
+            await UpdatePathCandidatesAsync();
             await RunCommandsAsync();
         }
         catch (Exception ex)
@@ -177,6 +182,60 @@ public sealed class CommandPoller : IDisposable
             return dirs.FirstOrDefault();
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Tell the console what this machine's scan <b>guesses</b> the save folder is, for every game
+    /// still unmapped after reconcile. Reconcile has already tried manifest detection and reported
+    /// anything it resolved; what is left is the case the scan can still answer — a Steam shortcut
+    /// or a Proton prefix the manifest does not describe.
+    /// <para>
+    /// Only unmapped games are reported. This is not a privacy nicety: uploading the whole scan
+    /// would put the user's entire game library on the server for no purpose the console has.
+    /// </para>
+    /// </summary>
+    private async Task UpdatePathCandidatesAsync()
+    {
+        if (_health is null) return;
+
+        var unmapped = _config.Games
+            .Where(g => string.IsNullOrWhiteSpace(g.SaveDirectory))
+            .ToList();
+
+        // Clear immediately when nothing is unmapped — a machine that fixed itself should stop
+        // offering guesses at once, without waiting out the scan interval below.
+        if (unmapped.Count == 0)
+        {
+            _health.SetPathCandidates(Array.Empty<ScanPathCandidate>());
+            return;
+        }
+
+        // A scan walks the disk; the poll is every 20 s. Rescanning on every tick would make an
+        // unmapped game a permanent background I/O load on a device with a slow SD card.
+        if (DateTime.UtcNow - _lastCandidateScan < CandidateScanInterval) return;
+        _lastCandidateScan = DateTime.UtcNow;
+
+        IReadOnlyList<ScanCandidate> found;
+        try { found = await _scanner.ScanAsync(); }
+        catch (Exception ex)
+        {
+            AgentLogger.LogException("CommandPoller.UpdatePathCandidates", ex);
+            return;
+        }
+
+        var reports = new List<ScanPathCandidate>();
+        foreach (var game in unmapped)
+        {
+            var match = found.FirstOrDefault(c =>
+                string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(c.SuggestedSaveDir));
+
+            // Offering a path that is not there wastes the one click this exists to save.
+            if (match?.SuggestedSaveDir is { } dir && Directory.Exists(dir))
+                reports.Add(new ScanPathCandidate(game.GameId, Path.GetFullPath(dir)));
+        }
+
+        _health.SetPathCandidates(reports);
     }
 
     /// <summary>Best-effort: tell the server what save path this machine resolved for a game.</summary>
