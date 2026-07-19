@@ -144,7 +144,9 @@ public sealed class ApiClient
 
     public async Task<GameStateDto?> GetStateAsync(Guid gameId)
     {
-        var resp = await _http.GetAsync($"/api/games/{gameId}/state");
+        // The /api/agent/ one: the bare /api/games/{id}/state is admin-filtered, so this 401'd for
+        // every agent the moment the server had an admin password set.
+        var resp = await _http.GetAsync($"/api/agent/games/{gameId}/state");
         if (resp.StatusCode == HttpStatusCode.NotFound) return null;
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadFromJsonAsync<GameStateDto>();

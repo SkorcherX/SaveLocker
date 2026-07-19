@@ -127,6 +127,27 @@ Check "Laptop stale push reports CONFLICT" (($pushConflict -join "`n") -like "*C
 $status = Agent status --config $pcCfg
 Check "status shows conflict for SyncGame" (($status -join "`n") -like "*SyncGame*CONFLICT*")
 
+# ---- status must survive an admin password being set ----
+# This suite ran against a server with NO admin password, and the AdminPasswordFilter is wide open
+# in that state — so `status` calling an admin-filtered endpoint with only a machine key passed here
+# for as long as the bug existed, and 401'd on any real server that had a password set. Set one and
+# re-run the exact same command: the agent must not need an admin secret to read its own game state.
+$adminPw = "verify-admin-$(Get-Random)"
+try {
+    Invoke-RestMethod "http://localhost:5179/api/admin/password" -Method Post `
+        -ContentType "application/json" -Body (@{ password = $adminPw } | ConvertTo-Json) | Out-Null
+
+    $statusPw = Agent status --config $pcCfg
+    Check "status still works once an admin password is set" (($statusPw -join "`n") -like "*SyncGame*")
+    Check "status did not 401"                               (-not (($statusPw -join "`n") -like "*401*"))
+}
+finally {
+    # Clear it, or every later suite against this server needs the header.
+    Invoke-RestMethod "http://localhost:5179/api/admin/password" -Method Post `
+        -ContentType "application/json" -Headers @{ "X-Admin-Password" = $adminPw } `
+        -Body (@{ password = "" } | ConvertTo-Json) | Out-Null
+}
+
 Write-Host ""
 Write-Host "==== AGENT RESULT: $pass passed, $fail failed ===="
 if ($fail -gt 0) { exit 1 }
