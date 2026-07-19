@@ -286,6 +286,19 @@ internal sealed class TrayContext : ApplicationContext
         LastUpdateResult = result;
         _ui.Post(_ => RebuildMenu(), null);
 
+        // Log EVERY outcome. A check that found nothing used to leave no trace at all — no balloon,
+        // no log line — so "I clicked check for updates and nothing happened" was undiagnosable
+        // after the fact. Balloon tips are also suppressed outright by Focus Assist and by
+        // notification settings, so the log is the only account that always survives.
+        AgentLogger.Log(result switch
+        {
+            UpdateResult.Available av => $"Update check: v{av.Version} available (current {UpdateChecker.CurrentVersion.ToString(3)}).",
+            UpdateResult.UpToDate     => $"Update check: up to date (v{UpdateChecker.CurrentVersion.ToString(3)}).",
+            UpdateResult.Skipped      => $"Update check: an update is available but v{_config.SkipVersion} was skipped by the user.",
+            UpdateResult.Failed f     => $"Update check FAILED: {f.Reason}",
+            _                         => $"Update check: {result.GetType().Name}."
+        });
+
         if (result is UpdateResult.Available a)
         {
             Notify($"SaveLocker v{a.Version} is available. Click to update.");
@@ -295,9 +308,17 @@ internal sealed class TrayContext : ApplicationContext
                 _icon.BalloonTipClosed  += OnBalloonClosed;
             }, null);
         }
-        else if (!silent && result is UpdateResult.UpToDate)
+        else if (!silent)
         {
-            Notify($"You're up to date (v{UpdateChecker.CurrentVersion.ToString(3)}).");
+            // A check the USER asked for must always answer. Failed and Skipped used to fall through
+            // in silence, which is indistinguishable from the menu item doing nothing at all.
+            Notify(result switch
+            {
+                UpdateResult.UpToDate => $"You're up to date (v{UpdateChecker.CurrentVersion.ToString(3)}).",
+                UpdateResult.Skipped  => $"v{_config.SkipVersion} is available but you chose to skip it. Reinstall from the console to take it.",
+                UpdateResult.Failed f => $"Could not check for updates: {f.Reason}",
+                _                     => "Update check finished with no result."
+            });
         }
     }
 
