@@ -4,7 +4,29 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** **v0.2.0** (tagged 2026-07-18, PR #8 — **Linux/Deck security hardening**; see the §7–§9 block in `Decisions.md`).
+**Current version:** **v0.3.0** (tagged 2026-07-19, PRs #9–#13 — **Deck path setup, and four bugs the
+first real hardware session exposed**). Earlier: v0.2.0 (2026-07-18, PR #8 — Linux/Deck security
+hardening; see the §7–§9 block in `Decisions.md`).
+
+### v0.3.0 — what and why
+
+Setting a save path on a Deck no longer needs a terminal: a rooted folder browser in the agent UI,
+scan candidates offered for one-click **Apply** in the console, and `scan` offering to map an
+unmapped game. Detail in `Backlog.md` under "Steam Deck onboarding UX".
+
+**The four bugs matter more than the feature.** Every one was found by putting the agent on real
+hardware for an afternoon, and none was hypothetical:
+
+| Bug | Why it was invisible |
+|---|---|
+| **`install.sh` destroyed a running agent, then printed "Installed."** | `cp` cannot replace a running binary (`Text file busy`), overwriting mapped DLLs killed the daemon with **SIGBUS**, and `find -exec` hides its child's exit status so `set -e` never fired. This is THE documented Linux update path. |
+| **`savelocker status` 401'd on any server with an admin password** | It called an **admin-filtered** route with a machine key. `AdminPasswordFilter` is wide open when no password is set — so it worked on a fresh server, and the test suite (which runs without one) passed for as long as the bug existed. |
+| **A stale Proton prefix synced silently** | A non-Steam AppID is recomputed when a shortcut is renamed or re-pointed; Steam then makes a fresh prefix. The old path still exists, reads fine and hashes fine — it is just not where the game writes. `doctor` now compares the two. |
+| **A save folder mapped one level too deep nests on restore** | Archives store paths relative to the save root, so pulling an archive rooted at X into X/sub recreates `sub` under itself. The pull *succeeds*. `SaveDirSanity` now flags a repeated path tail. |
+
+⚠️ **The lesson to carry:** three of these four were invisible to the test suite *by construction* —
+it ran in the state where the bug could not fire (no admin password; no running daemon; a clean
+`.verify/`). When a suite passes, ask what state it never puts the system in.
 ⚠️ **BREAKING: `savelocker daemon --lan` is REMOVED** and now exits non-zero. Remote access is an SSH
 tunnel: `ssh -L 5178:localhost:5178 <user>@<host>`.
 **The key-rotation follow-up is DONE** (2026-07-18): container updated, both Windows agents upgraded
@@ -284,6 +306,10 @@ unit. **Never `/usr`** — SteamOS's rootfs is immutable and wiped on update (`D
   impossible to mistake for a release in the console. Before this, hand-building one in WSL was the
   only way to get code onto hardware, which is precisely why Deck-only paths stayed unverified.
 - **Linux has no auto-update** (deliberate, not shipped). The update channel is installer-shaped and Windows-only; a Deck user re-runs `install.sh` from a newer tarball. See `Backlog.md`.
+  - ⚠️ **Before v0.3.0 that upgrade path was broken** and looked like it worked: the agent was killed
+    by SIGBUS mid-upgrade while the script printed "Installed." and exited 0. **Upgrading *to* v0.3.0
+    from v0.2.0 still runs the OLD install.sh**, so stop the agent first:
+    `systemctl --user stop savelocker.service`. From v0.3.0 onward the script handles it.
 
 ---
 

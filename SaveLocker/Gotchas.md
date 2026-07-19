@@ -331,3 +331,24 @@ installed (i.e. the maintainer's), regenerating agent-UI types silently reads th
 - Before believing a regeneration, grep the output for a symbol you just added.
 - Related: a running agent/daemon also **locks the build output DLLs**. `MSB3027 … locked by ".NET
   Host (<pid>)"` means a daemon you started for verification is still alive.
+
+## A test suite that passes may never enter the state where the bug lives
+Three of the four bugs found in one afternoon on a real Deck (v0.3.0) were invisible to a **green**
+test suite, each for the same structural reason: the suite never put the system in the state where
+the failure was possible.
+
+| Bug | The state the suite never entered |
+|---|---|
+| `savelocker status` 401s | The server had **no admin password**, and `AdminPasswordFilter` passes everything through in that state. The command called an admin route with a machine key and passed anyway. |
+| `install.sh` kills the agent (SIGBUS) and exits 0 | Installs went into a **throwaway HOME with nothing running**. The failure needs a *running* daemon holding the files. |
+| 3 agent-suite checks "fail" | `.verify/` was reused while the server DB was fresh — the [documented pairing](#integration-suite-clear-the-server-db-and-verify-together) above. The inverse of the same blind spot: state that *was* carried over. |
+
+- **Ask what state the suite never creates.** "No admin password", "nothing running", "empty
+  directory" and "first run" are the usual suspects — all of them are the *easy* setup, which is
+  exactly why they end up hardcoded into a harness.
+- Every one of these was fixed with a test that **enters that state**: set a password and re-run;
+  install over a live daemon; reset both halves of the state pair. Each was verified to FAIL against
+  the pre-fix code — a regression test that never failed proves nothing.
+- Corollary for this project: **the agent has a state the server never sees** (a running process, a
+  populated `$HOME`, a stale Proton prefix). CI exercises the wire protocol well and the agent's
+  *environment* poorly. Real hardware is still finding things CI cannot.
