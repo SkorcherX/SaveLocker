@@ -185,6 +185,10 @@ public static class AgentCli
                                   "Could not auto-detect a save directory; pass --dir.");
                         Console.WriteLine($"Auto-detected save directory: {dir}");
                     }
+                    else if (!Directory.Exists(dir))
+                    {
+                        Console.WriteLine($"Warning: save directory does not exist — run the game first or verify the path.");
+                    }
 
                     var game = await Api().CreateGameAsync(new CreateGameRequest(name, manifestKey, null));
                     var existing = config.FindGame(name);
@@ -259,7 +263,16 @@ public static class AgentCli
                     var engine = Engine();
                     var force = opts.ContainsKey("force");
                     foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
+                    {
+                        if (string.IsNullOrWhiteSpace(g.SaveDirectory))
+                        {
+                            Console.Error.WriteLine(
+                                $"'{g.Name}' has no save directory set. " +
+                                $"Run: savelocker add-game --name \"{g.Name}\" --dir <path>");
+                            continue;
+                        }
                         await engine.PullAsync(g, force);
+                    }
                     await health.SendAsync(Api(), config, null);
                     break;
                 }

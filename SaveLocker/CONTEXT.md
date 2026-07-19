@@ -94,14 +94,13 @@ functions on a device post-0.2.0 (the two re-registrations may have been done vi
 
 **Do not host v0.1.6 for auto-update** — it aborts under /SILENT. Host **v0.2.0** or newer.
 
-### ⚠️ Standing deferred risk: NO HARDWARE
+### Steam Deck hardware — NOW AVAILABLE (2026-07-19)
 
-Everything above is verified in WSL + CI and has **never run on a Steam Deck**. **gamescope / Game
-Mode, the immutable rootfs, SD-card library paths and suspend/resume cannot be proven any other way.**
-Validate on a borrowed/used Deck or on **Bazzite** (the practical SteamOS stand-in), or recruit a
-Deck-owning beta tester, **before shipping to real users**. Same rule as the Windows device-verify
-items: **built ≠ verified.** Any KB claim about Game Mode or the Launch Options UI is currently *from
-documentation, not observation* — flag those rather than writing them confidently.
+The maintainer now owns a Steam Deck. The long-standing "no hardware" blocker is resolved.
+gamescope / Game Mode, the immutable rootfs, SD-card library paths, and suspend/resume **can now
+be tested on real hardware**. KB claims about Game Mode and the Launch Options UI should be
+validated on-device and updated from observation rather than documentation. Linux auto-update
+(previously deferred partly for lack of hardware) is now unblocked on the hardware side.
 
 Other open work is in `Backlog.md` — fresh installer-enrollment verification, code-signing the exe,
 and deploying the net10 server to unRAID.

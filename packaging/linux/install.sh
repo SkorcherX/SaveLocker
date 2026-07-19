@@ -90,7 +90,11 @@ Installed. Next:
 
   3. Add this to a game's Steam launch options:
 
-         savelocker run -- %command%
+         ${HOME}/.local/bin/savelocker run -- %command%
+
+     Use the full path above. Game Mode does not put ~/.local/bin on PATH, so
+     the short form 'savelocker run -- %command%' silently prevents the game
+     from launching.
 
      (For a non-Steam shortcut, tick "Force the use of a specific Steam Play
       compatibility tool" in its properties so Proton sets up a prefix. Without
