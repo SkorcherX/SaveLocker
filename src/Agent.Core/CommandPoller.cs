@@ -133,6 +133,16 @@ public sealed class CommandPoller : IDisposable
                     _notify($"Mapped '{sg.Name}' to {fill}.");
                     ReportPathAsync(sg.Id, fill);
                 }
+                // Mapped here, but the server has no path for this machine — say what we are using.
+                // Without this the console shows "not set" for a machine that is syncing happily,
+                // which reads as a broken agent and invites someone to "fix" it by setting a path.
+                // It also never self-corrects: clearing the path in the console does not unmap the
+                // agent, so the disagreement is permanent until the agent happens to re-resolve.
+                else if (string.IsNullOrWhiteSpace(sg.MachineSavePath) &&
+                         !string.IsNullOrWhiteSpace(local.SaveDirectory))
+                {
+                    ReportPathAsync(sg.Id, local.SaveDirectory);
+                }
                 continue;
             }
 

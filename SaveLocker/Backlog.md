@@ -88,10 +88,15 @@ rather than trusting the commit message — see the vault-drift entry in `Gotcha
     tray returns its Explorer dialog and the browser never appears. The Linux daemon passes
     `pickFolder: null`, and *that* is what drops a Deck into the browser. `agent-ui/` is one shared
     bundle — this is how the Deck flow stays off Windows.
-  - ⏳ **Unverified on hardware:** D-pad navigation was tested as *keyboard* nav in a desktop browser
-    (arrows move, Enter/Right descends, Left/Backspace ascends). Whether a Deck's D-pad emits arrow
-    keys to the Steam overlay browser in Game Mode **needs the real device**. Rows are 44 px so the
-    trackpad works regardless.
+  - ✅ **Verified on a real Deck 2026-07-19**, with one correction. **The D-pad does not work** —
+    SteamOS Desktop Mode maps the right stick to the mouse cursor and the left stick to scrolling,
+    and the D-pad to neither. Point-and-click is the real interaction, which the 44 px rows were
+    already sized for, so the feature works as intended; only the *claim* was wrong. KB corrected.
+    Arrow keys still work with a keyboard attached, so the handler stays.
+  - ✅ **`/run/media` confirmed present in the root list on-device**, so SD cards are reachable.
+  - The maintainer's reaction is worth recording: *"I didn't know we had a UI because we kept calling
+    it headless."* The word was doing real damage in our own docs — `adding-games.md` flatly said
+    there was no UI to click. Both articles now lead with what headless does and doesn't mean.
 
 - ~~**Pre-fill scan candidates in the agent UI path browser.**~~ ✅ **DONE 2026-07-19.** New
   `GET /api/games/{id}/suggested-path` name-matches the (cached) scan and the browser opens there,

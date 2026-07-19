@@ -51,6 +51,20 @@ public static class SaveDirSanity
                          "Archiving the prefix would upload gigabytes of Windows runtime files.");
         }
 
+        // A repeated tail ("…/76561197960271872/SaveGames/76561197960271872/SaveGames") is the
+        // signature of a save folder mapped one or more levels TOO DEEP. Archives store paths
+        // relative to the save root, so restoring an archive rooted at X into X/sub reproduces
+        // `sub` underneath itself. Nothing else produces that shape, and it is silent: the pull
+        // succeeds, the files land, and the game never sees them.
+        if (RepeatedTail(full) is { } repeated)
+        {
+            problems.Add($"this path repeats '{repeated}' — it looks like a save folder mapped too " +
+                         "deep, then restored into. An archive stores paths relative to its save root, " +
+                         "so pulling into a folder that is already inside that root nests it again. " +
+                         "Map the save ROOT (the folder the archive's top-level entries sit in), and " +
+                         "delete the duplicated copy.");
+        }
+
         // Size is the backstop: the path may be wrong in a way no name check anticipates.
         var (bytes, count) = Measure(saveDir, excludeGlobs);
         if (bytes > UploadCapBytes)
@@ -61,6 +75,31 @@ public static class SaveDirSanity
         }
 
         return problems;
+    }
+
+    /// <summary>
+    /// The repeated trailing run of path segments, or null. <c>a/b/X/Y/X/Y</c> yields <c>X/Y</c>.
+    /// </summary>
+    /// <remarks>
+    /// Longest run first, so the clearer <c>X/Y</c> is reported rather than a coincidental single
+    /// segment. A run of one is still checked — <c>saves/saves</c> is the same mistake — but a
+    /// legitimately repeating name (a game whose save folder is literally <c>Steam/Steam</c>) would
+    /// trip it. That is why this is a warning in <c>doctor</c>, and never a refusal to sync.
+    /// </remarks>
+    private static string? RepeatedTail(string fullPath)
+    {
+        var parts = fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Where(p => p.Length > 0)
+            .ToArray();
+
+        for (var run = parts.Length / 2; run >= 1; run--)
+        {
+            var tail = parts[^run..];
+            var before = parts[^(run * 2)..^run];
+            if (tail.SequenceEqual(before, StringComparer.OrdinalIgnoreCase))
+                return string.Join('/', tail);
+        }
+        return null;
     }
 
     /// <summary>Total bytes and file count of exactly what would be archived (excludes + no symlinks).</summary>

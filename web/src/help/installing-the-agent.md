@@ -72,9 +72,13 @@ the machine appears under **Configuration → Machines** here, showing as **onli
 
 # Linux and Steam Deck
 
-The Linux agent is **headless by design**. There is no tray icon and no pop-ups: in Game Mode a Deck
-has no desktop to put them on. **This console is the Deck's UI** — it is where the agent reports
-problems, and where you will see them.
+The Linux agent is **headless by design** — meaning no tray icon and no pop-ups, since in Game Mode a
+Deck has no desktop to put them on. **This console is where the agent reports problems**, because a
+Deck cannot raise a toast to tell you itself.
+
+It is *not* true that the agent has no UI of its own. The daemon serves the same web UI the Windows
+tray shows at `http://localhost:5178` — reachable in Desktop Mode, and the easiest way to map a save
+folder. See [Reaching the agent's own UI](#help/installing-the-agent) below.
 
 The download is **self-contained**: it bundles its own .NET runtime, so there is nothing to install
 first. (It needs glibc 2.27 or newer; every SteamOS 3 release is well past that.)
@@ -162,11 +166,12 @@ to exit, waits for the save to finish being written, and pushes it.
 The daemon serves the same web UI the Windows tray shows, on port **5178**. In Desktop Mode, browse to
 `http://localhost:5178`.
 
-This is the easiest way to **map a save folder without typing a path**: under
+**"Headless" here means no tray icon and no pop-ups — not that there is no UI.** There is a full one,
+and this is the easiest way to **map a save folder without typing a path**: under
 **Settings → Currently Tracked Games**, a game with no folder shows **Set save path**, which opens a
-folder browser you can drive with the D-pad or trackpad. It starts on the path the scan guessed and
-is limited to your home directory, Steam libraries and mounted SD cards. See
-[Adding games](#help/adding-games).
+folder browser. Drive it in Desktop Mode the usual way — right stick or trackpad moves the cursor,
+left stick scrolls, click to open a folder. It starts on the path the scan guessed and is limited to
+your home directory, Steam libraries and mounted SD cards. See [Adding games](#help/adding-games).
 
 The UI listens on **localhost only, and that is deliberate**. It is a management interface — it can
 re-point this machine at another server, re-register it, and change what it syncs — so putting it on
