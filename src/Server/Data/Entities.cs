@@ -145,6 +145,22 @@ public class MachineSavePath
 }
 
 /// <summary>
+/// An <b>unconfirmed</b> save folder a machine's scan found for a game it has not mapped. Keyed on
+/// (MachineId, GameId) like <see cref="MachineSavePath"/>, and deliberately a separate table:
+/// writing a guess into MachineSavePath would push it back to the agent as authority on the next
+/// poll. The console offers it; a human promotes it.
+/// </summary>
+public class MachineScanCandidate
+{
+    public Guid MachineId { get; set; }
+    public Guid GameId { get; set; }
+    public string SuggestedPath { get; set; } = "";
+
+    /// <summary>Last heartbeat that still reported this path — a stale guess is worth distrusting.</summary>
+    public DateTime LastSeen { get; set; }
+}
+
+/// <summary>
 /// A single-use, short-lived token the console mints so a new agent can trade it for a real
 /// machine API key (Decisions.md §4). Only the hash is stored — the raw token exists solely in
 /// the policy file the admin downloads.

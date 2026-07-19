@@ -154,6 +154,8 @@ public static class AgentCli
                         Console.WriteLine($"  {c.Name}  <{c.Source}>{cloud}{appid}");
                         Console.WriteLine($"      save: {save}");
                     }
+
+                    await OfferUnmappedPathsAsync(candidates, config, opts);
                     break;
                 }
 
@@ -184,6 +186,10 @@ public static class AgentCli
                               ?? throw new InvalidOperationException(
                                   "Could not auto-detect a save directory; pass --dir.");
                         Console.WriteLine($"Auto-detected save directory: {dir}");
+                    }
+                    else if (!Directory.Exists(dir))
+                    {
+                        Console.WriteLine($"Warning: save directory does not exist — run the game first or verify the path.");
                     }
 
                     var game = await Api().CreateGameAsync(new CreateGameRequest(name, manifestKey, null));
@@ -259,7 +265,16 @@ public static class AgentCli
                     var engine = Engine();
                     var force = opts.ContainsKey("force");
                     foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
+                    {
+                        if (string.IsNullOrWhiteSpace(g.SaveDirectory))
+                        {
+                            Console.Error.WriteLine(
+                                $"'{g.Name}' has no save directory set. " +
+                                $"Run: savelocker add-game --name \"{g.Name}\" --dir <path>");
+                            continue;
+                        }
                         await engine.PullAsync(g, force);
+                    }
                     await health.SendAsync(Api(), config, null);
                     break;
                 }
@@ -370,6 +385,77 @@ public static class AgentCli
         Console.WriteLine($"Config: {config.ConfigPath}");
         Console.WriteLine("Next:   doctor    (then: daemon)");
         return 0;
+    }
+
+    /// <summary>
+    /// After a scan, offer to map any tracked game that has no save folder but whose name matches a
+    /// candidate the scan found. This is the common case on a Deck, where the alternative is typing
+    /// <c>add-game --name "…" --dir /home/deck/.local/share/Steam/steamapps/compatdata/…</c> into an
+    /// on-screen keyboard.
+    /// </summary>
+    /// <remarks>
+    /// Prompting is <b>skipped entirely</b> when stdin is not a terminal. `scan` runs from the test
+    /// harness, from a dashboard-issued command and under systemd, and a prompt there would either
+    /// read EOF and loop or block the unit forever. <c>--yes</c> applies without asking;
+    /// <c>--no-prompt</c> only lists.
+    /// </remarks>
+    private static async Task OfferUnmappedPathsAsync(
+        IReadOnlyList<ScanCandidate> candidates, AgentConfig config, Dictionary<string, string> opts)
+    {
+        if (opts.ContainsKey("no-prompt")) return;
+
+        var assumeYes = opts.ContainsKey("yes");
+        var matches = new List<(TrackedGame Game, string Dir)>();
+
+        foreach (var game in config.Games.Where(g => string.IsNullOrWhiteSpace(g.SaveDirectory)))
+        {
+            var match = candidates.FirstOrDefault(c =>
+                string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
+                !string.IsNullOrWhiteSpace(c.SuggestedSaveDir));
+            if (match?.SuggestedSaveDir is { } dir && Directory.Exists(dir))
+                matches.Add((game, Path.GetFullPath(dir)));
+        }
+
+        if (matches.Count == 0) return;
+
+        // Non-interactive: say what was found so the path is at least copy-pasteable, then stop.
+        if (!assumeYes && Console.IsInputRedirected)
+        {
+            Console.WriteLine();
+            foreach (var (game, dir) in matches)
+                Console.WriteLine($"Found a save path for '{game.Name}': {dir}");
+            Console.WriteLine("Re-run with --yes to apply, or use the agent UI to confirm.");
+            return;
+        }
+
+        var applied = 0;
+        foreach (var (game, dir) in matches)
+        {
+            if (!assumeYes)
+            {
+                Console.WriteLine();
+                Console.Write($"Found save path for '{game.Name}' — apply? [{dir}] (y/n) ");
+                var answer = Console.ReadLine();
+                // A closed stdin mid-loop reads null; treat it as "no" rather than spinning.
+                if (answer is null) return;
+                if (!answer.Trim().StartsWith("y", StringComparison.OrdinalIgnoreCase)) continue;
+            }
+
+            game.SaveDirectory = dir;
+            applied++;
+            Console.WriteLine($"Tracking '{game.Name}' -> {dir}");
+        }
+
+        if (applied == 0) return;
+        config.Save();
+
+        // Best-effort, and after the local save: the mapping is useful on this machine even if the
+        // server is unreachable, and reconcile will report it later anyway.
+        foreach (var (game, dir) in matches.Where(m => m.Game.SaveDirectory == m.Dir))
+        {
+            try { await ApiClient.For(config).SetMachinePathAsync(game.GameId, dir); }
+            catch (Exception ex) { AgentLogger.LogException("scan.SetMachinePath", ex); }
+        }
     }
 
     /// <summary>

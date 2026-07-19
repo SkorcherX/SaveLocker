@@ -496,6 +496,89 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/browse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: {
+                    path?: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BrowseListing"];
+                    };
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErrorResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/suggested-path": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SuggestedPathDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent-version": {
         parameters: {
             query?: never;
@@ -562,6 +645,15 @@ export interface components {
             latestVersion: null | string;
             updateAvailable: boolean;
         };
+        BrowseEntry: {
+            name: string;
+            path: string;
+        };
+        BrowseListing: {
+            path: string;
+            parent: null | string;
+            entries: components["schemas"]["BrowseEntry"][];
+        };
         CandidateDto: {
             /** Format: int32 */
             id: number | string;
@@ -611,6 +703,9 @@ export interface components {
         };
         RegisterResponse: {
             machineName: string;
+        };
+        SuggestedPathDto: {
+            path: null | string;
         };
         TrackedGameDto: {
             /** Format: uuid */

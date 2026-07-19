@@ -1,4 +1,4 @@
-# Local agent API security - 14 checks. Runs on BOTH Windows and Linux.
+# Local agent API security - 22 checks. Runs on BOTH Windows and Linux.
 #
 # The agent's own API (AgentApiServer, shared by the Windows tray and the Linux daemon) manages this
 # machine: it rewrites config, enrolls games and re-registers against the server. It used to be
@@ -10,7 +10,8 @@
 #   3. DNS rebinding is refused                   - a foreign Host header => 403, even on loopback.
 #   4. Cross-origin pages are refused             - a foreign Origin header => 403.
 #   5. The token reaches the UI, and only the UI  - injected into index.html, 0600 on disk.
-#   6. --lan is gone                              - it bound this API to every interface.
+#   6. The path browser is rooted                 - outside $HOME/Steam => 400, incl. via .. and a symlink.
+#   7. --lan is gone                              - it bound this API to every interface.
 #
 # The daemon runs on its own port so this suite never collides with a real agent on :5178.
 # Usage: .\tests\run-local-api-tests.ps1 / pwsh tests/run-local-api-tests.ps1
@@ -147,6 +148,53 @@ try {
         $mode = (Get-Item $tokenPath).UnixMode
         Check "token file is 0600"                    ($mode -eq "-rw-------")
     }
+
+    # =================================================================================
+    # 6. THE PATH BROWSER IS ROOTED
+    # /api/browse exists because a Deck has no folder dialog. It must not become a way to
+    # enumerate the whole disk: anything outside $HOME + the Steam roots is refused, and the
+    # refusal must survive traversal and a symlink pointing out of the tree.
+    # =================================================================================
+    $noToken = Send "/api/browse" $null $null $null
+    Check "/api/browse needs the token"               ($noToken.Status -eq 401)
+
+    $roots = Send "/api/browse" $token $null $null
+    $homeDir = if ($onWindows) { $env:USERPROFILE } else { $env:HOME }
+    Check "/api/browse lists the roots"               ($roots.Status -eq 200 -and $roots.Body -match '"entries"')
+    Check "the home directory is a root"              ($roots.Body.Contains(($homeDir -replace '\\','\\')))
+
+    $inside = Send "/api/browse?path=$([uri]::EscapeDataString($homeDir))" $token $null $null
+    Check "a path inside a root is listed"            ($inside.Status -eq 200)
+
+    $outsideDir = if ($onWindows) { "C:\Windows\System32" } else { "/etc" }
+    $outside = Send "/api/browse?path=$([uri]::EscapeDataString($outsideDir))" $token $null $null
+    Check "a path outside every root is refused"      ($outside.Status -eq 400)
+
+    # The containment check runs on the CANONICAL path, so climbing out with .. must not work.
+    $climb = Join-Path $homeDir (".." + [IO.Path]::DirectorySeparatorChar + ".." + [IO.Path]::DirectorySeparatorChar + $(if ($onWindows) { "Windows" } else { "etc" }))
+    $traversal = Send "/api/browse?path=$([uri]::EscapeDataString($climb))" $token $null $null
+    Check "traversal out of a root is refused"        ($traversal.Status -eq 400)
+
+    # A symlink INSIDE a root pointing outside it is the interesting case: the path looks
+    # contained until it is resolved. It must therefore live under $HOME — putting it in the repo
+    # scratch dir would make the test pass for the wrong reason (that path is outside the roots
+    # already). Windows junctions need no elevation, so both OSes can run this.
+    $linkPath = Join-Path $homeDir ".savelocker-verify-escape-link"
+    Remove-Item $linkPath -Recurse -Force -ErrorAction SilentlyContinue
+    $linkMade = $false
+    try {
+        New-Item -ItemType SymbolicLink -Path $linkPath -Target $outsideDir -ErrorAction Stop | Out-Null
+        $linkMade = $true
+    } catch {
+        try { New-Item -ItemType Junction -Path $linkPath -Target $outsideDir -ErrorAction Stop | Out-Null; $linkMade = $true } catch { }
+    }
+    if ($linkMade) {
+        $viaLink = Send "/api/browse?path=$([uri]::EscapeDataString($linkPath))" $token $null $null
+        Check "a symlink out of the roots is refused" ($viaLink.Status -eq 400)
+        Remove-Item $linkPath -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Host "SKIP: a symlink out of the roots is refused (could not create a link)"
+    }
 }
 finally {
     if ($daemonProc) { Stop-Process -Id $daemonProc.Id -Force -ErrorAction SilentlyContinue }
@@ -154,7 +202,7 @@ finally {
 }
 
 # =================================================================================
-# 6. --lan IS GONE (checked after the daemon is down; it must refuse to start at all)
+# 7. --lan IS GONE (checked after the daemon is down; it must refuse to start at all)
 # =================================================================================
 $lanOut = & $dotnet $dll daemon --lan --port $port --config $cfgPath 2>&1
 Check "daemon --lan is refused" ($LASTEXITCODE -ne 0 -and "$lanOut" -match "removed")

@@ -20,7 +20,7 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 - **Device-verify fresh Windows installer enrollment.** The wizard and silent-upgrade guard shipped in v0.1.7. The **upgrade** path is now well verified (silent 0.1.6→0.1.7 in 2026-07-14; 0.1.8→0.2.0 on two machines in 2026-07-18). It is the **fresh install** that has never run: clean-machine happy path, config-directory ACL, expired-token, skip, and `/SILENT /ENROLL=…`. Needs a box where `%PROGRAMDATA%\SaveLocker` does not exist.
   - **Deferred: Linux auto-update.** The update channel (`/api/agent/latest` → hosted `.exe`) is installer-shaped and Windows-only. A Deck user currently re-runs `install.sh` from a newer tarball. Retrofitting it for a tarball is its own piece of work — worth doing before there are many Deck users, since a headless device that never updates is one nobody will notice is stale.
   - **ALL PHASES (0–6) DONE.** Proton saves are byte-identical to Windows saves (proven in CI, round-tripping Windows→Linux→Windows). Enrollment is one file and one command, with no API key ever copied by hand. A Deck's failures reach the console. And Phase 6 fixed a **real data-loss bug** that also affected Windows: the restore's delete pass followed symlinks and **deleted files outside the save folder** (junctions on Windows, and a Wine prefix is full of links).
-  - **⚠️ THE ONLY THING LEFT IS HARDWARE.** No Deck is owned; everything is WSL + CI. **gamescope / Game Mode, the immutable rootfs, SD-card library paths and suspend/resume cannot be proven any other way.** Validate on a borrowed/used Deck or on Bazzite, or recruit a Deck-owning beta tester, **before shipping this to real users**. Built ≠ verified.
+  - ✅ **HARDWARE NOW AVAILABLE (2026-07-19).** The maintainer owns a Steam Deck — the long-standing blocker is resolved. gamescope, Game Mode, SD-card paths, and suspend/resume can now be validated on-device.
 
 ## Steam Deck onboarding UX (discovered via real hardware, 2026-07-19)
 
@@ -28,48 +28,74 @@ All items below were surfaced by the first real Deck user session. The session e
 current flow requires typing 130-character paths on an on-screen keyboard, misidentifies AppIDs,
 silently crashes on empty save dirs, and gives the user no console-driven alternative.
 
+> **The two path-setup sections below are DONE (2026-07-19)** — all five items. The four "Quick
+> guardrails" were already fixed in `f1edc4e`. What remains from the Deck session is device
+> verification, not code.
+
 ### Quick guardrails
 
-- **`pull` with empty save dir must fail cleanly, not crash.** Currently throws an `ArgumentException`
-  stack trace. Should print: `'<game>' has no save directory set. Run: savelocker add-game --name
-  "<name>" --dir <path>` and exit with a non-zero code. No restore attempted.
+✅ **All four shipped in `f1edc4e`** (2026-07-19). Re-verified against the filesystem on 2026-07-19
+rather than trusting the commit message — see the vault-drift entry in `Gotchas.md`:
 
-- **`add-game` should warn when `--dir` doesn't exist yet.** Silently accepts a non-existent path
-  today. Add: `Warning: save directory does not exist — run the game first or verify the path.`
-  This would have caught the wrong AppID/prefix path before the nested-folder disaster.
-
-- **`doctor` should point at `scan` when appid is missing.** The `appid: (none — the launch wrapper
-  cannot match this game)` message is correct but gives no hint. Append: `Run 'savelocker scan' to
-  find the correct AppID, then re-add with --appid.`
-
-- **`install.sh` should print the full-path launch option at the end.** Game Mode does not have
-  `~/.local/bin` on PATH so `savelocker run -- %command%` silently prevents the game from launching.
-  The install script should print: `Steam Launch Options: /home/$USER/.local/bin/savelocker run --
-  %command%`. The KB article (`installing-the-agent.md`) should call this out too.
+- ~~`pull` with empty save dir must fail cleanly~~ — `AgentCli.cs:272` prints `'<game>' has no save
+  directory set.` and exits non-zero. No restore attempted.
+- ~~`add-game` should warn when `--dir` doesn't exist~~ — warns `save directory does not exist`.
+- ~~`doctor` should point at `scan` when appid is missing~~ — `Doctor.cs` names `savelocker scan`.
+- ~~`install.sh` should print the full-path launch option~~ — prints
+  `${HOME}/.local/bin/savelocker run -- %command%` and explains that Game Mode lacks
+  `~/.local/bin` on PATH, so the short form silently stops the game launching.
 
 ### Console-driven path setup (eliminates CLI typing on Deck)
 
-- **Make the per-machine save path field obviously per-machine in the console.** The field is
-  currently easy to set on the wrong machine's row. Label it `"Save path on [Machine Name]"` and
-  scope it visually and editably to that machine's row only.
+- ~~**Make the per-machine save path field obviously per-machine in the console.**~~ ✅ **DONE
+  2026-07-19.** The `prompt()` is gone. Editing now happens **inline in that machine's row**, under
+  a label reading `Save path on <Machine Name>`, with Save/Cancel (Enter/Escape also work). The old
+  modal was detached from the table, which is exactly what made it easy to type a Deck path into a
+  Windows machine's row.
 
-- **Surface scan candidates in the console when a Deck reports an unmapped game.** When the agent
-  health event says a game is unmapped, show the path `scan` found alongside the "set path" field so
-  the user can confirm and apply with one click rather than typing it.
+- ~~**Surface scan candidates in the console when a Deck reports an unmapped game.**~~ ✅ **DONE
+  2026-07-19.** Agents now report unconfirmed guesses on the existing heartbeat and the row shows
+  `<Machine>'s scan found: <path>` with a one-click **Apply**.
+  - **New wire field:** `AgentHeartbeat.PathCandidates` — appended and optional, so the fleet and
+    the container still upgrade in either order. The regenerated `openapi.json` diff is **+83 / −0**.
+  - **New table `MachineScanCandidates`** (migration `20260719190348_AddMachineScanCandidates`),
+    keyed `(MachineId, GameId)`, cascading from both. Deliberately **not** written into
+    `MachineSavePaths`: that table is pushed back to the agent as authority on the next poll, so a
+    guess landing there would auto-apply itself. A human promotes it; applying retires the guess.
+  - **Only unmapped games are reported** — uploading the whole scan would put the user's entire game
+    library on the server for no purpose the console has.
+  - Scanning is throttled to 15 min in `CommandPoller`; the 20 s poll would otherwise make an
+    unmapped game a permanent background I/O load on a slow SD card.
 
-- **`scan` should offer to auto-apply when a tracked game is unmapped.** If `scan` finds a candidate
-  whose name matches a tracked game with no save dir, prompt: `Found save path for '<game>' —
-  apply? (y/n)`. Eliminates `add-game` in the common case.
+- ~~**`scan` should offer to auto-apply when a tracked game is unmapped.**~~ ✅ **DONE 2026-07-19.**
+  Prompts `Found save path for '<game>' — apply? [<path>] (y/n)`, then saves config and reports the
+  path to the server. `--yes` applies all; `--no-prompt` only lists. **Prompting is skipped when
+  stdin is redirected** — `scan` runs from the test harness, from dashboard-issued commands and
+  under systemd, where a prompt would read EOF or block the unit forever.
 
 ### Agent UI path browser (controller-navigable, no terminal required)
 
-- **Add a path mapping flow to the agent UI (`localhost:5178`).** For any tracked game with no save
-  dir, show a "Set save path" button instead of the current CLI instruction. Opens a simple
-  directory browser (read the filesystem, list folders) navigable with the controller. On confirm,
-  calls the equivalent of `add-game --dir` internally. No terminal or SSH required.
+- ~~**Add a path mapping flow to the agent UI (`localhost:5178`).**~~ ✅ **DONE 2026-07-19.** An
+  unmapped game's row now reads `No save folder set` with a **Set save path** button instead of
+  showing nothing.
+  - **New `GET /api/browse?path=`** backed by `Agent.Core/PathBrowser.cs`. **Rooted** at `$HOME` plus
+    host-supplied Steam roots (`GameScanner.BrowseRoots()` on Windows, `SteamRoots.BrowseRoots()` on
+    Linux — the latter includes `/run/media` so an **SD card** is reachable). Containment is checked
+    *after* canonicalization, symlinks are never followed, and a refused path is not described.
+    Covered by 8 new checks in `run-local-api-tests.ps1` (now **22**), including a symlink inside
+    `$HOME` pointing outside it.
+  - **The native dialog still wins where there is one.** The UI calls `folderPick` first; the Windows
+    tray returns its Explorer dialog and the browser never appears. The Linux daemon passes
+    `pickFolder: null`, and *that* is what drops a Deck into the browser. `agent-ui/` is one shared
+    bundle — this is how the Deck flow stays off Windows.
+  - ⏳ **Unverified on hardware:** D-pad navigation was tested as *keyboard* nav in a desktop browser
+    (arrows move, Enter/Right descends, Left/Backspace ascends). Whether a Deck's D-pad emits arrow
+    keys to the Steam overlay browser in Game Mode **needs the real device**. Rows are 44 px so the
+    trackpad works regardless.
 
-- **Pre-fill scan candidates in the agent UI path browser.** When `scan` finds a match for an
-  unmapped game, open the browser pre-navigated to that path so the user just confirms.
+- ~~**Pre-fill scan candidates in the agent UI path browser.**~~ ✅ **DONE 2026-07-19.** New
+  `GET /api/games/{id}/suggested-path` name-matches the (cached) scan and the browser opens there,
+  falling back to the root list when the guess no longer exists on disk.
 
 ## Medium priority
 - **Windows: `%PROGRAMDATA%\SaveLocker` ACLs on a multi-user box.** The local API token (`api-token`, 0600 on Linux) has **no POSIX mode on Windows** — it inherits the ACL of `%PROGRAMDATA%\SaveLocker`, which the installer widens to give the interactive user Modify. On a machine with several local users, another user may be able to read it and drive this machine's agent. Note this is **not a new exposure**: `config.json` in the same directory already holds the long-lived machine key under the same ACL. Fix both together — tighten the directory ACL to the enrolling user + SYSTEM, or move mutable per-user state out of the machine-wide directory. `run-local-api-tests.ps1` only asserts the file *exists* on Windows; give it a real ACL assertion once the model is decided.

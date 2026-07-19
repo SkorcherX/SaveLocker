@@ -86,7 +86,8 @@ internal sealed class TrayContext : ApplicationContext
             autoStart: new AutoStart(),
             pickFolder: FolderPicker.ShowAsync,
             onRegistered: RebuildEngine,
-            getUpdateResult: () => LastUpdateResult);
+            getUpdateResult: () => LastUpdateResult,
+            browseRoots: GameScanner.BrowseRoots());
         _apiServer.Start();
 
         _commandPoller = new CommandPoller(

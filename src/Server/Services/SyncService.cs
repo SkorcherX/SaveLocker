@@ -88,6 +88,8 @@ public sealed class SyncService
             await _db.AgentCommands.Where(c => c.MachineId == machineId).ToListAsync());
         _db.MachineSavePaths.RemoveRange(
             await _db.MachineSavePaths.Where(p => p.MachineId == machineId).ToListAsync());
+        _db.MachineScanCandidates.RemoveRange(
+            await _db.MachineScanCandidates.Where(c => c.MachineId == machineId).ToListAsync());
         _db.Machines.Remove(machine);
         await Audit(null, null, "machine.delete", machine.Name);
         await _db.SaveChangesAsync();
@@ -115,6 +117,20 @@ public sealed class SyncService
             .ToDictionaryAsync(p => p.GameId, p => p.SavePath);
     }
 
+    /// <summary>
+    /// Unconfirmed scan guesses for a game, one row per machine that reported one. These are
+    /// offered in the console for confirmation; they are never applied on the agent's say-so.
+    /// </summary>
+    public async Task<List<MachineScanCandidateDto>> GetGameScanCandidatesAsync(Guid gameId)
+    {
+        return await (from c in _db.MachineScanCandidates
+                      join m in _db.Machines on c.MachineId equals m.Id
+                      where c.GameId == gameId
+                      orderby m.Name
+                      select new MachineScanCandidateDto(c.MachineId, m.Name, c.SuggestedPath, c.LastSeen))
+            .ToListAsync();
+    }
+
     /// <summary>Upsert a machine's save path for a game (agent-reported or dashboard-set).</summary>
     public async Task SetMachinePathAsync(Guid machineId, Guid gameId, string path)
     {
@@ -123,6 +139,12 @@ public sealed class SyncService
             _db.MachineSavePaths.Add(new MachineSavePath { MachineId = machineId, GameId = gameId, SavePath = path });
         else
             existing.SavePath = path;
+
+        // The guess has served its purpose once a real path exists — leaving it would make the
+        // console keep offering to "apply" a path for a game that is now mapped.
+        var guess = await _db.MachineScanCandidates.FindAsync(machineId, gameId);
+        if (guess is not null) _db.MachineScanCandidates.Remove(guess);
+
         await Audit(machineId, gameId, "machine_path.set", path);
         await _db.SaveChangesAsync();
     }
@@ -200,6 +222,8 @@ public sealed class SyncService
         _db.Conflicts.RemoveRange(await _db.Conflicts.Where(c => c.GameId == gameId).ToListAsync());
         _db.MachineSavePaths.RemoveRange(
             await _db.MachineSavePaths.Where(p => p.GameId == gameId).ToListAsync());
+        _db.MachineScanCandidates.RemoveRange(
+            await _db.MachineScanCandidates.Where(c => c.GameId == gameId).ToListAsync());
         _db.Games.Remove(game);
         await Audit(null, gameId, "game.delete", game.Name);
         await _db.SaveChangesAsync();

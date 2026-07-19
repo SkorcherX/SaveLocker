@@ -40,6 +40,26 @@ public static class SteamRoots
         return roots;
     }
 
+    /// <summary>
+    /// Extra roots the agent UI's path browser may descend into, beyond <c>$HOME</c>.
+    /// <para>
+    /// The Steam roots are usually inside the home directory already; <b>removable media is not</b>.
+    /// A Deck's SD card mounts under <c>/run/media</c>, and a game installed there keeps its
+    /// portable saves there, so without these entries the browser cannot reach a save the user can
+    /// plainly see in the file manager.
+    /// </para>
+    /// </summary>
+    public static IEnumerable<string> BrowseRoots()
+    {
+        foreach (var root in Find()) yield return root;
+
+        // SteamOS mounts cards at /run/media/<user>/<label>; older images used /run/media/<label>
+        // directly. Yielding the parent covers both, and lets the user pick the card by name.
+        var user = Environment.UserName;
+        foreach (var media in new[] { $"/run/media/{user}", "/run/media", "/media" })
+            if (Directory.Exists(media)) yield return media;
+    }
+
     /// <summary>The compatdata directory for a shortcut's AppID under a Steam root, or null.</summary>
     /// <remarks>
     /// Non-Steam shortcuts always keep their prefix in the <b>main</b> Steam root, even when the

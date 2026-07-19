@@ -37,6 +37,18 @@ public record GameDto(
 /// <summary>A specific machine's stored save path for one game.</summary>
 public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);
 
+/// <summary>
+/// A save folder a machine's <c>scan</c> <b>found but has not adopted</b> — the game is tracked
+/// there with no save directory, and this is the local scan's best guess.
+/// <para>
+/// It is deliberately NOT a <see cref="MachineSavePathDto"/>: a guess must not become the
+/// authoritative per-machine path, because that path is pushed straight back to the agent on the
+/// next poll. A human confirms it in the console first.
+/// </para>
+/// </summary>
+public record MachineScanCandidateDto(
+    Guid MachineId, string MachineName, string SuggestedPath, DateTime LastSeen);
+
 public record CreateGameRequest(
     string Name,
     string? ManifestKey,
@@ -296,7 +308,18 @@ public record AgentHeartbeat(
     int UnmappedGames = 0,
     int OfflineQueueDepth = 0,
     AgentEventReport[]? Events = null,
-    Guid[]? ResolvedGameIds = null);
+    Guid[]? ResolvedGameIds = null,
+    // Appended, and optional, on purpose: an older agent simply omits it and a newer agent talking
+    // to an older server has it ignored, so the fleet and the container can be upgraded in either
+    // order (see CONTEXT.md's deploy note).
+    ScanPathCandidate[]? PathCandidates = null);
+
+/// <summary>
+/// "This machine's scan found a save folder for a game it tracks but has not mapped." Reported so
+/// the console can offer it for one-click confirmation — on a Deck, typing a 130-character path on
+/// an on-screen keyboard is the alternative.
+/// </summary>
+public record ScanPathCandidate(Guid GameId, string SuggestedPath);
 
 /// <summary>An open (or dismissed) agent event as the console shows it.</summary>
 public record AgentEventDto(

@@ -129,8 +129,12 @@ you ever ask for help, paste its output.
 Tell Steam to run the game *through* the agent. In the game's **Properties → Launch Options**:
 
 ```
-savelocker run -- %command%
+/home/deck/.local/bin/savelocker run -- %command%
 ```
+
+Replace `deck` with your username if it differs. **Use the full path.** Game Mode does not put
+`~/.local/bin` on `PATH`, so the short form `savelocker run -- %command%` silently prevents the
+game from launching — you get a black screen and the game never opens.
 
 That is the whole integration. The agent pulls the latest save before the game starts, waits for it
 to exit, waits for the save to finish being written, and pushes it.
@@ -157,6 +161,12 @@ to exit, waits for the save to finish being written, and pushes it.
 
 The daemon serves the same web UI the Windows tray shows, on port **5178**. In Desktop Mode, browse to
 `http://localhost:5178`.
+
+This is the easiest way to **map a save folder without typing a path**: under
+**Settings → Currently Tracked Games**, a game with no folder shows **Set save path**, which opens a
+folder browser you can drive with the D-pad or trackpad. It starts on the path the scan guessed and
+is limited to your home directory, Steam libraries and mounted SD cards. See
+[Adding games](#help/adding-games).
 
 The UI listens on **localhost only, and that is deliberate**. It is a management interface — it can
 re-point this machine at another server, re-register it, and change what it syncs — so putting it on

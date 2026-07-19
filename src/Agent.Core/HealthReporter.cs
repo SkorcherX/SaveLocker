@@ -56,6 +56,19 @@ public sealed class HealthReporter
     /// </summary>
     private readonly List<(string Code, Guid? GameId, DateTime OccurredAt)> _sentEvents = new();
 
+    /// <summary>
+    /// Unconfirmed save-folder guesses to attach to the next heartbeat. Deliberately in memory and
+    /// not persisted like events: a guess is cheap to recompute from a scan, and an unreachable
+    /// server is not a reason to hold one — unlike a fault, nobody is waiting to hear about it.
+    /// </summary>
+    private ScanPathCandidate[] _pathCandidates = Array.Empty<ScanPathCandidate>();
+
+    /// <summary>Replace the guesses reported on subsequent heartbeats. Overwrites, never accumulates.</summary>
+    public void SetPathCandidates(IEnumerable<ScanPathCandidate> candidates)
+    {
+        lock (_lock) _pathCandidates = candidates.ToArray();
+    }
+
     private bool AlreadySent(Pending candidate) =>
         _sentEvents.Any(s => s.Code == candidate.Code && s.GameId == candidate.GameId &&
                              s.OccurredAt >= candidate.OccurredAt);
@@ -130,8 +143,10 @@ public sealed class HealthReporter
     {
         Pending[] events;
         Guid[] resolved;
+        ScanPathCandidate[] pathCandidates;
         lock (_lock)
         {
+            pathCandidates = _pathCandidates;
             // Adopt anything another process left behind. The launch wrapper records an event and
             // exits; on a Deck the daemon's heartbeat is the only thing that will ever deliver it.
             var disk = ReadDisk();
@@ -158,7 +173,8 @@ public sealed class HealthReporter
             OfflineQueueDepth: offlineQueue?.GetAll().Count ?? 0,
             Events: events.Select(e => new AgentEventReport(
                 e.Code, e.Severity, e.Message, e.GameId, e.OccurredAt)).ToArray(),
-            ResolvedGameIds: resolved);
+            ResolvedGameIds: resolved,
+            PathCandidates: pathCandidates.Length == 0 ? null : pathCandidates);
 
         try
         {

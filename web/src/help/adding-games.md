@@ -21,20 +21,30 @@ This lets machines with different install paths (e.g. different drive letters) a
 After a game is added to the server, each machine needs to map its local save directory:
 
 1. Open the agent window (tray icon → open).
-2. Go to **Add Games** or **Overview** → find the game.
+2. Go to **Settings** → **Currently Tracked Games** and find the game. One with no folder yet is marked **No save folder set**.
 3. Click **Set save path** and browse to the local save folder.
 
 Alternatively, use the **game scanning** feature: the agent can auto-detect save paths from Steam and Ludusavi's game manifests. Check the **Add Games** tab in the agent for detected candidates.
 
 ### On Linux / Steam Deck
 
-The Deck agent is headless — there is no **Add Games** tab to click. Map a game from the command line instead:
+"Headless" means the Deck agent has no tray icon and no pop-ups — **not** that it has no UI. The daemon serves the same web UI the Windows tray shows on port **5178**. In Desktop Mode, browse to `http://localhost:5178` and use **Settings → Currently Tracked Games**, exactly as above. A game with no folder yet shows **No save folder set** and a **Set save path** button.
 
-```sh
-savelocker add-game --name "Hollow Knight" --dir <save folder> --appid 367520
-```
+Because there is no folder dialog on a Deck, that button opens a built-in folder browser instead. It is navigable with the D-pad or the trackpad — arrows or D-pad move, **Enter** or right enters a folder, **left**/**Backspace** goes up — and it opens on the path the scan already guessed, so usually you only confirm. It browses your home directory, your Steam libraries, and mounted SD cards; anything outside those is deliberately out of reach.
 
-`--dir` mapping is the **normal** path here, not a fallback: most standalone (non-Steam) builds aren't in the Ludusavi manifest, so you point the agent at the save folder yourself. `--appid` is the Steam AppID of the non-Steam shortcut, which lets the `savelocker run` launch wrapper match the game to the Proton prefix Steam hands it. Run `savelocker doctor` afterwards to confirm the path resolved. See the [CLI reference](#help/cli-reference).
+You never have to type a path. If you would rather not open the UI at all, there are two other routes:
+
+- **From this console.** When an agent finds a likely folder for a game it can't map, the game's **Save paths per machine** table shows `<machine>'s scan found: <path>` with an **Apply** button. One click, no typing on the Deck.
+- **From the command line**, if you have a terminal or SSH:
+
+  ```sh
+  savelocker scan          # offers to map anything it recognises — answer y
+  savelocker add-game --name "Hollow Knight" --dir <save folder> --appid 367520
+  ```
+
+  `savelocker scan` now offers to map any tracked game it finds a folder for, which avoids typing the path by hand. Reach for `add-game --dir` when the scan doesn't recognise the game — common for standalone (non-Steam) builds, which usually aren't in the Ludusavi manifest. `--appid` is the Steam AppID of the non-Steam shortcut, which lets the `savelocker run` launch wrapper match the game to the Proton prefix Steam hands it.
+
+Run `savelocker doctor` afterwards to confirm the path resolved. See the [CLI reference](#help/cli-reference) and [Installing the agent](#help/installing-the-agent) for reaching the UI over SSH.
 
 ## Ludusavi auto-detection
 

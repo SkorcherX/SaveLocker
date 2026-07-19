@@ -80,7 +80,11 @@ public static class Doctor
         foreach (var g in config.Games)
         {
             Console.WriteLine($"  {g.Name}");
-            Info("    appid", g.SteamAppId ?? "(none — the launch wrapper cannot match this game)");
+            if (g.SteamAppId is null)
+                Console.WriteLine("    appid: (none — the launch wrapper cannot match this game)\n" +
+                                  "           Run 'savelocker scan' to find the correct AppID, then re-add with --appid.");
+            else
+                Info("    appid", g.SteamAppId);
             if (string.IsNullOrWhiteSpace(g.SaveDirectory))
             {
                 Problem($"'{g.Name}' has no save directory. Set one: savelocker add-game --name \"{g.Name}\" --dir <path>");

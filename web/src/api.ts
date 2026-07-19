@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse, AgentHealth } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse, AgentHealth } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -66,6 +66,8 @@ export const api = {
 
   getGamePaths: (gameId: string) =>
     request<MachineSavePath[]>(`/games/${gameId}/paths`),
+  getGamePathCandidates: (gameId: string) =>
+    request<MachineScanCandidate[]>(`/games/${gameId}/path-candidates`),
   setMachinePath: (gameId: string, machineId: string, path: string) =>
     request<void>(`/games/${gameId}/paths/${machineId}?value=${encodeURIComponent(path)}`, { method: 'POST' }),
   clearMachinePath: (gameId: string, machineId: string) =>

@@ -788,6 +788,39 @@
         }
       }
     },
+    "/api/games/{id}/path-candidates": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MachineScanCandidateDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/overview": {
       "get": {
         "tags": [
@@ -1778,6 +1811,15 @@
               "type": "string",
               "format": "uuid"
             }
+          },
+          "pathCandidates": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/ScanPathCandidate"
+            }
           }
         }
       },
@@ -2542,6 +2584,31 @@
           }
         }
       },
+      "MachineScanCandidateDto": {
+        "required": [
+          "machineId",
+          "machineName",
+          "suggestedPath",
+          "lastSeen"
+        ],
+        "type": "object",
+        "properties": {
+          "machineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "suggestedPath": {
+            "type": "string"
+          },
+          "lastSeen": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "RedeemEnrollmentRequest": {
         "required": [
           "token"
@@ -2624,6 +2691,22 @@
               "string"
             ],
             "format": "uuid"
+          }
+        }
+      },
+      "ScanPathCandidate": {
+        "required": [
+          "gameId",
+          "suggestedPath"
+        ],
+        "type": "object",
+        "properties": {
+          "gameId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "suggestedPath": {
+            "type": "string"
           }
         }
       },
