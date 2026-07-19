@@ -129,8 +129,12 @@ you ever ask for help, paste its output.
 Tell Steam to run the game *through* the agent. In the game's **Properties → Launch Options**:
 
 ```
-savelocker run -- %command%
+/home/deck/.local/bin/savelocker run -- %command%
 ```
+
+Replace `deck` with your username if it differs. **Use the full path.** Game Mode does not put
+`~/.local/bin` on `PATH`, so the short form `savelocker run -- %command%` silently prevents the
+game from launching — you get a black screen and the game never opens.
 
 That is the whole integration. The agent pulls the latest save before the game starts, waits for it
 to exit, waits for the save to finish being written, and pushes it.

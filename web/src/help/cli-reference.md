@@ -76,7 +76,7 @@ These commands exist only in the Linux agent, which has no tray or window to do 
 
 | Command | Options | What it does |
 |---------|---------|-------------|
-| `run` | `-- %command%` | The **Steam launch wrapper**. Add `savelocker run -- %command%` to a game's **Launch Options** and Steam runs the game *through* the agent: it pulls the latest save before launch, waits for the game to exit, waits for the save to settle, and pushes. Everything after `--` is the game's own command line, untouched. This is how a Deck syncs — it has no process watcher. |
+| `run` | `-- %command%` | The **Steam launch wrapper**. Add `/home/deck/.local/bin/savelocker run -- %command%` to a game's **Launch Options** and Steam runs the game *through* the agent: it pulls the latest save before launch, waits for the game to exit, waits for the save to settle, and pushes. Everything after `--` is the game's own command line, untouched. This is how a Deck syncs — it has no process watcher. **Use the full path** — Game Mode does not put `~/.local/bin` on `PATH`, so the short form silently prevents the game from launching. |
 | `doctor` | | **The first thing to run when something is wrong.** Checks the whole chain — server reachable, Steam roots found, shortcuts parsed, Proton prefixes located, save folders present and writable — and prints a mark next to anything broken. On a headless machine it is the only diagnostic UI; paste its output when asking for help. |
 | `daemon` | `[--port <n>]` | Run the agent headless (the foreground process the systemd unit runs). It serves the same agent UI on **localhost:5178** — loopback only, always, because that UI can re-point this machine at another server. To see it from another device, forward the port over SSH: `ssh -L 5178:localhost:5178 deck@<deck-ip>`. `--port` moves the listener (for running a second agent alongside a real one); it does not change what it binds to. |
 | `autostart` | `--enable`<br>`--disable` | Enable or disable the `systemd --user` unit that starts the daemon with your session. With no flag, prints whether it is currently enabled. (`install.sh` enables it for you.) |
@@ -112,8 +112,8 @@ savelocker add-game --name "Hollow Knight" --dir ~/.local/share/Steam/steamapps/
 savelocker daemon                # agent UI at http://localhost:5178 (loopback only)
 # from another device:  ssh -L 5178:localhost:5178 deck@<deck-ip>
 
-# In the game's Steam launch options:
-#   savelocker run -- %command%
+# In the game's Steam launch options (use the full path — Game Mode has no ~/.local/bin on PATH):
+#   /home/deck/.local/bin/savelocker run -- %command%
 ```
 
 ## Safe first sync between two machines
