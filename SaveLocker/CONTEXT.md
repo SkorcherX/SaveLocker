@@ -4,9 +4,28 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** **v0.3.0** (tagged 2026-07-19, PRs #9–#13 — **Deck path setup, and four bugs the
-first real hardware session exposed**). Earlier: v0.2.0 (2026-07-18, PR #8 — Linux/Deck security
-hardening; see the §7–§9 block in `Decisions.md`).
+**Current version:** **v0.3.1** (tagged 2026-07-19, PR #15 — **the Windows tray could not exit**).
+Earlier: v0.3.0 (2026-07-19, PRs #9–#13 — Deck path setup, and four bugs the first real hardware
+session exposed); v0.2.0 (2026-07-18, PR #8 — Linux/Deck security hardening, `Decisions.md` §7–§9).
+
+### v0.3.1 — the tray Exit deadlock
+
+**Right-click → Exit did not stop the agent**, and a second Exit left the menu frozen on screen;
+only Task Manager could end it. `AgentApiServer.Dispose()` blocked the WinForms UI thread with
+`StopAsync().GetAwaiter().GetResult()`, and the continuation needed that same thread. Kestrel stops
+listening first, so :5178 went dead while the process lived on — which is what made it look like a
+half-crash rather than a deadlock.
+
+- **Present since v0.1.8**, when the local API landed. Every Windows agent from 0.1.8 to 0.3.0 has it.
+- Diagnosed from a **stack captured off the live hung process** (`dotnet-stack report -p <pid>`) —
+  worth remembering as the tool for this, since nothing was in the log.
+- Fixed with `Task.Run` so continuations land on the thread pool, plus a bounded wait. `Start()` had
+  the same shape and got the same treatment.
+- Reproduced in a harness that drives `Dispose` from a real message loop: **old = deadlock at 30 s,
+  fixed = 8 ms**.
+- Also: an update check that returned `Failed` or `Skipped` produced **no toast and no log line**, so
+  "I clicked check for updates and nothing happened" was undiagnosable. Every outcome is now logged
+  and a user-initiated check always answers.
 
 ### v0.3.0 — what and why
 
