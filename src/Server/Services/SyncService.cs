@@ -182,6 +182,31 @@ public sealed class SyncService
         return true;
     }
 
+    /// <summary>
+    /// An agent offering a <b>template</b> for a game that has no save location recorded yet.
+    /// Returns true only if it was actually taken.
+    /// <para>
+    /// Two rules are enforced here rather than in the agent, because the agent is the untrusted
+    /// side: the value <b>must be a template</b>, so this cannot be used to push an arbitrary
+    /// machine-specific path onto every machine; and an existing value is <b>never overwritten</b>,
+    /// so one misconfigured agent cannot rewrite a location a human chose — or that a
+    /// correctly-configured machine established first. First correct machine wins; the console
+    /// always overrides.
+    /// </para>
+    /// </summary>
+    public async Task<bool> TrySetSaveTemplateAsync(Guid gameId, string template)
+    {
+        if (!PathResolver.IsTemplate(template)) return false;
+
+        var game = await _db.Games.FindAsync(gameId);
+        if (game is null || !string.IsNullOrWhiteSpace(game.SuggestedSaveDir)) return false;
+
+        game.SuggestedSaveDir = template.Trim();
+        await Audit(null, gameId, "game.save_template", game.SuggestedSaveDir);
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
     /// <summary>Admin: enable or disable a game (disabled games are skipped by agents).</summary>
     public async Task<bool> SetGameEnabledAsync(Guid gameId, bool enabled)
     {

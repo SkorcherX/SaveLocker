@@ -1,4 +1,4 @@
-# Agent integration tests — 14 checks on Windows / 12 on Linux. Runs on BOTH.
+# Agent integration tests — 20 checks on Windows / 15 on Linux. Runs on BOTH.
 #
 #   Windows: Windows PowerShell 5.1 or pwsh, drives src/Agent (net10.0-windows).
 #   Linux:   pwsh (PowerShell Core), drives src/Agent.Linux (net10.0).
@@ -147,6 +147,48 @@ Check "PC second push succeeds (v2)" (($push2 -join "`n") -like "*pushed new ver
 Set-Content -Path (Join-Path $lapSave "slot1.sav") -Value "level=2-laptop" -Encoding utf8
 $pushConflict = Agent push --config $lapCfg SyncGame
 Check "Laptop stale push reports CONFLICT" (($pushConflict -join "`n") -like "*CONFLICT*")
+
+# ---- An agent may DESCRIBE a save location, but never hijack one ----
+# The agent is the untrusted side of this, so both guards live on the server. Without them a single
+# misconfigured machine could rewrite where the whole fleet looks for a game's saves — and a save
+# root that is wrong by one segment is what makes a restore nest and delete.
+$tmplGame = Invoke-RestMethod "http://localhost:5179/api/games" -Method Post -ContentType "application/json" `
+    -Body (@{ name = "TemplateGuard-$stamp"; manifestKey = $null; customPathsJson = $null } | ConvertTo-Json)
+$agentKey = (Invoke-RestMethod "http://localhost:5179/api/machines/register" -Method Post `
+    -ContentType "application/json" -Body (@{ name = "TemplateAgent-$stamp" } | ConvertTo-Json)).apiKey
+$hdr = @{ "X-Api-Key" = $agentKey }
+function PostTemplate($v) {
+    try {
+        $r = Invoke-WebRequest ("http://localhost:5179/api/agent/games/" + $tmplGame.id + "/template?value=" + [uri]::EscapeDataString($v)) `
+            -Method Post -Headers $hdr -UseBasicParsing
+        return $r.StatusCode
+    } catch { return $_.Exception.Response.StatusCode.value__ }
+}
+# Ask for the ONE game rather than filtering /api/overview. Filtering there returned a collection,
+# so [string] joined it with spaces and an empty result read as " " rather than "" — the assertion
+# failed while the server was behaving correctly. A direct lookup has no such ambiguity.
+$tmplGameId = [string]$tmplGame.id
+function CurrentSuggested {
+    $state = Invoke-RestMethod "http://localhost:5179/api/games/$tmplGameId/state"
+    return [string]$state.game.suggestedSaveDir
+}
+
+# A LITERAL path must be refused: it means nothing on any other machine, and accepting it here is
+# exactly how one machine's path becomes everyone's.
+$literalCode = PostTemplate "C:\Users\someone\Documents\Whatever"
+$afterLiteral = [string](CurrentSuggested)
+Check "a literal path is refused as a template"  ($literalCode -eq 204)
+Check "and nothing was stored"                   ([string]::IsNullOrEmpty($afterLiteral))
+if (-not [string]::IsNullOrEmpty($afterLiteral)) { Write-Host "      stored value was: [$afterLiteral]" }
+
+$firstCode = PostTemplate "<winDocuments>/My Games/Guard"
+Check "a template is accepted when none is set"  ($firstCode -eq 200)
+Check "the template was stored"                  ((CurrentSuggested) -eq "<winDocuments>/My Games/Guard")
+
+# First correct machine wins. A second agent must not be able to redefine it.
+$secondCode = PostTemplate "<winAppData>/Hijacked"
+Check "an existing template is not overwritten"  ($secondCode -eq 204)
+Check "the original template survived"           ((CurrentSuggested) -eq "<winDocuments>/My Games/Guard")
 
 $status = Agent status --config $pcCfg
 Check "status shows conflict for SyncGame" (($status -join "`n") -like "*SyncGame*CONFLICT*")

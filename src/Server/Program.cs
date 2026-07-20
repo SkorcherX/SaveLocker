@@ -329,6 +329,15 @@ agent.MapGet("/agent/games/{id:guid}/state", async (Guid id, SyncService sync) =
     await sync.GetGameStateAsync(id) is { } state ? Results.Ok(state) : Results.NotFound())
     .Produces<GameStateDto>();
 
+// An agent describing a game's save location GENERICALLY, so every other machine can expand it for
+// itself instead of inheriting a literal path that means nothing on their filesystem. Only fills an
+// empty value, and only accepts a template — see TrySetSaveTemplateAsync.
+agent.MapPost("/agent/games/{id:guid}/template", async (Guid id, string? value, SyncService sync) =>
+{
+    if (string.IsNullOrWhiteSpace(value)) return Results.BadRequest("A template is required.");
+    return await sync.TrySetSaveTemplateAsync(id, value.Trim()) ? Results.Ok() : Results.NoContent();
+});
+
 // ---- Agent health (agent) ----
 // Piggybacks the existing ~20 s poll, so it costs no new schedule. This is the channel that makes a
 // headless spoke visible at all: the Deck cannot toast, so it tells the server and the console shows it.

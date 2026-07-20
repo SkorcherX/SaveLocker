@@ -147,6 +147,10 @@ public sealed class CommandPoller : IDisposable
                 {
                     ReportPathAsync(sg.Id, local.SaveDirectory);
                 }
+
+                // A machine that has a working path can describe it generically for the others.
+                if (!string.IsNullOrWhiteSpace(local.SaveDirectory))
+                    ReportTemplateAsync(sg, local.SaveDirectory);
                 continue;
             }
 
@@ -284,6 +288,36 @@ public sealed class CommandPoller : IDisposable
 
         var compatData = _prefixForAppId?.Invoke(appId);
         return string.IsNullOrWhiteSpace(compatData) ? null : PathResolver.Proton(compatData);
+    }
+
+    /// <summary>
+    /// If the server has no save location for this game, offer one described GENERICALLY.
+    /// <para>
+    /// This is the exact counterpart of the console's "Use as template" button, and a better source:
+    /// the console matches on path layout because it cannot see another machine's environment, while
+    /// this reverses the machine's own real token values. Under Proton it tokenizes against the
+    /// game's own prefix, so a Deck describes <c>&lt;winDocuments&gt;/My Games/…</c> rather than a
+    /// compatdata path no other machine could ever have.
+    /// </para>
+    /// <para>
+    /// The server refuses to overwrite an existing value, so the first correctly-configured machine
+    /// teaches the fleet and later ones are declined harmlessly.
+    /// </para>
+    /// </summary>
+    private void ReportTemplateAsync(GameDto sg, string localPath)
+    {
+        if (!string.IsNullOrWhiteSpace(sg.SuggestedSaveDir)) return;
+        if (ResolverForGame(sg)?.Tokenize(localPath) is not { } template) return;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (await _api().TrySetSaveTemplateAsync(sg.Id, template))
+                    AgentLogger.Log($"Described '{sg.Name}' save location for the fleet: {template}");
+            }
+            catch (Exception ex) { AgentLogger.LogException("CommandPoller.ReportTemplate", ex); }
+        });
     }
 
     /// <summary>Best-effort: tell the server what save path this machine resolved for a game.</summary>

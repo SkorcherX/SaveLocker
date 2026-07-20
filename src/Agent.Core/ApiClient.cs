@@ -106,6 +106,17 @@ public sealed class ApiClient
     public async Task<List<GameDto>> ListGamesAsync() =>
         await _http.GetFromJsonAsync<List<GameDto>>("/api/games") ?? new();
 
+    /// <summary>
+    /// Offer a generic template for a game the server has no save location for. Best-effort: the
+    /// server declines (204) when one already exists, so losing this race is normal and harmless.
+    /// </summary>
+    public async Task<bool> TrySetSaveTemplateAsync(Guid gameId, string template)
+    {
+        var resp = await _http.PostAsync(
+            $"/api/agent/games/{gameId}/template?value={Uri.EscapeDataString(template)}", null);
+        return resp.StatusCode == HttpStatusCode.OK;
+    }
+
     /// <summary>Report this machine's resolved save path for a game back to the server.</summary>
     public async Task SetMachinePathAsync(Guid gameId, string path)
     {
