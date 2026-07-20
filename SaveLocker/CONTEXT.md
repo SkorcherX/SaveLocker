@@ -21,6 +21,28 @@ fine — but every attempt to attach the assets died in the GitHub incident of 2
 - **v0.3.0's Linux tarball is unaffected and published**, and the tray deadlock is Windows-only, so
   Deck work is not blocked by this.
 
+### ▶ WHEN GITHUB IS BACK — do these in order
+
+`main` is **2 commits ahead of origin, unpushed on purpose** (pushing during the incident would only
+queue runs that fail). Nothing is broken; this is a deliberate pause.
+
+1. `git push` — the held docs commit plus **`d3bb977`, a data-loss fix that has never been pushed**.
+2. `gh run rerun 29708968300 --failed`, then confirm the v0.3.1 release has both assets and is no
+   longer a draft.
+3. **Consider folding this into v0.3.2 instead.** v0.3.1's assets never uploaded, so nobody has it —
+   and `d3bb977` is data-loss-class, which argues for one release that contains both rather than
+   shipping v0.3.1 and immediately superseding it.
+
+**`d3bb977` — a save folder mapped too deep silently DELETED the real saves.** An archive stores
+paths relative to the save root of the machine that made it. A PC rooted at `X` and a Deck rooted at
+`X/sub` meant restoring produced `X/sub/sub/…` **and the delete pass removed the correctly-placed
+files**, because at that depth they are absent from the archive. The pull reported success. Now
+refused before the copy or delete pass, with the repeated segment named. Proven against pre-fix code:
+`FAIL: the correctly-placed save was NOT deleted`. Hardening suite is now 33 (Win) / 34 (Linux).
+
+⚠️ **The maintainer's fleet is still on v0.3.0**, which has the silent-nesting behaviour. Until the
+agents are updated, a save path set to the wrong depth destroys saves with no error anywhere.
+
 ### v0.3.1 — the tray Exit deadlock
 
 **Right-click → Exit did not stop the agent**, and a second Exit left the menu frozen on screen;
