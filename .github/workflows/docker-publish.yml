@@ -13,6 +13,31 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # git describe walks back to the nearest tag; the default shallow clone has none
+          fetch-tags: true # tag-triggered runs aside, checkout does not guarantee tags on a branch push
+
+      # The console reports this in /api/admin/status and shows it in the NavBar, so "is my fix
+      # deployed?" is answerable from the console instead of from a Docker tag on another machine.
+      # Exactly on a tag -> "0.3.2". After it -> "0.3.2+5.a1b2c3d". The absence of '+' is what the
+      # server reads as "this is a release".
+      - name: Compute build identity
+        id: build
+        run: |
+          describe=$(git describe --tags --long --always --dirty 2>/dev/null || echo "")
+          if [[ "$describe" =~ ^v?(.+)-([0-9]+)-g([0-9a-f]+)$ ]]; then
+            tag="${BASH_REMATCH[1]}"; ahead="${BASH_REMATCH[2]}"; sha="${BASH_REMATCH[3]}"
+            if [ "$ahead" = "0" ]; then version="$tag"; else version="$tag+$ahead.$sha"; fi
+          else
+            # No tag reachable at all — say so rather than invent a number.
+            version="0.0.0+$(git rev-parse --short HEAD)"
+          fi
+          # Docker tags cannot contain '+'.
+          echo "version=$version"                        >> "$GITHUB_OUTPUT"
+          echo "image_tag=${version//+/-}"               >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short HEAD)"    >> "$GITHUB_OUTPUT"
+          echo "built_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          echo "Building $version" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -27,4 +52,11 @@ jobs:
           context: .
           file: src/Server/Dockerfile
           push: true
-          tags: ghcr.io/skorcherx/savelocker:latest
+          # Versioned alongside :latest so a rollback has something to name.
+          tags: |
+            ghcr.io/skorcherx/savelocker:latest
+            ghcr.io/skorcherx/savelocker:${{ steps.build.outputs.image_tag }}
+          build-args: |
+            SAVELOCKER_VERSION=${{ steps.build.outputs.version }}
+            SAVELOCKER_COMMIT=${{ steps.build.outputs.commit }}
+            SAVELOCKER_BUILT_AT=${{ steps.build.outputs.built_at }}

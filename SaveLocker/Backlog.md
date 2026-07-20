@@ -133,29 +133,35 @@ work — SteamOS Desktop Mode maps the right stick to the cursor and the left st
 D-pad to neither. Point-and-click is the real interaction. And "headless" was misleading readers
 into thinking there was no UI at all; both articles now say what it does and does not mean.
 
-## High priority — version the console/server release
+## ✅ DONE (2026-07-20) — version the console/server release
 
-**Today there is no way to tell what the console is running.** The agents report a real version in
-every heartbeat and show it in `doctor` and the tray; the server and dashboard report nothing. The
-only identifier is the last few characters of a commit SHA on the Docker image tag, visible solely
-inside unRAID — not in the console, not in any API response, and not written down anywhere a user
-would look. So "is the fix deployed?" is currently unanswerable from the console itself, which is
-the exact question every deploy raises.
+Shipped. The console reports its own version and carries hand-written release notes.
 
-This bit during v0.3.0: confirming whether the server had picked up a change meant reading a Docker
-tag on another machine.
+- **Build identity** — `docker-publish.yml` computes `<nearest tag>[+<n>.<sha>]` from
+  `git describe`, passes it as build args, and the Dockerfile bakes it into the runtime image as
+  `SAVELOCKER_VERSION` / `_COMMIT` / `_BUILT_AT`. `BuildInfo.cs` reads env → assembly
+  `InformationalVersion` → `"dev"`. An unstamped build says `dev`; it never invents a number.
+- **Served** on `GET /api/admin/status` as `{ passwordRequired, build }` — `passwordRequired` kept
+  its original JSON path, so every existing reachability probe (six test suites, CI, `ApiClient`)
+  was unaffected.
+- **Shown** in three places: a version chip in the NavBar (always on screen, click → release notes,
+  amber on a dev build), a **Console** card on Configuration sitting directly above **Machines** so
+  console and fleet versions read together, and the **What's New** view itself.
+- **Release notes** are hand-written markdown, one file per release in `web/src/releases/`, bundled
+  via `?raw` exactly like the Help KB. The same file is the GitHub Release body (`release.yml`
+  passes `body_path`), so notes are written once and cannot drift. Backfilled 0.3.0 and 0.3.2;
+  **deliberately no 0.3.1**, and the 0.3.2 notes explain why.
+- **Images are tagged with the version** alongside `:latest`, so a rollback has something to name.
 
-What it should cover:
-- **Stamp the server build** with a version and a build date. `docker-publish.yml` builds on every
-  `main` push, so there is no tag to derive from — use `<nearest tag>+<short sha>` and the build
-  timestamp, passed in as build args and baked into the image.
-- **Serve it**: add the version, commit SHA and build date to `/api/admin/status` (already public
-  and already the reachability probe, so nothing new to authenticate).
-- **Show it** in the dashboard — footer or the Configuration page, beside the agent versions that
-  are already listed there, so console and fleet versions are read in one place.
-- **Tag the image with the version too**, not only `latest`, so a rollback has something to name.
-- Consider surfacing a mismatch: the console knowing its own version means it can warn when an agent
-  is newer than the server, which is the combination that produced the `status` 401 confusion.
+⚠️ **`docker-publish.yml` needed `fetch-depth: 0` + `fetch-tags: true`** — `git describe` fails on
+the default shallow clone. Same class as the documented MinVer-stamps-0.0.0.0 trap.
+
+- **Version skew is surfaced** (`web/src/versionSkew.ts`). Two distinct faults, named separately:
+  an agent **newer than the console** (badge in the Machines row + a warning on the Console card),
+  and **a fleet running mixed agent versions** (the thing that produces repeated conflicts). Only
+  the newer-than-console direction warns — an older agent is normal and supported, per the deploy
+  note. A CI tarball (`9.9.9-ci`) is labelled **TEST BUILD** rather than reported as newer, which
+  it would otherwise be forever. Both warnings are absent when the fleet agrees.
 
 ## Medium priority
 - **Windows: `%PROGRAMDATA%\SaveLocker` ACLs on a multi-user box.** The local API token (`api-token`, 0600 on Linux) has **no POSIX mode on Windows** — it inherits the ACL of `%PROGRAMDATA%\SaveLocker`, which the installer widens to give the interactive user Modify. On a machine with several local users, another user may be able to read it and drive this machine's agent. Note this is **not a new exposure**: `config.json` in the same directory already holds the long-lived machine key under the same ACL. Fix both together — tighten the directory ACL to the enrolling user + SYSTEM, or move mutable per-user state out of the machine-wide directory. `run-local-api-tests.ps1` only asserts the file *exists* on Windows; give it a real ACL assertion once the model is decided.

@@ -119,6 +119,7 @@ which nearly caused a duplicate tag on 2026-07-18.
 | **Restore treats archives as hostile** | ✅ 2026-07-18 — hardening now 27 (Win) / 28 (Linux), **7 flip against pre-fix code**. Closed a **proven arbitrary-file-overwrite**: the copy pass wrote through a symlink in the save folder. Plus zip-bomb entry/byte caps. `Decisions.md` §9 |
 | **Installer GUI enrollment** (Windows) | ✅ v0.1.6 built the wizard page. 🐛 **v0.1.6 broke silent auto-update** (NextButtonClick fires under /SILENT → abort). ✅ **fixed in v0.1.7** (`WizardSilent` guard + `ShouldSkipPage` for enrolled machines). ✅ **silent upgrade of an enrolled agent device-verified on v0.1.7 (2026-07-14)**, and again 0.1.8 → **0.2.0 on two machines (2026-07-18)**. ⏳ fresh-install happy-path enroll (page shows server/name, machine goes online) still unverified on device |
 | **0.2.0 upgrade + re-register on device** | ✅ 2026-07-18 — two Windows agents upgraded and re-registered **from the agent window**, confirmed working by the maintainer. That exercises the whole new auth path on real hardware: WebView2 loads the injected token from `index.html` and sends it on every `/api/*` call. The local-API change is device-verified |
+| **Console versioning + release notes** | ✅ 2026-07-20 — the console reports its own build and carries hand-written notes. Section below |
 | **Help KB** | ✅ complete 2026-07-18 — 14 articles. `restore-safety.md` added for v0.2.0's refusal messages; Deck troubleshooting lives in `troubleshooting.md` |
 
 Shipped-feature detail: `logs/shipped-2026-07.md` + `logs/sessions.md`. Open work: `Backlog.md`.
@@ -173,6 +174,55 @@ was *"I didn't know we had a UI because we kept calling it headless"* — and `a
 literally say there was no UI to click. It means **no tray icon and no pop-ups**; the daemon serves
 the full agent UI on :5178. Both KB articles now say so up front. Prefer "no tray, no pop-ups" over
 the bare word.
+
+---
+
+## Console versioning + release notes — built 2026-07-20
+
+"Is the fix deployed?" is now answerable **from the console**, and "what changed?" has somewhere to
+live. Previously the only identifier was a Docker digest visible solely inside unRAID.
+
+- **The console shares the repo's product version with the agent** — one git tag for the whole
+  product, one number to compare, one changelog. `docker-publish.yml` derives it from
+  `git describe`: exactly on a tag → `0.3.2`; after one → `0.3.2+5.a1b2c3d`. **The absence of the
+  `+` suffix is what `isRelease` means** — the check never touches git.
+- **An unstamped build reports `"dev"`, never a plausible number.** `BuildInfo.cs` reads env →
+  assembly `InformationalVersion` → `"dev"`. A build that claims a version it does not have is
+  worse than one that admits it has none.
+- **Release notes are hand-written markdown in `web/src/releases/`**, bundled via `?raw` exactly
+  like the Help KB, and **the same file is the GitHub Release body** (`release.yml` `body_path`).
+  Written once, cannot drift, and because they ship inside the image the notes you read always
+  describe the code serving them. Backfilled 0.3.0 and 0.3.2.
+- **Deliberately no 0.3.1 notes** — the What's New list itself now carries the "tagged but never
+  published" decision, instead of it living only in this file.
+- **Three surfaces, because it must be easy to reference:** an always-visible version chip in the
+  NavBar (click → notes; amber on a dev build; a dot until the running release's notes are opened),
+  a **Console** card on Configuration placed directly above **Machines** so console and agent
+  versions are compared without leaving the page, and the What's New view.
+- A dev build shows a banner on What's New saying the notes are for the *previous* release — the
+  notes are not a description of what is running, and should not be read as one.
+- **Version skew is now surfaced** (`web/src/versionSkew.ts`), which is what makes the version
+  useful rather than merely visible. Two separate faults: an agent **newer than the console** (it
+  may expect endpoints this server lacks — the failure is an opaque HTTP error, which is exactly
+  what made the v0.3.0 `status` 401 hard to place), and **a fleet on mixed agent versions** (which
+  shows up as repeated conflicts, not as a version problem). Only the newer-than-console direction
+  warns; an older agent is normal and supported per the deploy note. **A `9.9.9-ci` tarball is
+  labelled TEST BUILD, not "newer"** — it sorts above every real version and would otherwise warn
+  forever. Verified against a seeded 3-machine fleet; 24 logic cases checked including the
+  dev-console-vs-tagged-agent ordering.
+
+⚠️ **Two things worth carrying forward:**
+1. **`docker-publish.yml` had no `fetch-depth: 0`/`fetch-tags: true`.** `git describe` fails on the
+   default shallow clone. Same class as the documented MinVer-silently-stamps-0.0.0.0 trap — CI
+   version derivation needs history, and it fails quietly.
+2. **`passwordRequired` deliberately kept its original JSON path** when `/api/admin/status` became
+   `{ passwordRequired, build }`. Six test suites, CI's wait loop and `ApiClient.PingAsync` all probe
+   that route; nesting it would have broken every one of them for no gain.
+
+⚠️ **Not verified:** the Docker build itself — the local Docker daemon was not running, so the
+`ARG`/`ENV` plumbing and the `-p:Version` split are proven only by running the shell logic in
+isolation and by the server reading the env vars directly. **The first `main` push will exercise it
+for real; check the console shows a version and not `dev`.**
 
 ---
 
@@ -333,7 +383,12 @@ Reusing a dirty dev DB fails 12/16 of the enrollment suite for reasons that look
 
 ## Deployment
 - **unRAID:** Docker on port 5080. `git push main` → Actions build → GHCR. To deploy: `docker compose pull && docker compose up -d`.
-- **Tag a release:** `git tag v0.2.0 && git push origin v0.2.0` → `release.yml` builds **both** agents → GitHub Release:
+- **Tag a release:** ⚠️ **write `web/src/releases/<ver>.md` FIRST and commit it before tagging.**
+  That one file is both the console's What's New entry and the GitHub Release body; `release.yml`
+  reads it by path at tag time, so a tag pushed without it falls back to GitHub's generated commit
+  list (a `::warning::` in the run, not a failure). Add the new entry to `web/src/releases/index.ts`
+  in the same commit — the file is not picked up automatically.
+  Then `git tag v0.2.0 && git push origin v0.2.0` → `release.yml` builds **both** agents → GitHub Release:
   - **Windows:** `SaveLocker-Agent-Setup-<ver>.exe` (Inno Setup, built on `windows-latest`).
   - **Linux / Steam Deck:** `savelocker-<ver>-linux-x64.tar.gz` (self-contained, built on **`ubuntu-latest`** — see below).
 

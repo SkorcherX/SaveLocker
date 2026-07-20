@@ -26,7 +26,18 @@ COPY src/Server/ src/Server/
 # Bake the React build into wwwroot so the server serves it as static files
 COPY --from=web-build /web/dist/ src/Server/wwwroot/
 
-RUN dotnet publish src/Server/SaveLocker.Server.csproj -c Release -o /app /p:UseAppHost=false
+# Build identity, computed by the workflow and passed in. It cannot be derived here: this stage has
+# no .git, and MinVer would fail silently to 0.0.0.0 rather than say so (Gotchas.md).
+ARG SAVELOCKER_VERSION=dev
+ARG SAVELOCKER_COMMIT=""
+ARG SAVELOCKER_BUILT_AT=""
+
+# -p:Version rejects the "+{n}.{sha}" build metadata, so the assembly gets the numeric core and the
+# full string travels via the environment. Both are stamped; the env var wins at runtime.
+RUN NUMERIC="${SAVELOCKER_VERSION%%+*}"; \
+    case "$NUMERIC" in dev) NUMERIC=0.0.0 ;; esac; \
+    dotnet publish src/Server/SaveLocker.Server.csproj -c Release -o /app /p:UseAppHost=false \
+      "-p:Version=$NUMERIC" "-p:InformationalVersion=$SAVELOCKER_VERSION"
 
 # Stage 3: runtime image
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -38,6 +49,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf 
 
 # Persisted state (DB + archives) lives on a mounted unRAID share.
 VOLUME ["/data"]
+# Re-declared: ARGs do not cross stage boundaries. These are what /api/admin/status reports.
+ARG SAVELOCKER_VERSION=dev
+ARG SAVELOCKER_COMMIT=""
+ARG SAVELOCKER_BUILT_AT=""
+ENV SAVELOCKER_VERSION=${SAVELOCKER_VERSION}
+ENV SAVELOCKER_COMMIT=${SAVELOCKER_COMMIT}
+ENV SAVELOCKER_BUILT_AT=${SAVELOCKER_BUILT_AT}
+
 ENV ASPNETCORE_URLS=http://+:8080
 ENV Storage__DbPath=/data/localgamesync.db
 ENV Storage__ArchiveRoot=/data/archives

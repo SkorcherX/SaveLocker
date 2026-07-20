@@ -97,7 +97,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["AdminStatus"];
+                    };
                 };
             };
         };
@@ -2104,6 +2106,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AdminStatus: {
+            passwordRequired: boolean;
+            build: components["schemas"]["ServerBuildInfo"];
+        };
         AgentCommandDto: {
             /** Format: uuid */
             id: string;
@@ -2430,6 +2436,13 @@ export interface components {
             /** Format: uuid */
             gameId: string;
             suggestedPath: string;
+        };
+        ServerBuildInfo: {
+            version: string;
+            commit: string;
+            /** Format: date-time */
+            builtAt: null | string;
+            isRelease: boolean;
         };
         ServerSettingsDto: {
             steamGridDbConfigured: boolean;

@@ -29,7 +29,9 @@ SaveLocker/
 │   │   │   ├── SettingsService.cs       # DB-backed key/value (DB overrides appsettings)
 │   │   │   ├── LeaseSweeperService.cs   # Hourly BackgroundService: clear stale leases
 │   │   │   └── Mapping.cs              # Entity → DTO mapping helpers
-│   │   ├── Dockerfile                   # Multi-stage: Node (web/) + .NET SDK + aspnet runtime
+│   │   ├── BuildInfo.cs                 # What this build is: env (baked by CI) -> assembly -> "dev"
+│   │   ├── Dockerfile                   # Multi-stage: Node (web/) + .NET SDK + aspnet runtime.
+│   │   │                               #   Takes SAVELOCKER_VERSION/_COMMIT/_BUILT_AT build args
 │   │   ├── appsettings.json             # Storage, Backup, AgentUpdate config sections
 │   │   └── openapi.json                 # Committed OpenAPI snapshot; regenerate after API changes
 │   │
@@ -90,13 +92,23 @@ SaveLocker/
 │   │   ├── api.ts                       # Typed fetch client (all server endpoints)
 │   │   ├── api-types.ts                 # Generated from /openapi/v1.json → npm run gen:api
 │   │   ├── types.ts                     # Thin aliases over api-types.ts
+│   │   ├── releaseSeen.ts               # localStorage "have these notes been read?" for the dot
+│   │   ├── versionSkew.ts               # Agent vs console version comparison. Only NEWER-than-
+│   │   │                               #   console warns; a 9.9.9-ci tarball is a TEST BUILD
+│   │   ├── help/                        # Help KB: one .md per article + index.ts registry
+│   │   ├── releases/                    # Release notes: one .md per RELEASE + index.ts registry.
+│   │   │                               #   Same file is the GitHub Release body (release.yml
+│   │   │                               #   body_path) — written once, cannot drift.
 │   │   └── components/
 │   │       ├── NavBar.tsx               # Logo, Games/Config/Audit Log tabs, Connect/Refresh
 │   │       ├── GamesSidebar.tsx         # 220 px left sidebar: cover art, name, badges
 │   │       ├── GamesView.tsx            # Sidebar + detail panel layout
 │   │       ├── GameDetail.tsx           # Game card, Machines, Commands, Versions, save paths
-│   │       ├── ConfigView.tsx           # SteamGridDB, Machines/API keys, Agent Updates card
-│   │       └── AuditView.tsx            # Audit log table with color-coded action badges
+│   │       ├── ConfigView.tsx           # SteamGridDB, Console build card, Machines/API keys,
+│   │       │                           #   Agent Updates. Console card sits ABOVE Machines on
+│   │       │                           #   purpose: console + fleet versions read together
+│   │       ├── AuditView.tsx            # Audit log table with color-coded action badges
+│   │       └── WhatsNewView.tsx         # Release notes; flags a dev build as not-a-release
 │   └── vite.config.ts                  # Proxy /api + /art → :5179; host 0.0.0.0 (LAN)
 │
 ├── agent-ui/                            # React agent tray UI

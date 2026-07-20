@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse, AgentHealth } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, Enrollment, CreateEnrollmentResponse, AgentHealth, AdminStatus } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -23,7 +23,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 }
 
 export const api = {
-  adminStatus: () => fetch('/api/admin/status').then(r => r.json()) as Promise<{ passwordRequired: boolean }>,
+  adminStatus: () => fetch('/api/admin/status').then(r => r.json()) as Promise<AdminStatus>,
   overview: () => request<GameSummary[]>('/overview'),
   conflicts: () => request<Conflict[]>('/conflicts'),
   machines: () => request<Machine[]>('/machines'),

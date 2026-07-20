@@ -34,11 +34,29 @@ jobs:
           $version = '${{ github.ref_name }}'.TrimStart('v')
           .\installer\build-installer.ps1 -AppVersion $version
 
+      # The release body is the SAME file the console bundles and renders under What's New
+      # (web/src/releases/<ver>.md), so notes are written once and cannot drift between the two.
+      # Falls back to GitHub's generated commit list if the file is missing, rather than releasing
+      # with no notes at all.
+      - name: Resolve release notes
+        id: notes
+        shell: bash
+        run: |
+          path="web/src/releases/${GITHUB_REF_NAME#v}.md"
+          if [ -f "$path" ]; then
+            echo "path=$path" >> "$GITHUB_OUTPUT"
+            echo "generate=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No hand-written notes at $path — falling back to generated notes."
+            echo "generate=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create GitHub Release and upload installer
         uses: softprops/action-gh-release@v2
         with:
           files: installer/dist/SaveLocker-Agent-Setup-*.exe
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.generate }}
 
   # ── Linux agent (Steam Deck / SteamOS) ────────────────────────────────────────────────────
   # Without this job there is no way for a Deck user to install the agent at all: SteamOS ships no
@@ -79,8 +97,10 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           bash packaging/linux/build-linux.sh "$version"
 
+      # No generate_release_notes here: this job only ATTACHES an asset to the release the
+      # installer job created, and asking for generated notes a second time would overwrite the
+      # hand-written body that job already set.
       - name: Attach tarball to the release
         uses: softprops/action-gh-release@v2
         with:
           files: artifacts/linux/savelocker-*-linux-x64.tar.gz
-          generate_release_notes: true

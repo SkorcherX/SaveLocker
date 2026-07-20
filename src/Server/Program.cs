@@ -220,8 +220,13 @@ app.MapPost("/api/machines/register", async (
     return Results.Ok(await sync.RegisterMachineAsync(name));
 }).Produces<MachineRegisterResponse>();
 
+// Unauthenticated on purpose: this is the reachability probe, and the build identity has to be
+// readable before you can authenticate — a wrong admin password is one of the things you would be
+// diagnosing. It does disclose the exact version and commit to anyone who can reach the port; for a
+// self-hosted LAN service that is the accepted trade for keeping the probe open.
 app.MapGet("/api/admin/status", async (SettingsService settings) =>
-    Results.Ok(new { passwordRequired = await settings.HasAdminPasswordAsync() }));
+    Results.Ok(new AdminStatus(await settings.HasAdminPasswordAsync(), BuildInfo.Current)))
+    .Produces<AdminStatus>();
 
 // ---- Public: enrollment redeem ----
 // No auth filter, because the token IS the credential: a fresh agent has nothing else. It is
