@@ -219,10 +219,17 @@ live. Previously the only identifier was a Docker digest visible solely inside u
    `{ passwordRequired, build }`. Six test suites, CI's wait loop and `ApiClient.PingAsync` all probe
    that route; nesting it would have broken every one of them for no gain.
 
-⚠️ **Not verified:** the Docker build itself — the local Docker daemon was not running, so the
-`ARG`/`ENV` plumbing and the `-p:Version` split are proven only by running the shell logic in
-isolation and by the server reading the env vars directly. **The first `main` push will exercise it
-for real; check the console shows a version and not `dev`.**
+✅ **The Docker build is verified** (2026-07-20, run `29777099641`, merge `cbee5f7`). The local
+daemon was not running during development, so this stayed open until the first `main` push — which
+has now happened and passed. The log shows the whole chain with real values: `git describe` →
+`SAVELOCKER_VERSION=0.3.2+1.cbee5f7`, the `+`→`-` conversion producing the image tag
+`ghcr.io/skorcherx/savelocker:0.3.2-1.cbee5f7` alongside `:latest`, and the numeric split running
+inside the image as `NUMERIC="0.3.2"` with `-p:InformationalVersion=0.3.2+1.cbee5f7`.
+
+⏳ **Still unverified: a RUNNING container serving it.** The image has the values baked in, but
+nothing has started it and called `/api/admin/status`. Needs `docker compose pull && docker compose
+up -d` on unRAID. **Expect an amber `v0.3.2+1.cbee5f7` and the dev-build banner — that is correct**,
+since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a tagged release.
 
 ---
 

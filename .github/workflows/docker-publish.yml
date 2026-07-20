@@ -3,6 +3,19 @@ name: Build and publish server image
 on:
   push:
     branches: [main]
+    # Docs-only commits do not change the image, and rebuilding for them burns a build and mints a
+    # pointless new version tag. A push is skipped only when EVERY changed file matches, so a commit
+    # touching both docs and code still builds.
+    #
+    # ⚠️ Do NOT generalise this to '**.md'. web/src/releases/*.md are the console's release notes and
+    # are BUNDLED INTO the image — ignoring them would ship a console whose What's New does not match
+    # the build serving it, which is the one property that design exists to guarantee. Only the
+    # Obsidian vault and the agent-instruction files are safe to ignore.
+    paths-ignore:
+      - 'SaveLocker/**'
+      - 'CLAUDE.md'
+      - 'AGENTS.md'
+      - '.agents/**'
 
 jobs:
   build-and-push:

@@ -48,10 +48,13 @@ Two things found while building it:
 - **The Linux job's `generate_release_notes: true` would have overwritten** the hand-written body
   the installer job sets, since it runs second against the same release. Removed.
 
-⚠️ **NOT verified: the Docker build.** The local daemon was not running. The `ARG`/`ENV` plumbing
-and the `-p:Version` split are proven only by isolated shell runs plus the server reading the env
-vars directly. The first `main` push exercises it for real — check the console reads a version and
-not `dev`.
+✅ **The Docker build was verified after merge** (run `29777099641`, merge `cbee5f7`). It was open
+at the time of writing because the local daemon was not running. The first `main` push exercised it
+and passed, with the predicted value matching exactly:
+`SAVELOCKER_VERSION=0.3.2+1.cbee5f7`, image tagged `:0.3.2-1.cbee5f7` + `:latest`, and the split
+running in-image as `NUMERIC="0.3.2"`.
+
+⏳ Still unverified: a **running** container serving it — needs a pull on unRAID.
 
 ## Step 7 (added mid-session) — version skew warning
 
