@@ -1,4 +1,4 @@
-# Hardening (Linux agent Phase 6) - 12 checks. Runs on BOTH Windows and Linux.
+# Hardening (Linux agent Phase 6) - 34 checks on Linux / 33 on Windows. Runs on BOTH.
 #
 # These are SECURITY tests: each one must prove the ATTACK FAILS, not merely that ordinary saves
 # still sync. Two of them delete-or-leak files outside the save folder if the fix regresses, so they
@@ -373,6 +373,53 @@ try {
     } else {
         Write-Host "SKIP: doctor prefix check (Linux agent only)"
     }
+
+    # =================================================================================
+    # 8. A SAVE FOLDER MAPPED TOO DEEP MUST BE REFUSED, NOT NESTED
+    # =================================================================================
+    # An archive stores paths relative to the save root of the machine that MADE it. Map the same
+    # game one level deeper on a second machine and the restore recreates that level beneath itself
+    # -- and the delete pass removes the correctly-placed files, because at that depth they are
+    # absent from the archive. Both halves are silent: the pull reports success.
+    #
+    # Reproduces a real case: a PC rooted at "<game>" and a Deck rooted at "<game>/1337..." produced
+    # "<game>/1337.../1337.../SaveGames" while the good copy was deleted.
+    $deepStamp = "Deep-$stamp"
+    $pcSave = Join-Path $scratch "deep-pc"
+    New-Item -ItemType Directory -Force (Join-Path $pcSave "1337133713371337/SaveGames") | Out-Null
+    "progress" | Set-Content (Join-Path $pcSave "1337133713371337/SaveGames/slot.sav") -Encoding utf8
+
+    $pcCfg = Join-Path $scratch "deep-pc.json"
+    @{ ServerUrl = $server; Games = @() } | ConvertTo-Json | Set-Content $pcCfg -Encoding utf8
+    Agent register --name "DeepPC-$deepStamp" --config $pcCfg | Out-Null
+    Agent add-game --name $deepStamp --dir $pcSave --config $pcCfg | Out-Null
+    Agent push $deepStamp --config $pcCfg | Out-Null
+
+    # The second machine maps ONE LEVEL DEEPER, and already holds the save correctly placed there.
+    $deckRoot = Join-Path $scratch "deep-deck"
+    $deckDeep = Join-Path $deckRoot "1337133713371337"
+    New-Item -ItemType Directory -Force (Join-Path $deckDeep "SaveGames") | Out-Null
+    "local-progress" | Set-Content (Join-Path $deckDeep "SaveGames/slot.sav") -Encoding utf8
+
+    $deckCfg = Join-Path $scratch "deep-deck.json"
+    @{ ServerUrl = $server; Games = @() } | ConvertTo-Json | Set-Content $deckCfg -Encoding utf8
+    Agent register --name "DeepDeck-$deepStamp" --config $deckCfg | Out-Null
+    Agent add-game --name $deepStamp --dir $deckDeep --config $deckCfg | Out-Null
+
+    $deepOut = Agent pull $deepStamp --force --config $deckCfg
+    Check "a too-deep save folder is REFUSED"        ("$deepOut" -match "REFUSED")
+    Check "the refusal names the repeated segment"   ("$deepOut" -match "1337133713371337")
+    Check "nothing was nested under itself"          (-not (Test-Path (Join-Path $deckDeep "1337133713371337")))
+    Check "the correctly-placed save was NOT deleted" (Test-Path (Join-Path $deckDeep "SaveGames/slot.sav"))
+
+    # The same archive into the RIGHT root must still restore — the check must not block real syncs.
+    $rightCfg = Join-Path $scratch "deep-right.json"
+    @{ ServerUrl = $server; Games = @() } | ConvertTo-Json | Set-Content $rightCfg -Encoding utf8
+    Agent register --name "DeepRight-$deepStamp" --config $rightCfg | Out-Null
+    Agent add-game --name $deepStamp --dir $deckRoot --config $rightCfg | Out-Null
+    $rightOut = Agent pull $deepStamp --force --config $rightCfg
+    Check "the same archive restores at the right depth" (-not ("$rightOut" -match "REFUSED"))
+    Check "and lands where the game expects it" (Test-Path (Join-Path $deckRoot "1337133713371337/SaveGames/slot.sav"))
 }
 finally {
     if ($serverProc -and -not $serverProc.HasExited) { Stop-Process -Id $serverProc.Id -Force }

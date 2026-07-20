@@ -162,6 +162,21 @@ public static class SaveArchive
 
             // Copy every file from staging into the target (overwrite existing).
             var stagingFull = Path.GetFullPath(stagingDir);
+
+            // Refuse BEFORE the copy/delete passes if this save folder is mapped deeper than the one
+            // the archive was made from. Nothing else catches it, and the damage is silent.
+            if (NestedRestoreDepth(stagingFull, targetFull) is var depth && depth > 0)
+            {
+                var repeated = string.Join('/', SplitPath(targetFull)[^depth..]);
+                throw new UnsafeArchiveException(
+                    $"REFUSED the server's save: this machine's save folder is {depth} level(s) deeper " +
+                    $"than the one this save was archived from — both end in '{repeated}'. Restoring " +
+                    "would nest that path under itself, and would DELETE the correctly-placed files " +
+                    "on the way (they are absent from the archive at that depth). Map this game to " +
+                    $"the folder that CONTAINS '{repeated}', so every machine's save root is the same " +
+                    "level. Set SAVELOCKER_ALLOW_NESTED_RESTORE=1 only if this really is a save " +
+                    "folder that legitimately repeats its own name.");
+            }
             var checkedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var src in Directory.EnumerateFiles(stagingDir, "*", SearchOption.AllDirectories))
             {
@@ -368,6 +383,50 @@ public static class SaveArchive
     /// is non-null only for the symlink and junction reparse tags, which is exactly the set we mean.
     /// </para>
     /// </summary>
+    private static string[] SplitPath(string path) =>
+        path.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .Where(p => p.Length > 0)
+            .ToArray();
+
+    /// <summary>
+    /// How many levels too deep the target is, or 0 when it lines up with the archive.
+    /// <para>
+    /// An archive stores paths relative to <b>the save root of the machine that made it</b>, and
+    /// carries no record of what that root was. So if one machine maps a game at <c>X</c> and
+    /// another at <c>X/sub</c>, restoring the first's archive into the second recreates <c>sub</c>
+    /// beneath itself — and the delete pass then removes the correctly-placed files, because at that
+    /// depth they do not appear in the archive at all. Both halves are silent: the pull SUCCEEDS.
+    /// </para>
+    /// <para>
+    /// The signal is exact rather than a name heuristic: <b>every</b> entry in the archive must share
+    /// the same leading <c>k</c> segments, and the target's last <c>k</c> segments must equal them.
+    /// Deepest match wins, so <c>a/b</c> is reported rather than a coincidental <c>b</c>.
+    /// </para>
+    /// </summary>
+    private static int NestedRestoreDepth(string stagingFull, string targetFull)
+    {
+        if (Environment.GetEnvironmentVariable("SAVELOCKER_ALLOW_NESTED_RESTORE") == "1") return 0;
+
+        var entries = EnumerateFilesNoFollow(stagingFull)
+            .Select(f => SplitPath(Path.GetRelativePath(stagingFull, f)))
+            .ToList();
+        if (entries.Count == 0) return 0;
+
+        var target = SplitPath(targetFull);
+        // A file sits at the end of every entry, so a shared directory prefix stops one before it.
+        var maxDepth = Math.Min(entries.Min(e => e.Length) - 1, target.Length);
+
+        for (var k = maxDepth; k >= 1; k--)
+        {
+            var prefix = entries[0][..k];
+            if (!entries.All(e => e[..k].SequenceEqual(prefix, StringComparer.OrdinalIgnoreCase)))
+                continue;
+            if (target[^k..].SequenceEqual(prefix, StringComparer.OrdinalIgnoreCase))
+                return k;
+        }
+        return 0;
+    }
+
     private static bool IsLink(FileSystemInfo entry)
     {
         try { return entry.LinkTarget is not null; }
