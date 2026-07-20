@@ -1,4 +1,4 @@
-# Agent integration tests — 10 checks. Runs on BOTH Windows and Linux.
+# Agent integration tests — 14 checks on Windows / 12 on Linux. Runs on BOTH.
 #
 #   Windows: Windows PowerShell 5.1 or pwsh, drives src/Agent (net10.0-windows).
 #   Linux:   pwsh (PowerShell Core), drives src/Agent.Linux (net10.0).
@@ -84,6 +84,30 @@ if ($onWindows) {
 
     $detectOut = Agent resolve --config $detectCfg --manifest "LGS Test Game"
     Check "detection resolved <winAppData> save dir" (($detectOut -join "`n") -like "*$expected*")
+
+    # <winPublic> must be the profile ROOT (C:\Users\Public). Resolving it as CommonDocuments
+    # (C:\Users\Public\Documents) doubles the segment for every real manifest entry, which all look
+    # like "<winPublic>/Documents/...". That silently broke detection for those games on Windows
+    # while a Deck resolved them correctly — the two disagreeing about the same game's save root by
+    # one segment is precisely what makes a restore nest and delete.
+    $publicRoot = if ($env:PUBLIC) { $env:PUBLIC } else { "C:\Users\Public" }
+    $publicExpected = Join-Path $publicRoot "Documents\LGSPublicTestGame"
+    New-Item -ItemType Directory -Force $publicExpected | Out-Null
+
+    # Create the DOUBLED path too, so the resolver has to choose between them. Without this the
+    # second assertion is vacuous: the buggy resolver returns nothing at all (its path does not
+    # exist), and "output contains no Documents\Documents" passes for the wrong reason.
+    $publicDoubled = Join-Path $publicRoot "Documents\Documents\LGSPublicTestGame"
+    New-Item -ItemType Directory -Force $publicDoubled | Out-Null
+    try {
+        $publicOut = Agent resolve --config $detectCfg --manifest "LGS Public Game"
+        Check "detection resolved <winPublic> save dir" (($publicOut -join "`n") -like "*$publicExpected*")
+        Check "<winPublic> did not double Documents"    (-not (($publicOut -join "`n") -like "*Documents\Documents*"))
+    }
+    finally {
+        Remove-Item (Join-Path $publicRoot "Documents\Documents") -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item $publicExpected -Recurse -Force -ErrorAction SilentlyContinue
+    }
 } else {
     $detectOut = Agent resolve --config $detectCfg --manifest "LGS Test Game"
     Check "detection refuses to invent a host path for a Windows game" `

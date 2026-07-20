@@ -29,7 +29,20 @@ public sealed class PathResolver
             ["<winLocalAppData>"] = localAppData,
             ["<winLocalAppDataLow>"] = localLow,
             ["<winDocuments>"] = documents,
-            ["<winPublic>"] = Special(Environment.SpecialFolder.CommonDocuments),
+            // %PUBLIC% — C:\Users\Public, the profile ROOT, not its Documents folder.
+            //
+            // This was SpecialFolder.CommonDocuments (C:\Users\Public\Documents), one level too
+            // deep. Real manifest entries look like "<winPublic>/Documents/City Interactive/…", so
+            // that produced "C:\Users\Public\Documents\Documents\…" — a path that does not exist,
+            // silently costing detection for all 44 <winPublic> games on Windows.
+            //
+            // The Proton map below already had it right (drive_c/users/Public), so Windows and a
+            // Deck disagreed by exactly one segment about where the same game's saves live. That is
+            // the cross-machine root divergence that makes a restore nest a folder under itself and
+            // delete the correctly-placed copy — arrived at with no user error at all.
+            ["<winPublic>"] = Env("PUBLIC") is { Length: > 0 } pub
+                ? pub
+                : Path.GetDirectoryName(Special(Environment.SpecialFolder.CommonDocuments)) ?? "",
             ["<winProgramData>"] = Special(Environment.SpecialFolder.CommonApplicationData),
             ["<winDir>"] = Env("WINDIR"),
             ["<home>"] = home,

@@ -6,3 +6,12 @@ LGS Test Game:
     <winDocuments>/My Games/LGSTestGame/*.sav:
       tags:
         - save
+
+# <winPublic> is the public profile ROOT (C:\Users\Public), so real manifest entries append
+# Documents themselves — exactly as this one does. Resolving it as CommonDocuments instead doubled
+# the segment and produced a path that never exists. See PathResolver.Windows().
+LGS Public Game:
+  files:
+    <winPublic>/Documents/LGSPublicTestGame:
+      tags:
+        - save
