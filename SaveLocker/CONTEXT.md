@@ -4,44 +4,38 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** **v0.3.1** (tagged 2026-07-19, PR #15 — **the Windows tray could not exit**).
+**Current version:** **v0.3.2** (tagged 2026-07-20 — **four save-path bugs found on real hardware,
+plus templated save paths**). It supersedes v0.3.1, which was tagged but never published (below).
+
+### v0.3.2 — the save-root class, closed at three layers
+
+Two machines disagreeing about a game's save root by even one segment made a restore nest a folder
+under itself **and delete the correctly-placed copy**, silently, reporting success. That is now
+addressed at every level rather than patched at one:
+
+| Layer | What |
+|---|---|
+| **Describe** | `SuggestedSaveDir` accepts a **template** (`<winPublic>/Documents/…`). An agent with a working folder produces one automatically by reversing its own resolver — under Proton, against the game's own prefix. First correct machine teaches the fleet. |
+| **Expand** | Every machine resolves that template against its own folders, so the root is the same *logical* place everywhere by construction. |
+| **Refuse** | A restore whose target is deeper than the archive's root is rejected **before** the copy or delete pass, naming the repeated segment. |
+
+Also fixed: **`<winPublic>` resolved one level too deep on Windows** (`CommonDocuments` instead of
+`%PUBLIC%`), so all 44 manifest games using it produced `…\Public\Documents\Documents\…`. The Proton
+side was already correct, which means Windows and a Deck disagreed about the same game's save root
+automatically, with no user error at all. Confirmed against the cached 16.6 MB manifest, not memory.
+
+And the Windows tray fixes originally cut for v0.3.1: **Exit deadlocked the agent** (sync-over-async
+on the WinForms UI thread — diagnosed from a stack captured off the live hung process, since nothing
+reached the log), and an **update check returning `Failed`/`Skipped` said nothing at all**.
 Earlier: v0.3.0 (2026-07-19, PRs #9–#13 — Deck path setup, and four bugs the first real hardware
 session exposed); v0.2.0 (2026-07-18, PR #8 — Linux/Deck security hardening, `Decisions.md` §7–§9).
 
-🚧 **v0.3.1 is TAGGED BUT NOT PUBLISHED.** The tag is pushed and correct, and both jobs *built*
-fine — but every attempt to attach the assets died in the GitHub incident of 2026-07-19 23:34 UTC
-(Actions degraded, API Requests partial outage). The release exists as a **draft with 0 assets**, so
-**there is no v0.3.1 installer or tarball to download yet.**
-
-- **To finish it:** `gh run rerun 29708968300 --failed`, then confirm the release has both assets and
-  is no longer a draft. `action-gh-release` reuses the existing draft rather than duplicating it, so
-  nothing needs cleaning up first.
-- The failure was purely the upload step (`Attach tarball to the release` → 503, then
-  `Too many retries`). Nothing in this repo is implicated — do not go looking for a build problem.
-- **v0.3.0's Linux tarball is unaffected and published**, and the tray deadlock is Windows-only, so
-  Deck work is not blocked by this.
-
-### ▶ WHEN GITHUB IS BACK — do these in order
-
-`main` is **2 commits ahead of origin, unpushed on purpose** (pushing during the incident would only
-queue runs that fail). Nothing is broken; this is a deliberate pause.
-
-1. `git push` — the held docs commit plus **`d3bb977`, a data-loss fix that has never been pushed**.
-2. `gh run rerun 29708968300 --failed`, then confirm the v0.3.1 release has both assets and is no
-   longer a draft.
-3. **Consider folding this into v0.3.2 instead.** v0.3.1's assets never uploaded, so nobody has it —
-   and `d3bb977` is data-loss-class, which argues for one release that contains both rather than
-   shipping v0.3.1 and immediately superseding it.
-
-**`d3bb977` — a save folder mapped too deep silently DELETED the real saves.** An archive stores
-paths relative to the save root of the machine that made it. A PC rooted at `X` and a Deck rooted at
-`X/sub` meant restoring produced `X/sub/sub/…` **and the delete pass removed the correctly-placed
-files**, because at that depth they are absent from the archive. The pull reported success. Now
-refused before the copy or delete pass, with the repeated segment named. Proven against pre-fix code:
-`FAIL: the correctly-placed save was NOT deleted`. Hardening suite is now 33 (Win) / 34 (Linux).
-
-⚠️ **The maintainer's fleet is still on v0.3.0**, which has the silent-nesting behaviour. Until the
-agents are updated, a save path set to the wrong depth destroys saves with no error anywhere.
+⚠️ **v0.3.1 was tagged but NEVER PUBLISHED** — its assets died in the GitHub incident of
+2026-07-19 23:34 UTC, so the release stayed a draft with 0 assets and nobody ever ran it. It was
+**superseded by v0.3.2** rather than published: by the time the incident cleared, four more fixes and
+the templated-path work had landed, two of them data-loss class. Shipping a build with known
+save-destroying behaviour when the fix already existed would have been indefensible.
+**The v0.3.1 tag remains as a history marker; there is deliberately no v0.3.1 release.**
 
 ### v0.3.1 — the tray Exit deadlock
 
@@ -297,6 +291,7 @@ See `Backlog.md` for the full list.
 | Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
+| Agent integration | `.\tests\run-agent-tests.ps1` (**20** on Windows / 15 on Linux). Needs a server on :5179 — and `.verify/` cleared **in the same breath**, see `Gotchas.md` |
 | Local agent API security | `.\tests\run-local-api-tests.ps1` (**22** checks). Starts its own daemon on **:5188** via `daemon --port`, so it never collides with a real agent on :5178. Needs nothing running. Now also proves the path browser is **rooted** — outside `$HOME`/Steam is refused, including via `..` and via a symlink that lives *inside* `$HOME` |
 | Cross-process state | `.\tests\run-concurrency-tests.ps1` (12 checks; own server on **:5183**, own daemon on **:5189**). Daemon vs. a second process over `config.json`, the offline queue and health events. Verified to FAIL against pre-fix code |
 
