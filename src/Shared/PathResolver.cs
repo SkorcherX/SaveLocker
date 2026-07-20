@@ -89,6 +89,50 @@ public sealed class PathResolver
     }
 
     /// <summary>
+    /// The reverse of <see cref="ResolveToDirectory"/>: rewrite a concrete path from THIS machine
+    /// back into a template, or null when nothing matches.
+    /// <para>
+    /// This is what lets one correctly-configured machine describe a save location in terms every
+    /// other machine can expand for itself. Storing the literal path instead is what allows two
+    /// machines to disagree about the same game's save root — and a root that differs by even one
+    /// segment makes a restore nest a folder under itself and delete the correctly-placed copy.
+    /// </para>
+    /// <para>
+    /// Longest value wins, so <c>C:\Users\me\Documents</c> becomes <c>&lt;winDocuments&gt;</c> rather
+    /// than <c>&lt;home&gt;/Documents</c>. <c>&lt;osUserName&gt;</c> is excluded: it holds a name, not
+    /// a path, and would match anywhere the username happens to appear.
+    /// </para>
+    /// </summary>
+    public string? Tokenize(string absolutePath)
+    {
+        if (string.IsNullOrWhiteSpace(absolutePath)) return null;
+
+        var path = absolutePath.Replace('/', Path.DirectorySeparatorChar)
+                               .TrimEnd(Path.DirectorySeparatorChar);
+        var cmp = OperatingSystem.IsWindows()
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+
+        var best = _tokens
+            .Where(t => t.Key != "<osUserName>" && !string.IsNullOrEmpty(t.Value))
+            .Select(t => (t.Key, Value: t.Value.TrimEnd(Path.DirectorySeparatorChar)))
+            .Where(t => path.Equals(t.Value, cmp) ||
+                        path.StartsWith(t.Value + Path.DirectorySeparatorChar, cmp))
+            .OrderByDescending(t => t.Value.Length)
+            .FirstOrDefault();
+
+        if (best.Key is null) return null;
+
+        var rest = path[best.Value.Length..].TrimStart(Path.DirectorySeparatorChar);
+        // Manifest templates use forward slashes, and ResolveToDirectory converts back on expansion.
+        return rest.Length == 0 ? best.Key : $"{best.Key}/{rest.Replace('\\', '/')}";
+    }
+
+    /// <summary>True when this value is a template rather than a concrete path.</summary>
+    public static bool IsTemplate(string? value) =>
+        !string.IsNullOrWhiteSpace(value) && value.Contains('<') && value.Contains('>');
+
+    /// <summary>
     /// Expand placeholders in a template and return the deepest directory prefix
     /// that precedes any wildcard. Returns null if a required token is unknown.
     /// </summary>

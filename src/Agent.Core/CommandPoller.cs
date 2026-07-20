@@ -26,6 +26,8 @@ public sealed class CommandPoller : IDisposable
     private readonly Action _onGamesChanged;
     private readonly HealthReporter? _health;
     private readonly OfflineQueue? _offlineQueue;
+    /// <summary>compatdata path for a Steam AppID. Host-supplied — Core cannot see Steam's layout.</summary>
+    private readonly Func<string, string?>? _prefixForAppId;
     private readonly System.Timers.Timer _timer;
     private int _busy; // 0/1 guard so slow ticks don't overlap
 
@@ -43,8 +45,10 @@ public sealed class CommandPoller : IDisposable
         Action onGamesChanged,
         double pollMs = 20000,
         HealthReporter? health = null,
-        OfflineQueue? offlineQueue = null)
+        OfflineQueue? offlineQueue = null,
+        Func<string, string?>? prefixForAppId = null)
     {
+        _prefixForAppId = prefixForAppId;
         _config = config;
         _api = api;
         _engine = engine;
@@ -176,7 +180,8 @@ public sealed class CommandPoller : IDisposable
     /// <summary>
     /// Best save folder for a server game on THIS machine:
     /// 1. Server-stored path for this machine (highest authority — set by dashboard or prior run).
-    /// 2. SuggestedSaveDir (server hint) if the directory exists here.
+    /// 2. SuggestedSaveDir, which may be a <b>template</b> (<c>&lt;winPublic&gt;/Documents/…</c>)
+    ///    expanded against this machine, or a concrete path used as-is if it exists here.
     /// 3. Ludusavi manifest detection.
     /// Returns null if nothing resolves.
     /// </summary>
@@ -184,7 +189,19 @@ public sealed class CommandPoller : IDisposable
     {
         if (!string.IsNullOrWhiteSpace(sg.MachineSavePath))
             return sg.MachineSavePath;
-        if (!string.IsNullOrWhiteSpace(sg.SuggestedSaveDir) && Directory.Exists(sg.SuggestedSaveDir))
+
+        // A template beats a literal path, because it is the only form that means the same LOGICAL
+        // folder on every machine. A literal from another machine is what lets two agents disagree
+        // about the same game's save root by a segment — and that difference is what makes a restore
+        // nest a folder under itself and delete the correctly-placed copy.
+        if (PathResolver.IsTemplate(sg.SuggestedSaveDir) &&
+            ResolverForGame(sg)?.ResolveToDirectory(sg.SuggestedSaveDir!) is { } expanded &&
+            Directory.Exists(expanded))
+            return Path.GetFullPath(expanded);
+
+        if (!string.IsNullOrWhiteSpace(sg.SuggestedSaveDir) &&
+            !PathResolver.IsTemplate(sg.SuggestedSaveDir) &&
+            Directory.Exists(sg.SuggestedSaveDir))
             return Path.GetFullPath(sg.SuggestedSaveDir);
         try
         {
@@ -246,6 +263,27 @@ public sealed class CommandPoller : IDisposable
         }
 
         _health.SetPathCandidates(reports);
+    }
+
+    /// <summary>
+    /// The resolver that expands Windows tokens the way THIS machine sees them.
+    /// <para>
+    /// On Windows that is the host's own known folders. Under Proton the same tokens mean folders
+    /// <b>inside the game's prefix</b>, so the resolver is per-game and needs the game's AppID —
+    /// which is why the host supplies the lookup (Core cannot see Steam's layout). A game with no
+    /// AppID, or a prefix Steam has not created yet, resolves to nothing rather than to the host's
+    /// own folders: pointing a Proton game at <c>~/Documents</c> would sync the wrong directory.
+    /// </para>
+    /// </summary>
+    private PathResolver? ResolverForGame(GameDto sg)
+    {
+        if (OperatingSystem.IsWindows()) return Detection.HostResolver();
+
+        var appId = _config.Games.FirstOrDefault(g => g.GameId == sg.Id)?.SteamAppId;
+        if (string.IsNullOrWhiteSpace(appId)) return null;
+
+        var compatData = _prefixForAppId?.Invoke(appId);
+        return string.IsNullOrWhiteSpace(compatData) ? null : PathResolver.Proton(compatData);
     }
 
     /// <summary>Best-effort: tell the server what save path this machine resolved for a game.</summary>

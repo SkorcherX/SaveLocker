@@ -502,7 +502,18 @@ public static class AgentCli
     /// <summary>The policy's hint if that folder exists here, else Ludusavi detection, else nothing.</summary>
     private static async Task<string?> ResolveForEnrollAsync(EnrollmentGame pg, Detection detection)
     {
-        if (!string.IsNullOrWhiteSpace(pg.SuggestedSaveDir) && Directory.Exists(pg.SuggestedSaveDir))
+        // A template first — enroll is the Deck's whole setup, so if the console describes a save
+        // location generically this is the first place that has to understand it. Expanding here is
+        // also what keeps a newly enrolled machine's save root at the SAME logical level as every
+        // other machine's; adopting another machine's literal path is what makes them diverge.
+        if (PathResolver.IsTemplate(pg.SuggestedSaveDir) &&
+            Detection.HostResolver()?.ResolveToDirectory(pg.SuggestedSaveDir!) is { } expanded &&
+            Directory.Exists(expanded))
+            return Path.GetFullPath(expanded);
+
+        if (!string.IsNullOrWhiteSpace(pg.SuggestedSaveDir) &&
+            !PathResolver.IsTemplate(pg.SuggestedSaveDir) &&
+            Directory.Exists(pg.SuggestedSaveDir))
             return Path.GetFullPath(pg.SuggestedSaveDir);
         try
         {

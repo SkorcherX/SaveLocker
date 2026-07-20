@@ -84,7 +84,12 @@ public sealed class Daemon : IAsyncDisposable
             Notify,
             onGamesChanged: StartFolderWatchers,
             health: _health,
-            offlineQueue: _offlineQueue);
+            offlineQueue: _offlineQueue,
+            // Lets a templated save path expand inside the game's own Proton prefix. Core has no
+            // way to find it: only the Linux host knows where Steam keeps compatdata.
+            prefixForAppId: appId => SteamRoots.Find()
+                .Select(root => SteamRoots.CompatDataPath(root, appId))
+                .FirstOrDefault(p => p is not null));
         _commandPoller.Start();
 
         StartFolderWatchers();

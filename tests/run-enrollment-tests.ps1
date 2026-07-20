@@ -58,6 +58,23 @@ $gameName = "EnrollGame-$stamp"
 $game = Invoke-RestMethod -Uri "$server/api/games" -Method Post -ContentType "application/json" `
     -Body (@{ name = $gameName; manifestKey = $null; customPathsJson = $null } | ConvertTo-Json)
 
+# A second game whose save location is stored as a TEMPLATE rather than a literal path. A literal
+# cannot mean the same folder on two machines — different user, different drive, or a Proton prefix —
+# and two agents disagreeing about a game's save root by one segment is what makes a restore nest a
+# folder under itself and delete the correctly-placed copy. Enroll is the Deck's whole setup, so it
+# is the first thing that has to expand one.
+$tmplName = "EnrollTemplate-$stamp"
+$tmplGame = Invoke-RestMethod -Uri "$server/api/games" -Method Post -ContentType "application/json" `
+    -Body (@{ name = $tmplName; manifestKey = $null; customPathsJson = $null } | ConvertTo-Json)
+
+$onWin = if ($null -eq $IsWindows) { $true } else { $IsWindows }
+if ($onWin) {
+    $tmplExpected = Join-Path $env:APPDATA "$tmplName\Saves"
+    New-Item -ItemType Directory -Force $tmplExpected | Out-Null
+    Invoke-RestMethod ("$server/api/games/" + $tmplGame.id + "/save-dir?value=" +
+        [uri]::EscapeDataString("<winAppData>/$tmplName/Saves")) -Method Post | Out-Null
+}
+
 # ---- 1. Mint: the policy carries a token, the server URL and the enabled games ----
 $deckName = "phase4-deck-$stamp"
 $mint = Mint @{ machineName = $deckName; ttlMinutes = 15 }
@@ -84,6 +101,13 @@ Check "enroll stored a machine API key"          ($saved.ApiKey -and $saved.ApiK
 Check "enroll stored the machine id"             ($null -ne $saved.MachineId)
 Check "bound token wins over --name"             ($saved.MachineName -eq $deckName)
 Check "enroll pre-seeded the server's game"      ($saved.Games.GameId -contains $game.id)
+
+if ($onWin) {
+    $tmplTracked = $saved.Games | Where-Object { $_.GameId -eq $tmplGame.id }
+    Check "enroll expanded a templated save path" ($tmplTracked.SaveDirectory -eq $tmplExpected)
+    Check "the raw template was not stored"       ($tmplTracked.SaveDirectory -notlike "*<winAppData>*")
+    Remove-Item $tmplExpected -Recurse -Force -ErrorAction SilentlyContinue
+}
 Check "plain http records no TLS pin"            ($null -eq $saved.ServerPin)
 
 # ---- 3. The issued key is real: it authenticates an agent route ----
