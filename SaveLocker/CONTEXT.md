@@ -8,6 +8,19 @@
 Earlier: v0.3.0 (2026-07-19, PRs #9–#13 — Deck path setup, and four bugs the first real hardware
 session exposed); v0.2.0 (2026-07-18, PR #8 — Linux/Deck security hardening, `Decisions.md` §7–§9).
 
+🚧 **v0.3.1 is TAGGED BUT NOT PUBLISHED.** The tag is pushed and correct, and both jobs *built*
+fine — but every attempt to attach the assets died in the GitHub incident of 2026-07-19 23:34 UTC
+(Actions degraded, API Requests partial outage). The release exists as a **draft with 0 assets**, so
+**there is no v0.3.1 installer or tarball to download yet.**
+
+- **To finish it:** `gh run rerun 29708968300 --failed`, then confirm the release has both assets and
+  is no longer a draft. `action-gh-release` reuses the existing draft rather than duplicating it, so
+  nothing needs cleaning up first.
+- The failure was purely the upload step (`Attach tarball to the release` → 503, then
+  `Too many retries`). Nothing in this repo is implicated — do not go looking for a build problem.
+- **v0.3.0's Linux tarball is unaffected and published**, and the tray deadlock is Windows-only, so
+  Deck work is not blocked by this.
+
 ### v0.3.1 — the tray Exit deadlock
 
 **Right-click → Exit did not stop the agent**, and a second Exit left the menu frozen on screen;
