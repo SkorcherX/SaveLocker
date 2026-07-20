@@ -358,6 +358,21 @@ public record AgentHealthDto(
 /// <summary>Latest available agent version info, served by the SaveLocker server.</summary>
 public record AgentVersionInfo(string LatestVersion, string DownloadUrl);
 
+// ----- Server / console build identity -----
+
+/// <summary>
+/// What the console is running. Served unauthenticated from /api/admin/status, which is
+/// already the reachability probe — "is my fix deployed?" must be answerable before you can
+/// authenticate, since a wrong password is one of the things you'd be diagnosing.
+/// <paramref name="Version"/> is the product version shared with the agent (one git tag for
+/// the whole repo); it carries a <c>+{n}.{sha}</c> suffix on builds after the nearest tag.
+/// <paramref name="BuiltAt"/> is UTC, null when unstamped.
+/// </summary>
+public record ServerBuildInfo(string Version, string Commit, DateTime? BuiltAt, bool IsRelease);
+
+/// <summary>Response of /api/admin/status — reachability, auth requirement and build identity.</summary>
+public record AdminStatus(bool PasswordRequired, ServerBuildInfo Build);
+
 // ----- Server backups (admin) -----
 
 /// <summary>One on-box SQLite snapshot file. <paramref name="CreatedAt"/> is UTC.</summary>

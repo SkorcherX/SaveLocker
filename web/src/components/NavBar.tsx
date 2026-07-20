@@ -1,15 +1,19 @@
 import { useState } from 'react';
 import { getPassword, setPassword as persistPassword } from '../api';
-import type { AgentEvent } from '../types';
+import type { AgentEvent, ServerBuildInfo } from '../types';
 import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
-type View = 'games' | 'config' | 'audit' | 'help';
+type View = 'games' | 'config' | 'audit' | 'help' | 'whats-new';
 
 interface Props {
   view: View;
   onViewChange: (v: View) => void;
   onConnect: () => void;
   onRefresh: () => void;
+  /** What this console is running. Undefined until /api/admin/status answers. */
+  build?: ServerBuildInfo;
+  /** True when the running release's notes have not been opened yet. */
+  unreadNotes?: boolean;
   /** Open problems reported by agents, worst first. This is the only way a headless Deck's
    *  failures reach a human — it cannot toast, so the console has to (Decisions.md §2). */
   problems?: AgentEvent[];
@@ -27,7 +31,7 @@ function ago(t: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function NavBar({ view, onViewChange, onConnect, onRefresh, problems = [], onDismissProblem }: Props) {
+export function NavBar({ view, onViewChange, onConnect, onRefresh, build, unreadNotes = false, problems = [], onDismissProblem }: Props) {
   const [keyInput, setKeyInput] = useState(getPassword());
   const [showProblems, setShowProblems] = useState(false);
 
@@ -62,17 +66,49 @@ export function NavBar({ view, onViewChange, onConnect, onRefresh, problems = []
         zIndex: 20,
       }}
     >
-      {/* Brand */}
-      <a
-        href="#"
-        onClick={e => { e.preventDefault(); onViewChange('games'); }}
-        style={{ display: 'flex', alignItems: 'center', gap: 9, userSelect: 'none' }}
-      >
-        <img src={logoUrl} style={{ height: 64, width: 'auto', borderRadius: 6, flexShrink: 0 }} alt="SaveLocker" />
-        <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.4px' }}>
-          Save<span style={{ color: '#129271' }}>Locker</span>
-        </span>
-      </a>
+      {/* Brand + version */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <a
+          href="#"
+          onClick={e => { e.preventDefault(); onViewChange('games'); }}
+          style={{ display: 'flex', alignItems: 'center', gap: 9, userSelect: 'none' }}
+        >
+          <img src={logoUrl} style={{ height: 64, width: 'auto', borderRadius: 6, flexShrink: 0 }} alt="SaveLocker" />
+          <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.4px' }}>
+            Save<span style={{ color: '#129271' }}>Locker</span>
+          </span>
+        </a>
+
+        {/* What the console is running, always on screen. Answering "is my fix deployed?" should
+            not require opening a page, let alone reading a Docker tag on another machine. */}
+        <button
+          onClick={() => onViewChange('whats-new')}
+          title={
+            build
+              ? `SaveLocker console ${build.version}` +
+                (build.commit ? ` (commit ${build.commit})` : '') +
+                (build.builtAt ? ` — built ${new Date(build.builtAt).toLocaleString()}` : '') +
+                `\nClick for release notes.`
+              : 'Release notes'
+          }
+          style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '2px 9px', borderRadius: 20, cursor: 'pointer',
+            background: view === 'whats-new' ? '#2A3238' : 'transparent',
+            border: '1px solid #494949',
+            color: build?.isRelease === false ? '#f4a60d' : '#8b9aaa',
+            fontSize: 11, fontFamily: "'JetBrains Mono', monospace",
+          }}
+        >
+          {build ? (build.version === 'dev' ? 'dev' : `v${build.version}`) : '—'}
+          {unreadNotes && (
+            <span
+              title="New release notes"
+              style={{ width: 6, height: 6, borderRadius: '50%', background: '#129271', flexShrink: 0 }}
+            />
+          )}
+        </button>
+      </div>
 
       {/* Controls */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -80,6 +116,7 @@ export function NavBar({ view, onViewChange, onConnect, onRefresh, problems = []
         <button className={navBtn(view === 'config')} onClick={() => onViewChange('config')}>Configuration</button>
         <button className={navBtn(view === 'audit')} onClick={() => onViewChange('audit')}>Audit Log</button>
         <button className={navBtn(view === 'help')} onClick={() => onViewChange('help')}>Help</button>
+        <button className={navBtn(view === 'whats-new')} onClick={() => onViewChange('whats-new')}>What's New</button>
 
         {/* API Key composite input */}
         <div style={{ display: 'flex', alignItems: 'center', background: '#2A3238', border: '1px solid #494949', borderRadius: 5, overflow: 'hidden' }}>

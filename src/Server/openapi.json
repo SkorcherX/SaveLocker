@@ -1,4 +1,4 @@
-{
+﻿{
   "openapi": "3.1.1",
   "info": {
     "title": "SaveLocker API",
@@ -58,7 +58,14 @@
         ],
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminStatus"
+                }
+              }
+            }
           }
         }
       }
@@ -1568,6 +1575,21 @@
   },
   "components": {
     "schemas": {
+      "AdminStatus": {
+        "required": [
+          "passwordRequired",
+          "build"
+        ],
+        "type": "object",
+        "properties": {
+          "passwordRequired": {
+            "type": "boolean"
+          },
+          "build": {
+            "$ref": "#/components/schemas/ServerBuildInfo"
+          }
+        }
+      },
       "AgentCommandDto": {
         "required": [
           "id",
@@ -2767,6 +2789,33 @@
           },
           "suggestedPath": {
             "type": "string"
+          }
+        }
+      },
+      "ServerBuildInfo": {
+        "required": [
+          "version",
+          "commit",
+          "builtAt",
+          "isRelease"
+        ],
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string"
+          },
+          "commit": {
+            "type": "string"
+          },
+          "builtAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "isRelease": {
+            "type": "boolean"
           }
         }
       },

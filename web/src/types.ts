@@ -25,6 +25,8 @@ export type AgentEvent = Schemas['AgentEventDto'];
 export type Enrollment = Schemas['EnrollmentDto'];
 export type EnrollmentPolicy = Schemas['EnrollmentPolicy'];
 export type CreateEnrollmentResponse = Schemas['CreateEnrollmentResponse'];
+export type AdminStatus = Schemas['AdminStatus'];
+export type ServerBuildInfo = NonNullable<Schemas['ServerBuildInfo']>;
 
 // Hand-written — not in the generated api-types; run `npm run gen:api` after server update.
 export interface AgentInstallerStatus {

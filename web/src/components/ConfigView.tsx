@@ -1,20 +1,24 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, setPassword } from '../api';
-import type { GameSummary, Machine, Settings, AgentInstallerStatus, Enrollment, AgentHealth } from '../types';
+import type { GameSummary, Machine, Settings, AgentInstallerStatus, Enrollment, AgentHealth, ServerBuildInfo } from '../types';
+import { fleetSkew, isNewerThanConsole, isTestBuild } from '../versionSkew';
 
 interface Props {
   games: GameSummary[];
   machines: Machine[];
   settings: Settings;
   health: AgentHealth[];
+  build?: ServerBuildInfo;
   onRefresh: () => void;
 }
 
 const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
 const when = (t: string | null | undefined) => t ? new Date(asUtc(t)).toLocaleString() : '—';
 
-export function ConfigView({ games, machines, settings, health, onRefresh }: Props) {
+export function ConfigView({ games, machines, settings, health, build, onRefresh }: Props) {
   const healthByMachine = new Map(health.map(h => [h.machineId, h]));
+  const skew = fleetSkew(build?.version, health);
+  const [copiedBuild, setCopiedBuild] = useState(false);
   const [sgdbInput, setSgdbInput] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -605,6 +609,82 @@ export function ConfigView({ games, machines, settings, health, onRefresh }: Pro
         </table>
       </div>
 
+      {/* ── Console build ──
+          Deliberately immediately above Machines: the fleet's agent versions are in that table, so
+          console and agents are compared without leaving the page. */}
+      <div style={{ ...card, marginBottom: 24 }}>
+        <div style={cardHeader}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#ECEFF1' }}>Console</span>
+          <span style={{ fontSize: 11.5, color: '#9CA3AF' }}>what this server and dashboard are running</span>
+        </div>
+        <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'flex-start', gap: 28, flexWrap: 'wrap' }}>
+          <BuildField label="Version" value={build ? (build.version === 'dev' ? 'dev' : `v${build.version}`) : '…'} wide />
+          <BuildField label="Commit" value={build?.commit || '—'} />
+          <BuildField
+            label="Built"
+            value={build?.builtAt ? new Date(build.builtAt).toLocaleString() : '—'}
+            wide
+          />
+
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            {build && !build.isRelease && (
+              <span
+                title="This build is not a tagged release."
+                style={{ padding: '2px 8px', borderRadius: 3, fontSize: 10, fontWeight: 700, color: '#f4a60d', border: '1px solid #f4a60d' }}
+              >
+                DEV BUILD
+              </span>
+            )}
+            <button
+              onClick={() => {
+                const text = [
+                  `SaveLocker console ${build?.version ?? 'unknown'}`,
+                  build?.commit ? `commit ${build.commit}` : null,
+                  build?.builtAt ? `built ${build.builtAt}` : null,
+                ].filter(Boolean).join('\n');
+                navigator.clipboard?.writeText(text);
+                setCopiedBuild(true);
+                setTimeout(() => setCopiedBuild(false), 1500);
+              }}
+              title="Copy the build identity — paste it into a bug report"
+              style={{ padding: '4px 11px', background: 'transparent', color: '#8b9aaa', border: '1px solid #494949', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+            >
+              {copiedBuild ? '✓ Copied' : 'Copy'}
+            </button>
+            <a
+              href="#whats-new"
+              style={{ padding: '4px 11px', color: '#129271', border: '1px solid #129271', borderRadius: 4, fontSize: 11, textDecoration: 'none' }}
+            >
+              Release notes
+            </a>
+          </div>
+        </div>
+
+        {/* Version skew. Absent when the fleet agrees with the console — the same rule the problem
+            badge follows: a healthy fleet should be quiet. */}
+        {(skew.aheadOfConsole.length > 0 || skew.mixedVersions.length > 0) && (
+          <div style={{ padding: '0 18px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {skew.aheadOfConsole.length > 0 && (
+              <div style={{ padding: '9px 12px', borderRadius: 5, border: '1px solid #f4a60d', color: '#f4a60d', fontSize: 12, lineHeight: 1.5 }}>
+                <strong>{skew.aheadOfConsole.join(', ')}</strong>{' '}
+                {skew.aheadOfConsole.length > 1 ? 'are running agents' : 'is running an agent'} newer
+                than this console. A newer agent can expect endpoints or behaviour this server does
+                not have, and the result is an opaque HTTP error rather than anything that says
+                "version skew". Pull the latest server image.
+              </div>
+            )}
+            {skew.mixedVersions.length > 0 && (
+              <div style={{ padding: '9px 12px', borderRadius: 5, border: '1px solid #494949', color: '#8b9aaa', fontSize: 12, lineHeight: 1.5 }}>
+                The fleet is running <strong>{skew.mixedVersions.length} different agent versions</strong>{' '}
+                ({skew.mixedVersions.map(v => `v${v}`).join(', ')}). Agents that differ can disagree
+                about exclude globs and save paths, which shows up as repeated sync conflicts rather
+                than as a version problem. Keeping them identical avoids it.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       {/* ── Machines / API Keys ── */}
       <div style={{ ...card, marginBottom: 24 }}>
         <div style={cardHeader}>
@@ -655,6 +735,22 @@ export function ConfigView({ games, machines, settings, health, onRefresh }: Pro
                       <td style={tdMono}>
                         {h?.agentVersion ? `v${h.agentVersion}` : '—'}
                         {h?.platform ? <span style={{ color: '#556070' }}> · {h.platform}</span> : null}
+                        {isTestBuild(h?.agentVersion) && (
+                          <span
+                            title="A throwaway build from CI, not a release. Stamped so it cannot be mistaken for one."
+                            style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, color: '#8b9aaa', border: '1px solid #556070' }}
+                          >
+                            TEST BUILD
+                          </span>
+                        )}
+                        {isNewerThanConsole(h?.agentVersion, build?.version) && (
+                          <span
+                            title="This agent is newer than the console. It may expect endpoints or behaviour this server does not have — upgrade the server container."
+                            style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 3, fontSize: 10, fontWeight: 700, color: '#f4a60d', border: '1px solid #f4a60d' }}
+                          >
+                            NEWER THAN CONSOLE
+                          </span>
+                        )}
                       </td>
                       <td style={{ ...tdMono, color: status.color }}>{status.text}</td>
                       <td style={tdMono}>{when(h?.lastSyncTime)}</td>
@@ -681,5 +777,18 @@ export function ConfigView({ games, machines, settings, health, onRefresh }: Pro
       </div>
 
     </main>
+  );
+}
+
+function BuildField({ label, value, wide = false }: { label: string; value: string; wide?: boolean }) {
+  return (
+    <div style={{ minWidth: wide ? 190 : 110 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#129271', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
+        {label}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 12.5, color: '#ECEFF1', fontFamily: "'JetBrains Mono', monospace", wordBreak: 'break-all' }}>
+        {value}
+      </div>
+    </div>
   );
 }
