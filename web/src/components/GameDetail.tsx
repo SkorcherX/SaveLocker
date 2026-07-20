@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api';
 import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath, MachineScanCandidate } from '../types';
+import { toTemplate, isTemplate } from '../savePathTemplate';
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
 const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
@@ -87,6 +88,30 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     const dir = prompt('Suggested save folder fallback (used when a machine has no stored path). Leave blank to clear:', current);
     if (dir === null) return;
     try { await api.setSaveDir(game.id, dir.trim()); onRefresh(); } catch (e) { alert('Could not set save folder: ' + (e as Error).message); }
+  }
+
+  /**
+   * Promote one machine's concrete path to the game's template, so every OTHER machine expands it
+   * for itself instead of inheriting a path that means nothing on their filesystem.
+   */
+  async function handleUseAsTemplate(savePath: string, machineName: string) {
+    const template = toTemplate(savePath);
+    if (!template) {
+      alert(
+        `Can't turn this into a template:\n\n${savePath}\n\n` +
+        `It isn't under a known folder (Documents, AppData, Public, Saved Games, or a Proton prefix), ` +
+        `so there's no equivalent to point another machine at.`
+      );
+      return;
+    }
+    if (!confirm(
+      `Set this game's save path template from ${machineName}?\n\n${template}\n\n` +
+      `Each machine expands this against its own folders — on a Steam Deck, inside that game's ` +
+      `Proton prefix. Machines that already have a path of their own keep it.`
+    )) return;
+
+    try { await api.setSaveDir(game.id, template); onRefresh(); }
+    catch (e) { alert('Could not set the template: ' + (e as Error).message); }
   }
 
   async function reloadPaths() {
@@ -221,8 +246,14 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
             {/* Suggested save dir fallback */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#2A3238', padding: '7px 10px', borderRadius: 5, border: '1px solid #494949' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#494949" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              <span style={{ fontSize: 10, color: '#556070', flexShrink: 0 }}>fallback path:</span>
-              <span style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: '#8b9aaa', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <span style={{ fontSize: 10, color: '#556070', flexShrink: 0 }}>
+                {isTemplate(game.suggestedSaveDir) ? 'template:' : 'fallback path:'}
+              </span>
+              <span
+                title={isTemplate(game.suggestedSaveDir)
+                  ? 'Each machine expands this against its own folders — inside the game\'s Proton prefix on a Steam Deck. A machine that already has its own path keeps it.'
+                  : 'A literal path, used only where it happens to exist. "Use as template" on a machine row turns it into one that works everywhere.'}
+                style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 11, color: isTemplate(game.suggestedSaveDir) ? '#129271' : '#8b9aaa', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {game.suggestedSaveDir || <span style={{ color: '#494949', fontStyle: 'italic' }}>none</span>}
               </span>
               <button style={{ padding: '3px 9px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: 'pointer', flexShrink: 0 }} onClick={handleSetSaveDir}>Edit</button>
@@ -428,6 +459,13 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                                 style={{ padding: '4px 10px', border: 'none', color: '#fff', background: '#129271', borderRadius: 4, fontSize: 11, cursor: 'pointer', fontWeight: 500 }}
                                 onClick={() => void saveMachinePath(m.id, candidate.suggestedPath)}
                               >Apply</button>
+                            )}
+                            {stored && toTemplate(stored.savePath) && (
+                              <button
+                                style={ghostBtn()}
+                                title={`Describe this location generically so other machines can find their own copy:\n${toTemplate(stored.savePath)}`}
+                                onClick={() => void handleUseAsTemplate(stored.savePath, m.name)}
+                              >Use as template</button>
                             )}
                             <button
                               style={ghostBtn()}
