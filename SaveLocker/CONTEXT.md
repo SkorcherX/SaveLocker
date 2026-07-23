@@ -233,15 +233,30 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ---
 
-## ▶ NEXT ACTION: **Tier 1 — console UX (1.1, 1.3, 1.6)**
+## ▶ NEXT ACTION: **Deploy the container, then backlog item 2.1**
 
-`Backlog.md` → "🔴 ACTIVE — conflict handling". ✅ **Tier 0 is COMPLETE** (0.0, 0.4, 0.1, 0.2 — all
-2026-07-23). Tier 1 is the console: show every conflict newest-first, confirm before resolving, and
-stop conflict alerts being dismissible like transient warnings.
+✅ **Tiers 0 and 1 are COMPLETE** (2026-07-23). The 2026-07-22 incident is fully remediated: the
+self-conflict loop, the 75-row explosion, the unbounded storage, and every console surface that
+misled during recovery. **2.1 (per-game conflict policy) is the highest remaining value** — a
+`NewestWins` option would have made the whole incident a non-event.
 
-⚠️ **0.1, 0.2 and 0.4 are SERVER changes and are not deployed.** The unRAID container needs
-`docker compose pull && docker compose up -d`. 0.1 also carries a **migration**
-(`20260723220958_AddConflictDedupe`), which applies on container start.
+⚠️ **NOTHING from 0.1, 0.2, 0.4 or Tier 1 is deployed.** All of it is server-side; the console ships
+inside the server image. The unRAID container needs `docker compose pull && docker compose up -d`.
+0.1 carries a **migration** (`20260723220958_AddConflictDedupe`) that applies on container start.
+Only **0.0** reached the fleet, via the v0.3.3 agent release.
+
+### ✅ Tier 1 is DONE (2026-07-23) — the console no longer needs a shell
+
+- **1.1** every conflict rendered, newest-active first (was `.find()` over an oldest-first list).
+- **1.2** *display half*: machine, time and size per option; adaptive `fmtSize` (fixed-MB showed every
+  small save as "0.00 MB"). ⏳ **"Keep both" deferred** — needs a `Protected` flag on `SaveVersion`.
+- **1.3** confirmation naming the unexpected consequence: *N newer saves stop being what machines pull*.
+- **1.4** `POST /games/{id}/prune` + **Prune now**, reusing the upload path's own prune.
+- **1.5** admin version download + per-row button. ⚠️ The route checks the version belongs to the game.
+- **1.6** a `sync.conflict` event shows **Resolve**, not Dismiss — it is the one event that never
+  self-heals. Client-side only; `HealthService.DismissAsync` is unchanged.
+
+`run-agent-tests.ps1` is now **35** checks (was 20 this morning).
 
 ### ✅ 0.1 + 0.2 are DONE (2026-07-23)
 
