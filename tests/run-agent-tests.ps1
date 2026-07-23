@@ -193,6 +193,53 @@ Check "the original template survived"           ((CurrentSuggested) -eq "<winDo
 $status = Agent status --config $pcCfg
 Check "status shows conflict for SyncGame" (($status -join "`n") -like "*SyncGame*CONFLICT*")
 
+# ---- Resolving a conflict must un-stick BOTH machines (backlog 0.4) ----
+# Resolving used to be a database edit that merely looked like an action. An agent's parent version
+# advances only on a successful push or a pull, and the upload path deliberately does NOT advance it
+# on conflict - so both machines stayed behind the new head and conflicted again on their very next
+# save. The console said resolved; the fleet disagreed.
+#
+# The WINNER is the counter-intuitive half, and the one that bit hardest on real hardware: its content
+# is already byte-identical to the new head, but its pointer still names the parent it presented, so
+# its next push is rejected exactly like the loser's.
+# WARNING: Invoke-RestMethod does NOT unroll a JSON array consistently. Windows PowerShell 5.1 hands
+# the whole array back as ONE item, so @() wraps it instead of flattening it and every downstream
+# filter silently matches nothing - which reads as "the server queued nothing" and blames the wrong
+# side entirely. ConvertFrom-Json unrolls identically on 5.1 and pwsh 7, and this suite runs on both.
+function JsonArray($url) { @((Invoke-WebRequest $url -UseBasicParsing).Content | ConvertFrom-Json) }
+
+$conf = (JsonArray "http://localhost:5179/api/conflicts") | Select-Object -First 1
+Check "the server recorded an open conflict" ($null -ne $conf)
+
+# Resolve in favour of the laptop's divergent version - the ordinary "newest wins" case.
+Invoke-RestMethod "http://localhost:5179/api/conflicts/$($conf.id)/resolve?version=$($conf.versionBId)" -Method Post | Out-Null
+
+$queued = @((JsonArray "http://localhost:5179/api/commands") | Where-Object {
+    "$($_.type)" -eq "Pull" -and "$($_.status)" -eq "Pending" -and "$($_.gameId)" -eq "$($conf.gameId)"
+})
+$queuedMachines = @($queued | ForEach-Object { "$($_.machineId)" } | Sort-Object -Unique)
+Check "resolving queued a pull for BOTH machines"  ($queuedMachines.Count -eq 2)
+Check "the queued pulls are GUARDED, not forced"   (@($queued | Where-Object { $_.force }).Count -eq 0)
+
+# The winner: its content already matches the head, so the pull short-circuits before touching a
+# single file and simply repairs the pointer.
+$lapPull = Agent pull --config $lapCfg SyncGame
+Check "the winner's pull is a no-op that repairs it" (($lapPull -join "`n") -like "*already up to date*")
+
+# THE ASSERTION. This is the exact failure that stranded a real user: resolve, play, conflict again.
+Set-Content -Path (Join-Path $lapSave "slot1.sav") -Value "level=3-laptop" -Encoding utf8
+$lapPush = Agent push --config $lapCfg SyncGame
+Check "the winner's next push no longer conflicts"  (($lapPush -join "`n") -like "*pushed new version*")
+
+# The loser had cleanly synced its own version, so it has nothing unpushed and the guarded pull
+# restores the winner over it. (A loser carrying NEWER local edits is blocked instead, which is the
+# honest answer - forcing it would destroy work the server has never seen.)
+$pcPull = Agent pull --config $pcCfg SyncGame
+Check "the loser pulls the winner cleanly" (
+    (Test-Path (Join-Path $pcSave "slot1.sav")) -and
+    ((Get-Content (Join-Path $pcSave "slot1.sav") -Raw).Trim() -eq "level=3-laptop")
+)
+
 # ---- status must survive an admin password being set ----
 # This suite ran against a server with NO admin password, and the AdminPasswordFilter is wide open
 # in that state — so `status` calling an admin-filtered endpoint with only a machine key passed here

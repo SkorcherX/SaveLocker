@@ -581,7 +581,67 @@ public sealed class SyncService
         conflict.ResolvedAt = DateTime.UtcNow;
         await Audit(null, conflict.GameId, "conflict.resolve", winningVersionId.ToString());
         await _db.SaveChangesAsync();
+
+        await QueueResolutionPullsAsync(conflict);
         return true;
+    }
+
+    /// <summary>
+    /// Tell both machines in a resolved conflict to pull, so the resolution actually reaches them.
+    ///
+    /// Resolving used to be a database edit that merely looked like an action. An agent's parent
+    /// version advances only on a successful push or a pull, and the upload path deliberately does
+    /// NOT advance it on conflict — so both machines stayed behind the new head and conflicted again
+    /// on their very next save. The console said resolved; the fleet disagreed.
+    ///
+    /// <para>
+    /// The <b>winner</b> is the counter-intuitive half, and the one that bit hardest in practice: its
+    /// content is already byte-identical to the new head, but its pointer still names the parent it
+    /// presented, so its next push is rejected exactly like the loser's.
+    /// </para>
+    ///
+    /// <para>
+    /// The pull is deliberately <b>unforced</b>. What that means differs per machine, and every
+    /// outcome is the right one:
+    /// <list type="bullet">
+    /// <item>the winner's content already matches the head, so the pull short-circuits before
+    /// touching a single file and just repairs the pointer;</item>
+    /// <item>a loser that had cleanly synced its version has nothing unpushed, so the pull restores
+    /// the winner over it;</item>
+    /// <item>a loser carrying local changes made since is <b>blocked</b>, and says so on the console.
+    /// That is the honest answer — a forced pull here would silently destroy work the server has
+    /// never seen, which is the failure class <c>Decisions.md</c> §9 and v0.3.2 already fought twice.
+    /// Note the console's own Pull button sends <c>force: true</c>; this deliberately does not.</item>
+    /// </list>
+    /// </para>
+    /// </summary>
+    private async Task QueueResolutionPullsAsync(ConflictFlag conflict)
+    {
+        var versionIds = new[] { conflict.VersionAId, conflict.VersionBId };
+
+        // Joined against Machines on purpose: DeleteMachineAsync keeps a deleted machine's versions
+        // as history, so a version's MachineId can name a machine that no longer exists — and
+        // queueing a command for it would violate the foreign key.
+        var machineIds = await (
+            from v in _db.SaveVersions
+            join m in _db.Machines on v.MachineId equals m.Id
+            where versionIds.Contains(v.Id)
+            select v.MachineId).Distinct().ToListAsync();
+
+        foreach (var machineId in machineIds)
+        {
+            // An admin clearing several conflicts in a row must not queue a pull per click. One pull
+            // brings the agent to the current head regardless of how many were resolved.
+            var alreadyQueued = await _db.AgentCommands.AnyAsync(c =>
+                c.MachineId == machineId &&
+                c.GameId == conflict.GameId &&
+                c.Type == AgentCommandType.Pull &&
+                c.Status == CommandStatus.Pending);
+            if (alreadyQueued) continue;
+
+            await EnqueueCommandAsync(new EnqueueCommandRequest(
+                machineId, conflict.GameId, AgentCommandType.Pull, Force: false));
+        }
     }
 
     /// <summary>Admin: move the head pointer to an earlier version (rollback).</summary>
