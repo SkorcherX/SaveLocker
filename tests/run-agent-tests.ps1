@@ -272,6 +272,27 @@ Check "the loser pulls the winner cleanly" (
     ((Get-Content (Join-Path $pcSave "slot1.sav") -Raw).Trim() -eq "level=3-laptop")
 )
 
+# ---- The console can prune and download without shell access (backlog 1.4 + 1.5) ----
+# Retention otherwise runs only as a side effect of an upload, and version download was agent-only
+# (X-Api-Key group), so "back this save up before doing something destructive to it" could not be
+# offered as a console step at all. Those two gaps are why recovering from the 2026-07-22 incident
+# needed curl against the admin API.
+$pruned = Invoke-RestMethod "http://localhost:5179/api/games/$gameId/prune" -Method Post
+$after  = JsonArray "http://localhost:5179/api/games/$gameId/versions"
+Check "prune-now reports what it removed"   ($null -ne $pruned.removed)
+Check "prune-now respects the retain limit" ($after.Count -le 3)
+
+$headVersionId = "$($after[0].id)"
+$dl = Invoke-WebRequest "http://localhost:5179/api/games/$gameId/versions/$headVersionId/download" -UseBasicParsing
+Check "a version downloads from the console" (($dl.StatusCode -eq 200) -and ($dl.RawContentLength -gt 0))
+
+# DownloadVersionAsync resolves by version id alone, so the route has to check the game itself -
+# otherwise any game's archive is reachable through any game's URL.
+$guard = try {
+    (Invoke-WebRequest "http://localhost:5179/api/games/$([Guid]::NewGuid())/versions/$headVersionId/download" -UseBasicParsing).StatusCode
+} catch { $_.Exception.Response.StatusCode.value__ }
+Check "download refuses a version from another game" ($guard -eq 404)
+
 # ---- status must survive an admin password being set ----
 # This suite ran against a server with NO admin password, and the AdminPasswordFilter is wide open
 # in that state — so `status` calling an admin-filtered endpoint with only a machine key passed here

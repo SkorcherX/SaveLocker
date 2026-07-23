@@ -595,9 +595,37 @@ public sealed class SyncService
 
     // ----- Admin: conflicts & rollback -----
 
+    /// <summary>
+    /// Every open conflict, <b>most recently active first</b>.
+    ///
+    /// It used to be oldest-first, and the console took the first match per game — so it reliably
+    /// surfaced the <i>least</i> useful one. During the 2026-07-22 incident that meant being offered
+    /// a pair of day-old saves while the save actually being played sat in a conflict the UI never
+    /// showed. Dedupe (0.1) makes this mostly moot by collapsing a game to one row per machine, but
+    /// the ordering was wrong on its own merits.
+    /// </summary>
     public async Task<List<ConflictFlag>> ListOpenConflictsAsync() =>
         await _db.Conflicts.Where(c => c.Status == ConflictStatus.Open)
-            .OrderBy(c => c.CreatedAt).ToListAsync();
+            .OrderByDescending(c => c.LastSeen)
+            .ThenByDescending(c => c.CreatedAt)
+            .ToListAsync();
+
+    /// <summary>
+    /// Admin: apply this game's retention limit right now, without waiting for a push to trigger it.
+    /// Returns how many versions were removed.
+    /// <para>
+    /// Retention otherwise only runs as a side effect of an upload, so a game that has stopped being
+    /// played keeps whatever it accumulated — and recovering from that needed shell access to the
+    /// admin API. Deliberately reuses the same <see cref="PruneVersionsAsync"/> the upload path calls,
+    /// so "Prune now" and automatic pruning can never disagree about what is safe to delete.
+    /// </para>
+    /// </summary>
+    public async Task<int> PruneNowAsync(Guid gameId)
+    {
+        var before = await _db.SaveVersions.CountAsync(v => v.GameId == gameId);
+        await PruneVersionsAsync(gameId, CancellationToken.None);
+        return before - await _db.SaveVersions.CountAsync(v => v.GameId == gameId);
+    }
 
     /// <summary>Resolve a conflict by promoting the chosen version to head.</summary>
     public async Task<bool> ResolveConflictAsync(Guid conflictId, Guid winningVersionId, string resolvedBy)

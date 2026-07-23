@@ -5,6 +5,13 @@ import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
 type View = 'games' | 'config' | 'audit' | 'help' | 'whats-new';
 
+/**
+ * `AgentEventCodes.Conflict` on the server. The one reported condition that never self-heals: every
+ * other event auto-closes when the machine syncs that game cleanly again, so it is treated
+ * differently below.
+ */
+const CONFLICT_CODE = 'sync.conflict';
+
 interface Props {
   view: View;
   onViewChange: (v: View) => void;
@@ -193,7 +200,21 @@ export function NavBar({ view, onViewChange, onConnect, onRefresh, build, unread
                         </div>
                       </div>
 
-                      {onDismissProblem && (
+                      {/* A conflict is NOT dismissible, and this is the difference that cost a real
+                          user a day of play. Every other agent event self-heals — a machine that
+                          recovers auto-closes it — so Dismiss is honest for them. A conflict does
+                          not: it sits until a human resolves it. Offering the same grey Dismiss
+                          button made "I made the warning go away" indistinguishable from "I fixed
+                          it". Send them to the one place it can actually be resolved instead. */}
+                      {p.code === CONFLICT_CODE ? (
+                        <button
+                          onClick={() => { setShowProblems(false); onViewChange('games'); }}
+                          title="A conflict does not clear on its own — it has to be resolved on the game."
+                          style={{ flexShrink: 0, padding: '3px 9px', background: 'transparent', color: '#f4a60d', border: '1px solid #f4a60d', borderRadius: 4, fontSize: 11, cursor: 'pointer' }}
+                        >
+                          Resolve
+                        </button>
+                      ) : onDismissProblem && (
                         <button
                           onClick={() => onDismissProblem(p.id)}
                           title="Dismiss. If the condition still holds, the agent will report it again."

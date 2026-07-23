@@ -6,7 +6,14 @@ import { toTemplate, isTemplate } from '../savePathTemplate';
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
 const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
 const when = (t: string | null | undefined) => t ? new Date(asUtc(t)).toLocaleString() : '—';
-const fmtMb = (n: number) => (n / (1024 * 1024)).toFixed(2) + ' MB';
+/**
+ * Adaptive, because this is a decision aid. A fixed "MB" renders every small save as "0.00 MB",
+ * which is exactly the case where a size is being read to tell two saves apart.
+ */
+const fmtSize = (n: number) =>
+  n < 1024 ? `${n} B`
+    : n < 1024 * 1024 ? (n / 1024).toFixed(1) + ' KB'
+      : (n / (1024 * 1024)).toFixed(2) + ' MB';
 
 interface Props {
   summary: GameSummary;
@@ -37,7 +44,10 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     setExcludeText((game.excludeGlobs ?? []).join('\n'));
   }
   const headId = head?.id ?? null;
-  const conflict = conflicts.find(c => c.gameId === game.id) ?? null;
+  // filter, not find. Taking the first match silently hid every other conflict on the game, and the
+  // server used to return them oldest-first — so the console reliably showed the LEAST useful one
+  // while the save actually being played sat in a conflict the UI never rendered.
+  const gameConflicts = conflicts.filter(c => c.gameId === game.id);
   const gameCmds = commands.filter(c => c.gameId === game.id).slice(0, 8);
 
   // Latest version per machine (for Machines table "Last upload" column)
@@ -155,9 +165,49 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     try { await api.forceRelease(game.id); onRefresh(); } catch (e) { alert('Force-release failed: ' + (e as Error).message); }
   }
 
-  async function handleResolveConflict(versionId: string) {
-    if (!conflict) return;
-    try { await api.resolveConflict(conflict.id, versionId); onRefresh(); } catch (e) { alert('Resolve failed: ' + (e as Error).message); }
+  /**
+   * Every other destructive action on this page confirms — delete, Set as Latest, delete game — and
+   * this was the only one that did not, despite being the most consequential button here. The
+   * dialog names the consequence people do not expect: newer saves stop being what machines pull.
+   */
+  async function handleResolveConflict(conflictId: string, versionId: string) {
+    const v = versions.find(x => x.id === versionId);
+    const newer = v ? versions.filter(x => new Date(asUtc(x.createdAt)) > new Date(asUtc(v.createdAt))).length : 0;
+    const others = gameConflicts.length - 1;
+
+    const msg =
+      'Keep this save as Latest?\n\n' +
+      (v ? `${v.machineName} — ${when(v.createdAt)} (${fmtSize(v.size)})\n\n` : '') +
+      (newer > 0
+        ? `${newer} newer save${newer > 1 ? 's' : ''} will no longer be what machines pull. ` +
+          'Nothing is deleted — you can still promote one later with "Set as Latest".\n\n'
+        : '') +
+      'Both machines in this conflict will be told to pull.' +
+      (others > 0 ? `\n\n${others} other conflict${others > 1 ? 's' : ''} on this game will remain.` : '');
+
+    if (!confirm(msg)) return;
+    try { await api.resolveConflict(conflictId, versionId); onRefresh(); }
+    catch (e) { alert('Resolve failed: ' + (e as Error).message); }
+  }
+
+  async function handlePruneNow() {
+    if (!confirm(
+      'Apply retention now?\n\n' +
+      `Keeps the ${game.retainVersions ?? 'server default'} newest version(s) and permanently deletes ` +
+      'the rest. The current Latest and anything in an open conflict are never deleted.'
+    )) return;
+    try {
+      const r = await api.pruneNow(game.id);
+      setVersions(await api.versions(game.id));
+      onRefresh();
+      alert(r.removed > 0 ? `Removed ${r.removed} version(s).` : 'Nothing to remove — already within the limit.');
+    } catch (e) { alert('Prune failed: ' + (e as Error).message); }
+  }
+
+  async function handleDownloadVersion(v: Version) {
+    const safe = game.name.replace(/[^\w.-]+/g, '_');
+    try { await api.downloadVersion(game.id, v.id, `${safe}-${shortId(v.id)}.zip`); }
+    catch (e) { alert('Download failed: ' + (e as Error).message); }
   }
 
   async function handleCmd(machineId: string, type: string, force: boolean) {
@@ -229,7 +279,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                 latest&nbsp;<span style={{ color: '#fdce63', fontWeight: 500 }}>{shortId(head.id)}</span>&nbsp;from&nbsp;
                 <span style={{ color: '#ECEFF1' }}>{head.machineName}</span>&nbsp;at&nbsp;
                 <span style={{ color: '#ECEFF1' }}>{when(head.createdAt)}</span>&nbsp;·&nbsp;
-                <span style={{ color: '#ECEFF1' }}>{fmtMb(head.size)}</span>
+                <span style={{ color: '#ECEFF1' }}>{fmtSize(head.size)}</span>
               </p>
             ) : (
               <p style={{ fontSize: 11.5, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }}>no saves yet</p>
@@ -238,7 +288,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
             {/* Total storage for this game */}
             <p style={{ fontSize: 11, color: '#556070', fontFamily: "'JetBrains Mono', monospace" }}>
               total stored:&nbsp;
-              <span style={{ color: '#8b9aaa', fontWeight: 500 }}>{fmtMb(summary.totalStorageBytes)}</span>
+              <span style={{ color: '#8b9aaa', fontWeight: 500 }}>{fmtSize(summary.totalStorageBytes)}</span>
               &nbsp;across&nbsp;
               <span style={{ color: '#8b9aaa' }}>{versions.length} version{versions.length !== 1 ? 's' : ''}</span>
             </p>
@@ -263,27 +313,47 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
         </div>
       </div>
 
-      {/* ── Conflict resolution ── */}
-      {conflict && (
-        <div style={{ background: '#241a1a', border: '1px solid #4a2a2a', borderRadius: 8, padding: '10px 12px' }}>
-          <b style={{ color: '#f4a60d' }}>Conflict — choose the version to keep:</b>
-          {' '}
-          <a href="#help/conflicts" style={{ fontSize: 11, color: '#129271', textDecoration: 'underline' }}>Why did this happen?</a>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-            {[conflict.versionAId, conflict.versionBId].map(vid => {
-              const v = versions.find(x => x.id === vid);
-              return (
-                <button key={vid}
-                  onClick={() => handleResolveConflict(vid)}
-                  style={{ padding: '5px 12px', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, cursor: 'pointer' }}
-                >
-                  Keep {shortId(vid)}{v ? ` from ${v.machineName} (${when(v.createdAt)})` : ''}
-                </button>
-              );
-            })}
+      {/* ── Conflict resolution — one card per open conflict, newest-active first ── */}
+      {gameConflicts.map(c => {
+        const stuck = machines.find(m => m.id === c.machineId)?.name;
+        return (
+          <div key={c.id} style={{ background: '#241a1a', border: '1px solid #4a2a2a', borderRadius: 8, padding: '10px 12px' }}>
+            <b style={{ color: '#f4a60d' }}>
+              Conflict{stuck ? ` — ${stuck} cannot sync` : ''}: choose the version to keep
+            </b>
+            {' '}
+            <a href="#help/conflicts" style={{ fontSize: 11, color: '#129271', textDecoration: 'underline' }}>Why did this happen?</a>
+
+            {c.count > 1 && (
+              <div style={{ fontSize: 11, color: '#8b9aaa', marginTop: 4, lineHeight: 1.5 }}>
+                {c.count} divergent saves folded into this conflict — the <b>newest</b> is offered below.
+                The older ones are still listed under Versions and can be promoted with "Set as Latest".
+              </div>
+            )}
+
+            {/* Machine, time and size, because a hash fragment is not enough to choose between two
+                saves. This card used to render only a short id and a date. */}
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
+              {[c.versionAId, c.versionBId].map(vid => {
+                const v = versions.find(x => x.id === vid);
+                return (
+                  <button key={vid}
+                    onClick={() => handleResolveConflict(c.id, vid)}
+                    style={{ padding: '7px 13px', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, cursor: 'pointer', textAlign: 'left', lineHeight: 1.5 }}
+                  >
+                    <div style={{ fontWeight: 600 }}>
+                      Keep {v ? v.machineName : shortId(vid)}{vid === headId ? ' — current Latest' : ''}
+                    </div>
+                    <div style={{ fontSize: 10.5, opacity: 0.85, fontFamily: "'JetBrains Mono', monospace" }}>
+                      {v ? `${when(v.createdAt)} · ${fmtSize(v.size)}` : shortId(vid)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
 
       {/* ── Initial sync wizard ── */}
       {contributors.length > 1 && (
@@ -525,7 +595,16 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
 
       {/* ── Versions ── */}
       <div style={{ ...card, marginBottom: 24 }}>
-        <div style={cardHeader}><span style={sectionLabel}>Versions</span></div>
+        <div style={{ ...cardHeader, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span style={sectionLabel}>Versions</span>
+          {/* Retention otherwise runs only as a side effect of an upload, so a game nobody is playing
+              keeps whatever it accumulated — and clearing that used to need the admin API by hand. */}
+          <button
+            style={ghostBtn()}
+            title="Apply this game's retention limit now, without waiting for the next upload"
+            onClick={handlePruneNow}
+          >Prune now</button>
+        </div>
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ background: '#222d34' }}>
@@ -554,16 +633,28 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                       </td>
                       <td style={tdStyle}>{v.machineName}</td>
                       <td style={tdMono}>{when(v.createdAt)}</td>
-                      <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#8b9aaa' }}>{fmtMb(v.size)}</td>
+                      <td style={{ padding: '11px 18px', fontSize: 11.5, color: '#8b9aaa' }}>{fmtSize(v.size)}</td>
                       <td style={{ padding: '11px 18px' }}>
-                        {v.id !== headId && (
+                        <div style={{ display: 'flex', gap: 5, justifyContent: 'flex-end' }}>
+                          {/* The escape hatch. Without it there was no way to take a copy of a save
+                              from the console before doing something destructive to it, so "back it
+                              up first" could not be offered as a step at all. */}
                           <button
-                            onClick={() => handleDeleteVersion(v.id)}
-                            style={{ padding: '2px 8px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 3, fontSize: 10, cursor: 'pointer' }}
+                            onClick={() => handleDownloadVersion(v)}
+                            title="Download this version's archive"
+                            style={{ padding: '2px 8px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 3, fontSize: 10, cursor: 'pointer' }}
                           >
-                            Delete
+                            Download
                           </button>
-                        )}
+                          {v.id !== headId && (
+                            <button
+                              onClick={() => handleDeleteVersion(v.id)}
+                              style={{ padding: '2px 8px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 3, fontSize: 10, cursor: 'pointer' }}
+                            >
+                              Delete
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))

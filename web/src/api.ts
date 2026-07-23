@@ -43,6 +43,28 @@ export const api = {
     request<void>(`/games/${gameId}/excludes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patterns) }),
   deleteVersion: (gameId: string, versionId: string) =>
     request<void>(`/games/${gameId}/versions/${versionId}`, { method: 'DELETE' }),
+
+  /** Apply the game's retention limit now, rather than waiting for the next upload to trigger it. */
+  pruneNow: (gameId: string) =>
+    request<{ removed: number }>(`/games/${gameId}/prune`, { method: 'POST' }),
+
+  /**
+   * Download one version's archive.
+   *
+   * Deliberately not an `<a href>`: the admin password travels as a header and a plain link cannot
+   * carry one, so this fetches the blob and hands the browser a save prompt. Being able to take a
+   * copy before doing something destructive is what makes the destructive actions safe to offer.
+   */
+  downloadVersion: async (gameId: string, versionId: string, filename: string) => {
+    const res = await fetch(`/api/games/${gameId}/versions/${versionId}/download`, { headers: headers() });
+    if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+    const url = URL.createObjectURL(await res.blob());
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
   setLatest: (gameId: string, versionId: string) => request<void>(`/games/${gameId}/set-latest?version=${versionId}`, { method: 'POST' }),
   forceRelease: (gameId: string) => request<void>(`/games/${gameId}/lease/force`, { method: 'DELETE' }),
   resolveConflict: (conflictId: string, versionId: string) => request<void>(`/conflicts/${conflictId}/resolve?version=${versionId}`, { method: 'POST' }),

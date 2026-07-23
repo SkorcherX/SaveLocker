@@ -102,31 +102,43 @@ stall retention (0.2), and still leave the console showing the oldest and least 
   At minimum audit it distinctly when the winning version is *older* than the current head; right now
   the destructive case is indistinguishable from a normal resolve in the audit log.
 
-### Tier 1 — console UX (the maintainer's requirement: no `curl`, and not tedious)
+### Tier 1 — console UX ✅ **DONE 2026-07-23, except "Keep both"**
 
-- **1.1 — Show every conflict, newest-first.** `GameDetail.tsx:40` does `.find()` over a list ordered
-  oldest-first (`SyncService.cs:563`), so the console reliably surfaces the *least* useful conflict.
-  Flip to `OrderByDescending` and render `.filter()`. The newest conflict is the one holding the
-  user's actual progress.
-- **1.2 — Show enough to decide.** Today: `Keep 4a3f9c21 from Deck (7/22/2026, 4:31 PM)`. Nobody can
-  choose between two saves on a hash fragment. Show machine, local time, size, **and the delta**
-  (file count, newest file mtime). Add **Keep both** — promote the winner, retag the loser as a
-  protected version exempt from pruning. That is the option users actually want and cannot express.
-- **1.3 — Confirm before resolving.** `GameDetail.tsx:277` fires with no confirmation, while delete,
-  Set as Latest and delete-game all confirm. It is the most consequential button on the page and the
-  only unguarded one. Name consequences concretely, including how many newer saves are affected.
-- **1.4 — Bulk actions on the Versions card.** A **Prune now** button (apply retention server-side
-  without needing a push) and multi-select delete. `PruneVersionsAsync` exists; it has no endpoint.
-- **1.5 — Download a version from the console.** Version download is agent-only (`Program.cs:295`,
-  `X-Api-Key` group). There is no admin route and no button, which is why "back up the good save
-  before touching anything" was not offerable as a UI step during the incident. Add
-  `admin.MapGet("/games/{id}/versions/{versionId}/download")` + a per-row button. **This is the escape
-  hatch that makes every other destructive action safe to offer.**
-- **1.6 — Conflict alerts must not be dismissible like transient warnings.** `HealthService.cs:201`
-  treats a conflict identically to "server unreachable", but every other agent event self-heals and a
-  conflict does not. The maintainer dismissed the toast and played for a day. Either suppress Dismiss
-  for `AgentEventCodes.Conflict`, or require acknowledging that the conflict remains open. Badge
-  should deep-link to the resolution UI.
+The maintainer's requirement was: no `curl`, and not tedious. All six items are addressed; the one
+deferred piece is called out under 1.2.
+
+- ~~**1.1 — Show every conflict, newest-first.**~~ ✅ `GameDetail.tsx` uses `.filter()` (was `.find()`,
+  which silently hid every conflict but one), and `ListOpenConflictsAsync` orders by `LastSeen`
+  descending (was `CreatedAt` ascending — reliably the *least* useful one).
+- **1.2 — Show enough to decide.** ✅ **Display half done.** Each option now shows machine, local time
+  and size; the card names the stuck machine and, when `Count > 1`, explains that older divergent
+  saves are folded in and still promotable. `fmtSize` is adaptive — the old fixed-MB formatter
+  rendered every small save as "0.00 MB", precisely where a size is being read to tell two apart.
+  - ⏳ **DEFERRED: "Keep both".** Needs a `Protected` flag on `SaveVersion` exempting it from pruning,
+    plus a migration and UI for un-protecting. Worth doing, but it is a schema change and a data-model
+    decision, not a console tweak — so it is its own item rather than a rider on this one.
+  - ⏳ Not done: the file-count / newest-mtime **delta**. The server does not store it; it would need
+    computing at upload time or deriving from the archive on demand.
+- ~~**1.3 — Confirm before resolving.**~~ ✅ Names the save, and the consequence people do not expect:
+  *"N newer saves will no longer be what machines pull"*, plus that nothing is deleted and that both
+  machines will be told to pull. It was the only unguarded destructive button on the page.
+- ~~**1.4 — Prune now.**~~ ✅ `POST /api/games/{id}/prune` + a button on the Versions card header.
+  Reuses the same `PruneVersionsAsync` the upload path calls, so manual and automatic pruning can
+  never disagree about what is safe to delete. ⏳ Multi-select delete not done — per-row delete plus
+  Prune now covers the real need.
+- ~~**1.5 — Download a version from the console.**~~ ✅ `GET /api/games/{id}/versions/{versionId}/download`
+  on the **admin** group + a per-row Download button. ⚠️ The route checks the version belongs to the
+  game: `DownloadVersionAsync` resolves by version id alone, so without that any game's archive is
+  reachable through any game's URL. Covered by a test.
+  - Deliberately fetched as a blob rather than an `<a href>` — the admin password is a header and a
+    plain link cannot carry one.
+- ~~**1.6 — Conflict alerts must not be dismissible.**~~ ✅ A `sync.conflict` event now shows
+  **Resolve** (which opens Games) instead of Dismiss. Every other agent event self-heals when the
+  machine syncs cleanly, so Dismiss is honest for those; a conflict sits until a human acts, and
+  offering the same grey button made "I made the warning go away" indistinguishable from "I fixed it".
+  - Client-side only, deliberately: the plan offered "suppress Dismiss **or** require acknowledgement",
+    and this is the first. `HealthService.DismissAsync` is unchanged, so the API can still dismiss —
+    acceptable for a single-admin self-hosted console, and worth revisiting only if that stops holding.
 
 ### Tier 2 — prevention
 
@@ -152,11 +164,10 @@ stall retention (0.2), and still leave the console showing the oldest and least 
 | ~~1~~ | ~~**0.0**~~ | ✅ done 2026-07-23 — the agent no longer misreports its parent |
 | ~~2a~~ | ~~**0.4**~~ | ✅ done 2026-07-23 — resolving now reaches the fleet instead of only the DB |
 | ~~2b~~ | ~~**0.1**, **0.2**~~ | ✅ done 2026-07-23 — **Tier 0 is complete** |
-| **3** | 1.1, 1.3, 1.6 | Makes the existing UI honest — small diffs, high safety return |
-| 3 | 1.1, 1.3, 1.6 | Makes the existing UI honest — small diffs, high safety return |
-| 4 | 1.4, 1.5 | Removes the need for shell access entirely |
-| 5 | 2.1 | Highest prevention value; schema change + migration |
-| 6 | 1.2, 2.2, 2.3, 0.3 | Polish and hardening |
+| ~~3~~ | ~~1.1, 1.3, 1.6~~ | ✅ done 2026-07-23 — the existing UI is honest |
+| ~~4~~ | ~~1.4, 1.5~~ | ✅ done 2026-07-23 — **shell access is no longer needed** |
+| **5** | **2.1** | Per-game conflict policy. Highest remaining prevention value; schema + migration |
+| 6 | 2.2, 2.3, 0.3, "Keep both" | Polish and hardening |
 
 ⚠️ **Tiers 1 and 2 touch the API** — regenerate `web/src/api-types.ts` and commit the updated
 `src/Server/openapi.json` snapshot, per `CLAUDE.md`.
