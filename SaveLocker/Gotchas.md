@@ -55,6 +55,21 @@ Same incident. Both are correct as implemented; both mislead.
   `savelocker pull` defaults to `force: false` (`AgentCli.cs:266`), whereas the **console's Pull button
   sends `force: true`** (`GameDetail.tsx:370`), which bypasses the guard at `SyncEngine.cs:255`.
 
+## `Invoke-RestMethod` does not unroll a JSON array the same way on 5.1 and pwsh 7
+Cost two debugging rounds on 2026-07-23 while testing backlog 0.4, and both rounds blamed the server.
+**Windows PowerShell 5.1 hands a JSON array back as a SINGLE item**, so `@(Invoke-RestMethod ...)`
+wraps it instead of flattening it: `.Count` reads **1**, every `Where-Object` downstream matches
+nothing, and the assertion fails exactly as if the server had returned nothing at all.
+- **The tell** is `ConvertTo-Json` on the result showing `{"value":[...],"Count":2}` — a nested array,
+  not a list of objects. If a filter over an API list mysteriously matches zero rows, dump the raw
+  payload *before* touching the server code.
+- **Fix — go through `ConvertFrom-Json`,** which unrolls identically on both hosts:
+  `function JsonArray($url) { @((Invoke-WebRequest $url -UseBasicParsing).Content | ConvertFrom-Json) }`
+- **This is not cosmetic:** the suites run on Windows PowerShell 5.1 locally *and* pwsh 7 on Linux and
+  in CI, so a script that passes on one host can silently assert nothing on the other.
+- ⚠️ Single-object endpoints are unaffected, which is why the rest of the suite never hit it. It bites
+  only on list endpoints — `/api/conflicts`, `/api/commands`, `/api/games/{id}/versions`.
+
 ## `NoChange` returns before the prune call — a force-push can look like a broken fix
 `UploadAsync` returns at `SyncService.cs:410` when the content hash already matches the head, which is
 **above** both the force check and `PruneVersionsAsync` (`:459`). So "force-push to trigger retention"

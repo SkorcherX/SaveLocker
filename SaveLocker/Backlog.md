@@ -51,12 +51,26 @@ stall retention (0.2), and still leave the console showing the oldest and least 
   - ⏳ **Released nowhere yet.** The Deck runs a hand-built `9.9.9-ci` tarball. **Windows agents are
     equally affected** — the tray is a long-lived host too. Ship this in the next release.
 
-- **0.4 — Resolving a conflict must un-stick the agent.** `ResolveConflictAsync` is a database edit
-  that looks like an action. It should enqueue a **guarded** `Pull` for the machine whose version
-  lost; the command channel already exists (`SyncService.cs:620`, picked up on the 20 s poll).
-  - ⚠️ **Guarded, never forced.** An auto-triggered *force* pull is precisely how the losing machine's
-    unpushed progress gets destroyed — the failure class `Gotchas.md` and v0.3.2 already fought twice.
-    The console's own Pull button sends `force: true` (`GameDetail.tsx:370`); do not reuse that path.
+- ~~**0.4 — Resolving a conflict must un-stick the agent.**~~ ✅ **DONE 2026-07-23.**
+  `ResolveConflictAsync` now enqueues a **guarded** `Pull` via the existing command channel, picked up
+  on the agent's 20 s poll.
+  - ⚠️ **The backlog entry under-specified this: it is BOTH machines, not just the loser.** The
+    winner's content is already byte-identical to the new head, but its pointer still names the parent
+    it presented — so its next push is rejected exactly like the loser's. **That is the case that
+    stranded the maintainer on round 2 of the incident**, after resolving in favour of the Deck.
+  - **Guarded, never forced**, and each outcome is correct by construction: the winner short-circuits
+    before touching a file and just repairs its pointer; a loser with nothing unpushed has the winner
+    restored over it; a loser carrying newer local edits is **blocked** and says so on the console.
+    Forcing would destroy work the server has never seen (`Decisions.md` §9). Note `GameDetail.tsx:370`
+    sends `force: true` — that path is deliberately not reused.
+  - Dedupes on a pending `(machine, game, Pull)` so clearing several conflicts does not queue a pull
+    per click, and joins `Machines` so a version belonging to a **deleted** machine cannot violate the
+    command FK.
+  - `run-agent-tests.ps1` **20 → 26** (Windows). ⚠️ Only **one** of the new checks discriminates on
+    0.4 — "resolving queued a pull for BOTH machines", verified to fail pre-fix. The other three drive
+    the pulls manually because this suite has no polling daemon, so they cover the *mechanism* 0.4
+    depends on rather than 0.4 itself. Closing that needs a daemon in the loop, as in
+    `run-concurrency-tests.ps1`.
 
 - **0.1 — Conflicts must deduplicate.** `SyncService.cs:437` inserts a fresh `ConflictFlag` per
   divergent push, unconditionally. Dedupe on **(gameId, versionAId, diverging machineId)**: update
@@ -127,7 +141,8 @@ stall retention (0.2), and still leave the console showing the oldest and least 
 | Order | Items | Why |
 |---|---|---|
 | ~~1~~ | ~~**0.0**~~ | ✅ done 2026-07-23 — the agent no longer misreports its parent |
-| **2** | **0.4**, 0.1, 0.2 | Kills the conflict-loop, the 75-row explosion, and the unbounded storage |
+| ~~2a~~ | ~~**0.4**~~ | ✅ done 2026-07-23 — resolving now reaches the fleet instead of only the DB |
+| **2b** | **0.1**, 0.2 | The 75-row explosion and the unbounded storage; both still reachable today |
 | 3 | 1.1, 1.3, 1.6 | Makes the existing UI honest — small diffs, high safety return |
 | 4 | 1.4, 1.5 | Removes the need for shell access entirely |
 | 5 | 2.1 | Highest prevention value; schema change + migration |

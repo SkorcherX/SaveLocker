@@ -233,9 +233,21 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ---
 
-## ▶ NEXT ACTION: **Backlog item 0.4 — resolving a conflict must un-stick the agent**
+## ▶ NEXT ACTION: **Backlog items 0.1 + 0.2 — conflict dedupe, and retention while conflicted**
 
-`Backlog.md` → "🔴 ACTIVE — conflict handling". 0.0 is done (below); 0.4 is next, then 0.1 and 0.2.
+`Backlog.md` → "🔴 ACTIVE — conflict handling". **0.0 and 0.4 are done** (below). 0.1 and 0.2 are the
+two that remain from Tier 0, and both are still reachable today: a genuine two-machine conflict still
+writes a `ConflictFlag` row per push and still stalls `PruneVersionsAsync` entirely.
+
+### ✅ 0.4 is DONE (2026-07-23) — released nowhere yet
+
+`ResolveConflictAsync` enqueues a **guarded** pull for **both** machines in the conflict, so resolving
+in the console actually reaches the fleet. The backlog entry said "the machine whose version lost";
+that was wrong — the **winner** is stuck too, because its pointer still names the parent it presented
+even though its content already matches the head. That is what stranded the maintainer on round 2.
+
+⚠️ **Server-side change, so this one needs a container redeploy** (`docker compose pull && docker
+compose up -d`) — unlike 0.0, which was agent-only.
 
 ### ✅ Task 0.0 is DONE and device-verified (2026-07-23)
 
