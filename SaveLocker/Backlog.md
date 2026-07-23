@@ -7,6 +7,140 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 > operational follow-up is done (container updated, fleet keys rotated). Indexed in
 > `logs/shipped-2026-07.md`; rationale in `Decisions.md` §7–§9; narrative in `logs/sessions.md`.
 
+## 🔴 ACTIVE — conflict handling (the 2026-07-22 Octopath incident)
+
+One real play session on a Deck produced **75 open conflicts and 2.66 GB of saves on a game
+configured to retain 5**, and escaping it required `curl` against the admin API. Nothing here is
+hypothetical: every item below is a defect the maintainer hit in sequence over 2026-07-22/23.
+
+**What the incident actually proved.** The server behaved correctly on every single request. The
+*agent* misreported its parent version, and the *console* had no way to see or fix the result. So
+the fix is mostly agent-side and console-side, and the tempting server-side reading ("resolution
+logic is wrong") is the wrong one.
+
+Full narrative in `logs/2026-07-23_conflict-storm.md`. Sequence of discovery, which matters because
+each fix revealed the next one:
+
+| # | Symptom the maintainer saw | Actual cause |
+|---|---|---|
+| 1 | 75 conflicts, console only ever offered one | `ConflictFlag` inserted per divergent push, console `.find()`s the oldest |
+| 2 | 2.66 GB on a retain-5 game | prune unreachable while conflicted; every version pinned by an open conflict |
+| 3 | Resolved in console → conflicted again immediately | console resolution never tells the agent; its parent pointer stays stale |
+| 4 | Pulled to fix that → **still** conflicted on every save | the daemon never re-reads `config.json`, so it pushes from state the wrapper superseded |
+
+⚠️ **Item 4 was the root cause of the loop and was invisible until items 1–3 were worked around.**
+✅ **Fixed and device-verified 2026-07-23** (0.0 below). **The remaining items are still live:** the
+loop is gone, but a genuine two-machine conflict would still produce a row per push (0.1), still
+stall retention (0.2), and still leave the console showing the oldest and least useful one (1.1).
+**Next up is 0.4.**
+
+### Tier 0 — data-layer defects (small diffs, highest blast-radius reduction)
+
+- ~~**0.0 — The daemon pushes from stale in-memory state.**~~ ✅ **DONE 2026-07-23**, device-verified
+  on the Deck: 4 saves through the real Steam launch path, **zero conflicts**, where every prior
+  session conflicted on every save. Full record in `logs/2026-07-23_agent-stale-parent.md`; the
+  locked decision is `Decisions.md` §10, amending §8.
+  - **Fix A:** `SyncEngine` calls `AgentConfig.RefreshGameSyncState` inside the per-game lock before
+    push and pull. §8 had stopped a long-lived process *erasing* another's parent; nothing stopped it
+    *using* one already superseded.
+  - **Fix B — not the shape originally planned.** Auditing first showed all **17** `_config.Save()`
+    callers write settings or the game list and none intends to write sync state. So `Save()` is now
+    safe by construction and `CommandPoller` needed no edit at all. A rule 17 callers must remember
+    is not a rule.
+  - `run-concurrency-tests.ps1` **12 → 17**; checks 6 and 7 verified to FAIL against pre-fix code.
+  - ⏳ **Released nowhere yet.** The Deck runs a hand-built `9.9.9-ci` tarball. **Windows agents are
+    equally affected** — the tray is a long-lived host too. Ship this in the next release.
+
+- **0.4 — Resolving a conflict must un-stick the agent.** `ResolveConflictAsync` is a database edit
+  that looks like an action. It should enqueue a **guarded** `Pull` for the machine whose version
+  lost; the command channel already exists (`SyncService.cs:620`, picked up on the 20 s poll).
+  - ⚠️ **Guarded, never forced.** An auto-triggered *force* pull is precisely how the losing machine's
+    unpushed progress gets destroyed — the failure class `Gotchas.md` and v0.3.2 already fought twice.
+    The console's own Pull button sends `force: true` (`GameDetail.tsx:370`); do not reuse that path.
+
+- **0.1 — Conflicts must deduplicate.** `SyncService.cs:437` inserts a fresh `ConflictFlag` per
+  divergent push, unconditionally. Dedupe on **(gameId, versionAId, diverging machineId)**: update
+  `VersionBId` to the newer version, bump a `Count`, touch `LastSeen`.
+  - Mirror `HealthService.ApplyEventAsync` (`HealthService.cs:100`), which already dedupes on
+    (machine, game, code) while open and documents why appending produces 4,300 rows a day. Conflicts
+    need the same reasoning and should be recognisably the same shape.
+  - Including `machineId` keeps two genuinely diverging machines as two conflicts. 75 → 1.
+
+- **0.2 — Retention must run while conflicted.** The conflict branch returns at `SyncService.cs:451`
+  without calling `PruneVersionsAsync`. Add it, and call it from `ResolveConflictAsync` too —
+  resolution is the moment a pile of versions becomes unpinned. Already safe to run: the protected
+  set (`SyncService.cs:481`) covers the head and every open-conflict version.
+  - ⚠️ **`NoChange` returns at `SyncService.cs:410`, above the prune call and above the force check.**
+    So a force-push with no gameplay since prunes nothing and looks like the fix failed. This wasted
+    real time during the incident; whatever we do here, keep that path in mind.
+
+- **0.3 — Resolving must not silently rewind the head.** `SyncService.cs:577` writes `HeadVersionId`
+  with no regard for what is already there — which is how a resolve silently undoes a "Set as Latest".
+  At minimum audit it distinctly when the winning version is *older* than the current head; right now
+  the destructive case is indistinguishable from a normal resolve in the audit log.
+
+### Tier 1 — console UX (the maintainer's requirement: no `curl`, and not tedious)
+
+- **1.1 — Show every conflict, newest-first.** `GameDetail.tsx:40` does `.find()` over a list ordered
+  oldest-first (`SyncService.cs:563`), so the console reliably surfaces the *least* useful conflict.
+  Flip to `OrderByDescending` and render `.filter()`. The newest conflict is the one holding the
+  user's actual progress.
+- **1.2 — Show enough to decide.** Today: `Keep 4a3f9c21 from Deck (7/22/2026, 4:31 PM)`. Nobody can
+  choose between two saves on a hash fragment. Show machine, local time, size, **and the delta**
+  (file count, newest file mtime). Add **Keep both** — promote the winner, retag the loser as a
+  protected version exempt from pruning. That is the option users actually want and cannot express.
+- **1.3 — Confirm before resolving.** `GameDetail.tsx:277` fires with no confirmation, while delete,
+  Set as Latest and delete-game all confirm. It is the most consequential button on the page and the
+  only unguarded one. Name consequences concretely, including how many newer saves are affected.
+- **1.4 — Bulk actions on the Versions card.** A **Prune now** button (apply retention server-side
+  without needing a push) and multi-select delete. `PruneVersionsAsync` exists; it has no endpoint.
+- **1.5 — Download a version from the console.** Version download is agent-only (`Program.cs:295`,
+  `X-Api-Key` group). There is no admin route and no button, which is why "back up the good save
+  before touching anything" was not offerable as a UI step during the incident. Add
+  `admin.MapGet("/games/{id}/versions/{versionId}/download")` + a per-row button. **This is the escape
+  hatch that makes every other destructive action safe to offer.**
+- **1.6 — Conflict alerts must not be dismissible like transient warnings.** `HealthService.cs:201`
+  treats a conflict identically to "server unreachable", but every other agent event self-heals and a
+  conflict does not. The maintainer dismissed the toast and played for a day. Either suppress Dismiss
+  for `AgentEventCodes.Conflict`, or require acknowledging that the conflict remains open. Badge
+  should deep-link to the resolution UI.
+
+### Tier 2 — prevention
+
+- **2.1 — Per-game conflict policy.** Add `Game.ConflictPolicy` ∈ `{ Manual, NewestWins,
+  PreferMachine }`. For a single-player game across one person's own devices `NewestWins` is right
+  essentially always, and would have made this entire incident a non-event. Keep `Manual` the default;
+  offer the policy at the moment of first conflict. **Highest prevention value in the plan**, but needs
+  a schema change + migration, which is why it is not Tier 0.
+- **2.2 — The agent should back off when conflicted.** `SyncEngine.cs:178` alerts and retries forever;
+  it uploaded ~75 near-identical full archives nobody asked for. After N consecutive conflicts on a
+  game, report without uploading the payload — the server already holds a divergent copy.
+  - ⚠️ Verify first whether `2659.3 MB / 80` ≈ one save, which would confirm the archives are
+    near-duplicates and the backoff saves real Deck wifi, not just server disk.
+- **2.3 — Escalate a conflict that goes unread.** A conflict open >6 h is categorically different from
+  one open 5 minutes — it means the human does not know. Escalation must reach the Windows tray as
+  well as the console, since the Deck cannot toast (`Decisions.md` §2). In this incident that would
+  have reached the maintainer on the PC while the Deck stayed silent.
+
+### Suggested sequencing
+
+| Order | Items | Why |
+|---|---|---|
+| ~~1~~ | ~~**0.0**~~ | ✅ done 2026-07-23 — the agent no longer misreports its parent |
+| **2** | **0.4**, 0.1, 0.2 | Kills the conflict-loop, the 75-row explosion, and the unbounded storage |
+| 3 | 1.1, 1.3, 1.6 | Makes the existing UI honest — small diffs, high safety return |
+| 4 | 1.4, 1.5 | Removes the need for shell access entirely |
+| 5 | 2.1 | Highest prevention value; schema change + migration |
+| 6 | 1.2, 2.2, 2.3, 0.3 | Polish and hardening |
+
+⚠️ **Tiers 1 and 2 touch the API** — regenerate `web/src/api-types.ts` and commit the updated
+`src/Server/openapi.json` snapshot, per `CLAUDE.md`.
+
+⚠️ **The test-suite lesson applies again, exactly as `CONTEXT.md` warns.** Every defect here was
+invisible because no suite puts the system in the state where it fires: nothing pushes *twice* into
+an open conflict (0.1, 0.2), and `run-concurrency-tests.ps1`'s 12 checks cover the write race but not
+**a long-lived reader that went stale** (0.0). Each fix ships with the test that would have caught it.
+
 ## High priority
 - ~~**Linux Help-KB articles**~~ ✅ **DONE 2026-07-18 — and most of it was already done.** The task file (`tasks/linux-kb-articles.md`) had been **deleted** in `ff2c375`, while `CONTEXT.md` and this file both still pointed at it and listed work that had shipped days earlier. Actual state when checked: `deck-supported-games` written and registered (`83aa15e`); `deck-troubleshooting` **folded into `troubleshooting.md`** as the task file explicitly permitted, covering every bullet it listed; and all four §4 edits (`cli-reference`, `save-in-use-safety`, `conflicts`, `adding-games`) already applied. Recovered the task file from git history to confirm rather than trusting either doc.
   - **The real gap was newer than the task file:** v0.2.0 added user-visible refusal messages (`REFUSED the server's save`, symlink/junction, size and entry limits, path escape) with **nothing in the KB explaining them** — on a Deck, where the KB is the only support surface. Wrote `restore-safety.md` (Troubleshooting) covering all three causes with the fix for each, the deliberate exception that a symlinked save *root* still works, and the `SAVELOCKER_MAX_RESTORE_*` overrides. Cross-linked from `troubleshooting.md`; verified rendering, search, and both deep-links in the running dashboard.

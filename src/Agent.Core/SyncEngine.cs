@@ -111,6 +111,11 @@ public sealed class SyncEngine
         try
         {
             using var crossProcess = AgentStateLock.ForGame(game.GameId, _config.StateDir);
+            // Inside the lock, so the parent we read cannot be superseded between here and the
+            // upload. A long-lived host (the daemon, the tray) has been holding this object since it
+            // started; the launch wrapper may have pushed since, and presenting the boot-time parent
+            // is what makes the server record a conflict on a single-machine fleet.
+            _config.RefreshGameSyncState(game);
             return await PushCoreAsync(game, force, settle, ct);
         }
         finally { gate.Release(); }
@@ -226,6 +231,10 @@ public sealed class SyncEngine
     {
         var archive = TempArchive(game.GameId, "pull");
         using var crossProcess = AgentStateLock.ForGame(game.GameId, _config.StateDir);
+        // LastSyncedHash gates the un-pushed-changes check below, so a stale one is not merely
+        // untidy: it makes a legitimate pull look like it would overwrite local progress, and the
+        // pull is refused. Refresh before either is read.
+        _config.RefreshGameSyncState(game);
         try
         {
             var head = await _api.DownloadHeadAsync(game.GameId, archive, ct);

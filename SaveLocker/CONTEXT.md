@@ -233,7 +233,48 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ---
 
-## ▶ NEXT ACTION: **Device-verify the fresh-install enroll path**
+## ▶ NEXT ACTION: **Backlog item 0.4 — resolving a conflict must un-stick the agent**
+
+`Backlog.md` → "🔴 ACTIVE — conflict handling". 0.0 is done (below); 0.4 is next, then 0.1 and 0.2.
+
+### ✅ Task 0.0 is DONE and device-verified (2026-07-23)
+
+The daemon no longer pushes from state the launch wrapper superseded. Verified on the Deck: 4 saves
+through the real Steam launch path, **zero conflicts**, where every prior session conflicted on every
+save. Record: `logs/2026-07-23_agent-stale-parent.md`. Locked decision: `Decisions.md` §10.
+
+- **Fix A** — `SyncEngine` refreshes the parent from disk inside the per-game lock before push/pull.
+- **Fix B** — `AgentConfig.Save()` can no longer write per-game sync state at all. All 17 of its
+  callers write settings or the game list; `SaveGameSyncState` is the only writer. `CommandPoller`
+  needed no edit.
+- `run-concurrency-tests.ps1` is now **17 checks** (was 12); 6 and 7 proven to fail pre-fix.
+
+⚠️ **The Deck's daemon is RUNNING again** — the `systemctl --user stop` workaround is retired.
+⚠️ **This is released nowhere.** The Deck runs a hand-built `9.9.9-ci` test tarball, and **the Windows
+agents still have the bug** (the tray is a long-lived host too). Ship it in the next release.
+
+### The 2026-07-22 Octopath conflict storm — what happened
+
+One play session produced **75 open conflicts and 2.66 GB on a game configured to retain 5**, and
+escaping it required `curl` against the admin API. The full plan is `Backlog.md` → "🔴 ACTIVE —
+conflict handling"; the narrative is `logs/2026-07-23_conflict-storm.md`.
+
+**The server was correct on every request.** The agent misreported its parent version and the console
+had no way to see or fix the result. Four defects, each hidden behind the previous one:
+
+| # | Symptom | Cause |
+|---|---|---|
+| 1 | 75 conflicts, console offered one | `ConflictFlag` inserted per divergent push; console `.find()`s the **oldest** |
+| 2 | 2.66 GB on retain-5 | prune unreachable while conflicted; every version pinned by an open conflict |
+| 3 | Resolved → conflicted again | console resolution never tells the agent; its parent stays stale |
+| 4 | Pulled → **still** conflicted every save | daemon never re-reads `config.json` (item 0.0) |
+
+⚠️ **Start at 0.0, not 0.1.** Items 1–3 are consequences; #4 is the cause, and it stayed invisible
+until the others were worked around. Details in `Gotchas.md` (three new entries).
+
+⚠️ **Two traps this cost real time on, both now in `Gotchas.md`:** a *force*-push prunes nothing when
+content is unchanged (`NoChange` returns above the prune call), and the **console's Pull button sends
+`force: true`** while the CLI's `savelocker pull` is guarded — use the CLI to repair a stale parent.
 
 Everything else that was queued is done: the three security-hardening items shipped in v0.2.0, the
 container is updated, the fleet is rotated, and the Help KB is complete (below).

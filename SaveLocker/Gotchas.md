@@ -2,6 +2,65 @@
 
 Traps that have already cost time. Read before touching builds, paths, or the running server.
 
+## A one-machine conflict loop: the daemon pushes from state the launch wrapper superseded
+Found 2026-07-22/23 on a real Deck. Cost **75 conflicts and 2.66 GB on a retain-5 game**, and needed
+`curl` against the admin API to escape. Fix tracked as `tasks/0.0-agent-stale-parent.md`.
+
+**`config.json` has two owners.** `ProtonRun` loads it per Steam launch (always fresh); the daemon
+loads it once at boot — `Daemon.cs:118` captures `TrackedGame` refs out of `_config.Games` and nothing
+calls `AgentConfig.Load` again. After the wrapper pushes on exit, the daemon's folder watcher pushes
+with the superseded parent, and the server correctly records a conflict. `SyncEngine.cs:178` does not
+advance the pointer on conflict **by design**, so the daemon never recovers: it conflicts on *every*
+save until restarted.
+- **This looks exactly like the two-machine divergence in `CONTEXT.md`, but there is only one machine.**
+  `AgentConfig.SaveGameSyncState` says so in its own doc comment — and fixed only the **write** side.
+  `Decisions.md` §8 closed half the door. Nothing re-reads before *using* the parent.
+- ⚠️ **`CommandPoller.cs:179` called the full `_config.Save()`**, which was documented as unsafe for
+  per-game sync state. On a game-list change it wrote the daemon's stale `LastKnownVersionId` for
+  every game over the file, rewinding what the wrapper just wrote — so the **wrapper** then conflicted
+  too. The §8 lost-update, reintroduced via a path the fix never covered.
+  - **`changed` is edge-triggered, not level-triggered** — all five paths that set it assign the value
+    that makes their own next comparison equal, so it is `false` in steady state. **An idle sample
+    measures 0 and reads as "this cannot happen."** It flips precisely when a *human is editing in the
+    console* (save path, game added/removed, globs), so the corruption lands mid-repair — which is
+    exactly when it struck during the incident.
+- **Diagnostic:** interleaved `pushed new version` (wrapper) and `CONFLICT` (daemon) in `agent.log` for
+  the same game, on a single-machine fleet. Prune appearing to work *sometimes* is the same tell —
+  only the wrapper's fast-forwarding pushes reach `PruneVersionsAsync`.
+- **Workaround if it recurs:** `systemctl --user stop savelocker.service`. Saves still sync — the
+  wrapper drives pull-on-launch and push-on-exit (`Daemon.cs:8`) and does not need the daemon. Costs
+  heartbeats, remote commands, the agent UI and queue draining.
+- ✅ **FIXED 2026-07-23** (`tasks/0.0-agent-stale-parent.md`), in two parts. `SyncEngine` now calls
+  `AgentConfig.RefreshGameSyncState` inside the per-game lock before push and pull; and **`Save()` is
+  safe by construction** — it preserves per-game sync bookkeeping from disk, so `SaveGameSyncState`
+  is its only writer. `CommandPoller` needed no edit.
+  - **Why the primitive changed rather than the caller:** all 17 `Save()` call sites write settings or
+    the game list, none intends to write sync state. A rule that 17 callers must remember is not a
+    rule — and one of them had already forgotten it.
+- **Rule:** any long-lived process holding `AgentConfig` in memory must re-read per-game sync state
+  under the lock **before** using it, not merely before writing it. `run-concurrency-tests.ps1` was
+  written specifically for cross-process state and **all 12 of its checks covered only the write
+  race** — which is how a reader that went stale survived it. Now 17, with checks 6 and 7 covering
+  the read path and the poll path; both verified to FAIL against pre-fix code.
+
+## Two admin actions that read as "fix this" but only edit a row
+Same incident. Both are correct as implemented; both mislead.
+- **Resolving a conflict tells the agent nothing.** `ResolveConflictAsync` writes `HeadVersionId` and
+  stamps the flag. The agent's parent advances only on a successful push or a **pull**
+  (`SyncEngine.cs:165` / `:280`), so a machine resolved-for in the console stays stuck and conflicts
+  again on its next save. Recorded at `CONTEXT.md:332`; tracked as backlog item 0.4.
+- **A guarded pull is the repair, and it is safe.** When local content already matches the head,
+  `PullAsync` short-circuits at `SyncEngine.cs:240` **before** any file write and before the
+  unpushed-changes guard, repairing `LastKnownVersionId` as a side effect. ⚠️ Use the CLI —
+  `savelocker pull` defaults to `force: false` (`AgentCli.cs:266`), whereas the **console's Pull button
+  sends `force: true`** (`GameDetail.tsx:370`), which bypasses the guard at `SyncEngine.cs:255`.
+
+## `NoChange` returns before the prune call — a force-push can look like a broken fix
+`UploadAsync` returns at `SyncService.cs:410` when the content hash already matches the head, which is
+**above** both the force check and `PruneVersionsAsync` (`:459`). So "force-push to trigger retention"
+does nothing at all when no gameplay happened since, and reads as the retention fix having failed.
+Retention only runs on a push that actually carries new content.
+
 ## Inno `NextButtonClick` fires in `/SILENT` — returning False ABORTS the silent install
 Cost the fleet's auto-update between v0.1.6 and v0.1.7 (2026-07-14). The agent auto-updates by running
 the installer with **`/SILENT`** (`TrayApp.cs`). The installer-enrollment wizard page validated its

@@ -1,4 +1,4 @@
-# Cross-process state safety - 12 checks. Runs on BOTH Windows and Linux.
+# Cross-process state safety - 17 checks. Runs on BOTH Windows and Linux.
 #
 # The agent is not one process. Autorun keeps the daemon alive while Steam starts a SECOND process
 # (`savelocker run -- %command%`), and on Windows the tray runs alongside any CLI command. They share
@@ -24,6 +24,16 @@
 #                         never reaches the console - and the console is the Deck's only UI.
 #   5. Temp archives    - two pushes of one game must not share a temp archive path, or one deletes
 #                         the other's file mid-upload.
+#   6. Stale reader     - the mirror of 1, and the half that was missing. A long-lived process must
+#                         not PUSH a parent that another process has already superseded. Checks 1-5
+#                         prove the daemon does not ERASE another's version; nothing proved it does
+#                         not USE a dead one. It did, and the server correctly rejected every push
+#                         forever after - 75 conflicts and 2.66 GB on a real Deck. See
+#                         SaveLocker/logs/2026-07-23_conflict-storm.md.
+#   7. Reconcile write  - the daemon's POLL path, which no check above ever exercised: checks 1-5
+#                         only ever drive its PUSH path (SaveGameSyncState). ReconcileGamesAsync
+#                         calls AgentConfig.Save(), which used to serialize the whole in-memory
+#                         object and rewind a parent version another process had just recorded.
 #
 # Owns its server on :5183. Usage: .\tests\run-concurrency-tests.ps1 / pwsh tests/run-concurrency-tests.ps1
 
@@ -183,6 +193,65 @@ try {
     $tmpDir = Join-Path $scratch "tmp"
     $leftovers = if (Test-Path $tmpDir) { @(Get-ChildItem $tmpDir -Filter "*.zip") } else { @() }
     Check "no temp archives leaked after the storm" ($leftovers.Count -eq 0)
+
+    # =================================================================================
+    # 6. STALE READER - a long-lived process must not push a SUPERSEDED parent
+    # =================================================================================
+    # The daemon loaded config.json at boot and holds TrackedGame references for its whole lifetime
+    # (Daemon.StartFolderWatchers); nothing re-read them. So once another process pushed, every
+    # watch-push here presented the boot-time parent, the server correctly recorded a conflict, and
+    # because the conflict path deliberately does not advance the pointer, it never recovered.
+    #
+    # Quiesce first. Check 1 modified saveA and the daemon watches it, so without a settled start
+    # this races the settle gate and passes or fails on timing rather than on correctness. That
+    # timing accident is why the existing suite came close to this bug and never caught it.
+    Start-Sleep -Seconds 20
+
+    $preA = ((Get-Content $cfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $gameA }).LastKnownVersionId
+    "superseding progress A" | Set-Content (Join-Path $saveA "slot1.sav") -Encoding utf8
+    Agent push $gameA --force --config $cfg | Out-Null
+    $cliA = ((Get-Content $cfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $gameA }).LastKnownVersionId
+    Check "the CLI superseded A's parent version" ($cliA -ne $preA)
+
+    # The daemon's in-memory copy of A is now behind the file. Give its watcher something to push.
+    "post-supersede progress A" | Set-Content (Join-Path $saveA "slot1.sav") -Encoding utf8
+    foreach ($i in 1..60) {
+        Start-Sleep -Seconds 1
+        $nowA = ((Get-Content $cfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $gameA }).LastKnownVersionId
+        if ($nowA -ne $cliA) { break }
+    }
+
+    $ovA = (Invoke-RestMethod "$server/api/overview") | Where-Object { $_.game.name -eq $gameA }
+    Check "the daemon's watch-push did NOT conflict on a superseded parent" (-not $ovA.hasOpenConflict)
+
+    # =================================================================================
+    # 7. RECONCILE must not rewind sync state - Save() is not the writer of sync state
+    # =================================================================================
+    # Game C is the discriminator, for the same reason it is in the offline section below: the
+    # daemon watches saveC but nothing ever modifies it, so the daemon has never pushed C and its
+    # in-memory copy still carries the boot-time null. A whole-object Save() writes that null over
+    # the CLI's version - and C's next push then presents a stale parent and is rejected.
+    Agent push $gameC --force --config $cfg | Out-Null
+    $cliC = ((Get-Content $cfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $gameC }).LastKnownVersionId
+    Check "the CLI recorded a parent version for C" (-not [string]::IsNullOrWhiteSpace($cliC))
+
+    # Force a reconcile change the daemon must persist. A literal JSON array, not ConvertTo-Json:
+    # PowerShell 5.1 unwraps a single-element array to a bare string and the endpoint takes string[].
+    $gameCId = ((Invoke-RestMethod "$server/api/overview") | Where-Object { $_.game.name -eq $gameC }).game.id
+    Invoke-RestMethod "$server/api/games/$gameCId/excludes" -Method Post `
+        -Body '["*.conctest"]' -ContentType "application/json" | Out-Null
+
+    $globApplied = $false
+    foreach ($i in 1..60) {
+        Start-Sleep -Seconds 1
+        $c = (Get-Content $cfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $gameC }
+        if ($c.ExcludeGlobs -contains "*.conctest") { $globApplied = $true; break }
+    }
+    Check "the daemon reconciled the server's exclude change and wrote config" $globApplied
+
+    # THE ASSERTION. Reconcile's write must not have rewound C's parent version.
+    $finalC = ((Get-Content $cfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $gameC }).LastKnownVersionId
+    Check "reconcile's write did NOT rewind C's parent version" ($finalC -eq $cliC)
 
     # =================================================================================
     # 3 + 4. QUEUE and HEALTH survive a second writer WITH THE SERVER DOWN
