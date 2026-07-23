@@ -2140,6 +2140,25 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "machineId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32",
+            "default": 1
+          },
+          "lastSeen": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
           }
         }
       },

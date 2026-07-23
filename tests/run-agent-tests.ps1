@@ -204,9 +204,41 @@ Check "status shows conflict for SyncGame" (($status -join "`n") -like "*SyncGam
 # its next push is rejected exactly like the loser's.
 # WARNING: Invoke-RestMethod does NOT unroll a JSON array consistently. Windows PowerShell 5.1 hands
 # the whole array back as ONE item, so @() wraps it instead of flattening it and every downstream
-# filter silently matches nothing - which reads as "the server queued nothing" and blames the wrong
-# side entirely. ConvertFrom-Json unrolls identically on 5.1 and pwsh 7, and this suite runs on both.
+# filter silently matches nothing - which reads as "the server returned nothing" and sends you off to
+# debug the wrong side entirely. ConvertFrom-Json unrolls identically on 5.1 and pwsh 7, and this
+# suite runs on both. See Gotchas.md.
 function JsonArray($url) { @((Invoke-WebRequest $url -UseBasicParsing).Content | ConvertFrom-Json) }
+
+# ---- Conflicts must DEDUPE, and retention must keep running while conflicted (backlog 0.1 + 0.2) ----
+# The head never advances while a conflict is open, so VersionAId is constant and a machine that
+# keeps saving used to write one ConflictFlag row per push. That is how a single unresolved
+# divergence became 75 rows, which the console then offered one at a time, oldest first. Retention
+# made it worse from the other side: prune was reachable only from the fast-forward path, so a
+# conflicted game pruned nothing AND had every version pinned by an open conflict - 80 versions and
+# 2.66 GB on a game configured to keep 5.
+$syncGame = (JsonArray "http://localhost:5179/api/overview") | Where-Object { $_.game.name -eq "SyncGame" }
+$gameId   = "$($syncGame.game.id)"
+Invoke-RestMethod "http://localhost:5179/api/games/$gameId/retain?value=2" -Method Post | Out-Null
+
+Set-Content -Path (Join-Path $lapSave "slot1.sav") -Value "level=2b-laptop" -Encoding utf8
+Agent push --config $lapCfg SyncGame | Out-Null
+Set-Content -Path (Join-Path $lapSave "slot1.sav") -Value "level=2c-laptop" -Encoding utf8
+Agent push --config $lapCfg SyncGame | Out-Null
+
+$open = @((JsonArray "http://localhost:5179/api/conflicts") | Where-Object { "$($_.gameId)" -eq $gameId })
+Check "three divergent pushes produced ONE conflict" ($open.Count -eq 1)
+
+# Read 'count' through PSObject.Properties on purpose: every PowerShell object carries an intrinsic
+# .Count, so $open[0].count is ambiguous with a JSON field of the same name.
+$conflictCount = [int]$open[0].PSObject.Properties['count'].Value
+Check "the conflict counted every divergent push"   ($conflictCount -eq 3)
+Check "the conflict names the stuck machine"        (-not [string]::IsNullOrWhiteSpace("$($open[0].machineId)"))
+
+# Newest-first: the save the user has actually been playing is the one offered. Surfacing the oldest
+# is exactly what made the console useless during the incident.
+$versions = JsonArray "http://localhost:5179/api/games/$gameId/versions"
+Check "the conflict offers the NEWEST divergent save" ("$($open[0].versionBId)" -eq "$($versions[0].id)")
+Check "retention still runs while conflicted"         ($versions.Count -le 4)
 
 $conf = (JsonArray "http://localhost:5179/api/conflicts") | Select-Object -First 1
 Check "the server recorded an open conflict" ($null -ne $conf)

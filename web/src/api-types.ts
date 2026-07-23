@@ -2265,6 +2265,15 @@ export interface components {
             resolvedBy: null | string;
             /** Format: date-time */
             resolvedAt: null | string;
+            /** Format: uuid */
+            machineId?: null | string;
+            /**
+             * Format: int32
+             * @default 1
+             */
+            count: number;
+            /** Format: date-time */
+            lastSeen?: null | string;
         };
         /** @enum {unknown} */
         ConflictStatus: "Open" | "Resolved";

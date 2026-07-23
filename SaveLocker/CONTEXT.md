@@ -233,11 +233,25 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ---
 
-## ▶ NEXT ACTION: **Backlog items 0.1 + 0.2 — conflict dedupe, and retention while conflicted**
+## ▶ NEXT ACTION: **Tier 1 — console UX (1.1, 1.3, 1.6)**
 
-`Backlog.md` → "🔴 ACTIVE — conflict handling". **0.0 and 0.4 are done** (below). 0.1 and 0.2 are the
-two that remain from Tier 0, and both are still reachable today: a genuine two-machine conflict still
-writes a `ConflictFlag` row per push and still stalls `PruneVersionsAsync` entirely.
+`Backlog.md` → "🔴 ACTIVE — conflict handling". ✅ **Tier 0 is COMPLETE** (0.0, 0.4, 0.1, 0.2 — all
+2026-07-23). Tier 1 is the console: show every conflict newest-first, confirm before resolving, and
+stop conflict alerts being dismissible like transient warnings.
+
+⚠️ **0.1, 0.2 and 0.4 are SERVER changes and are not deployed.** The unRAID container needs
+`docker compose pull && docker compose up -d`. 0.1 also carries a **migration**
+(`20260723220958_AddConflictDedupe`), which applies on container start.
+
+### ✅ 0.1 + 0.2 are DONE (2026-07-23)
+
+Conflicts fold into one row per (game, head, machine) — **75 → 1** — carrying `Count`, `LastSeen` and
+the stuck `MachineId`, and offering the **newest** divergent save rather than the oldest. Retention
+now runs on the conflict path and on resolution, so a conflicted game no longer grows without bound.
+
+⚠️ **Ordering trap the test caught and review did not:** resolution unpins a conflict's versions, so
+pruning *before* `QueueResolutionPullsAsync` deletes the losing version that 0.4 reads to decide which
+machines to notify — leaving the loser stuck. **Queue the pulls, then prune.** Commented at the site.
 
 ### ✅ 0.4 is DONE (2026-07-23) — released nowhere yet
 

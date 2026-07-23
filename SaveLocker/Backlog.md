@@ -72,21 +72,30 @@ stall retention (0.2), and still leave the console showing the oldest and least 
     depends on rather than 0.4 itself. Closing that needs a daemon in the loop, as in
     `run-concurrency-tests.ps1`.
 
-- **0.1 — Conflicts must deduplicate.** `SyncService.cs:437` inserts a fresh `ConflictFlag` per
-  divergent push, unconditionally. Dedupe on **(gameId, versionAId, diverging machineId)**: update
-  `VersionBId` to the newer version, bump a `Count`, touch `LastSeen`.
-  - Mirror `HealthService.ApplyEventAsync` (`HealthService.cs:100`), which already dedupes on
-    (machine, game, code) while open and documents why appending produces 4,300 rows a day. Conflicts
-    need the same reasoning and should be recognisably the same shape.
-  - Including `machineId` keeps two genuinely diverging machines as two conflicts. 75 → 1.
+- ~~**0.1 — Conflicts must deduplicate.**~~ ✅ **DONE 2026-07-23.** Folds into the machine's existing
+  open conflict, keyed **(gameId, versionAId, machineId)** — same shape as
+  `HealthService.ApplyEventAsync` and for the same reason. **75 → 1.**
+  - `VersionBId` moves to the **newest** divergent save, which is what the user has been playing.
+    Older ones stay in the version list and can still be promoted with "Set as Latest".
+  - New columns `MachineId` / `Count` / `LastSeen` (migration `20260723220958_AddConflictDedupe`).
+    `MachineId` also answers "which machine is stuck?" without a join — until now only an
+    agent-reported health event could say. ⚠️ Migration **backfills `LastSeen` from `CreatedAt`** and
+    defaults `Count` to **1**, not EF's generated 0: a conflict that already exists represents at
+    least one push, and "0 occurrences" would be a lie. `MachineId` is deliberately left null on old
+    rows rather than guessed.
+  - `openapi.json` diff is **+21 / −1** (the −1 is a re-serialised closing brace), so additive only
+    and the either-order deploy note holds.
 
-- **0.2 — Retention must run while conflicted.** The conflict branch returns at `SyncService.cs:451`
-  without calling `PruneVersionsAsync`. Add it, and call it from `ResolveConflictAsync` too —
-  resolution is the moment a pile of versions becomes unpinned. Already safe to run: the protected
-  set (`SyncService.cs:481`) covers the head and every open-conflict version.
-  - ⚠️ **`NoChange` returns at `SyncService.cs:410`, above the prune call and above the force check.**
-    So a force-push with no gameplay since prunes nothing and looks like the fix failed. This wasted
-    real time during the incident; whatever we do here, keep that path in mind.
+- ~~**0.2 — Retention must run while conflicted.**~~ ✅ **DONE 2026-07-23.** `PruneVersionsAsync` now
+  runs on the conflict path and on resolution.
+  - ⚠️ **Ordering discovered by the test, not by review:** resolution unpins both of a conflict's
+    versions, so pruning before `QueueResolutionPullsAsync` can delete the losing version — and that
+    is what 0.4 reads to identify which machines to notify. Prune first and only the winner is told;
+    the loser stays stuck. **Queue the pulls, then prune.** There is a comment saying so at the call
+    site; do not "tidy" it.
+  - ⚠️ **`NoChange` still returns at `SyncService.cs:410`, above the prune call and above the force
+    check.** A force-push with no gameplay since prunes nothing and looks like the fix failed. This
+    wasted real time during the incident and is unchanged by 0.2.
 
 - **0.3 — Resolving must not silently rewind the head.** `SyncService.cs:577` writes `HeadVersionId`
   with no regard for what is already there — which is how a resolve silently undoes a "Set as Latest".
@@ -142,7 +151,8 @@ stall retention (0.2), and still leave the console showing the oldest and least 
 |---|---|---|
 | ~~1~~ | ~~**0.0**~~ | ✅ done 2026-07-23 — the agent no longer misreports its parent |
 | ~~2a~~ | ~~**0.4**~~ | ✅ done 2026-07-23 — resolving now reaches the fleet instead of only the DB |
-| **2b** | **0.1**, 0.2 | The 75-row explosion and the unbounded storage; both still reachable today |
+| ~~2b~~ | ~~**0.1**, **0.2**~~ | ✅ done 2026-07-23 — **Tier 0 is complete** |
+| **3** | 1.1, 1.3, 1.6 | Makes the existing UI honest — small diffs, high safety return |
 | 3 | 1.1, 1.3, 1.6 | Makes the existing UI honest — small diffs, high safety return |
 | 4 | 1.4, 1.5 | Removes the need for shell access entirely |
 | 5 | 2.1 | Highest prevention value; schema change + migration |

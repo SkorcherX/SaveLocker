@@ -35,5 +35,6 @@ public static class Mapping
 
     public static ConflictDto ToDto(this ConflictFlag c) =>
         new(c.Id, c.GameId, c.VersionAId, c.VersionBId, c.Status, c.CreatedAt,
-            c.ResolvedVersionId, c.ResolvedBy, c.ResolvedAt);
+            c.ResolvedVersionId, c.ResolvedBy, c.ResolvedAt,
+            c.MachineId, c.Count, c.LastSeen);
 }
