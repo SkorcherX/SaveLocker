@@ -434,18 +434,54 @@ public sealed class SyncService
 
         if (diverged)
         {
-            var conflict = new ConflictFlag
+            var now = DateTime.UtcNow;
+
+            // Fold into the machine's existing open conflict rather than opening another. The head
+            // never advances while a conflict is open, so VersionAId is constant and a machine that
+            // keeps saving would otherwise write one row per push: a real incident produced 75 rows
+            // for a single unresolved divergence, which the console then showed one at a time,
+            // oldest first. Keyed per MACHINE so two genuinely diverging machines still get two
+            // conflicts. Same shape as HealthService.ApplyEventAsync, and for the same reason.
+            var conflict = await _db.Conflicts.FirstOrDefaultAsync(c =>
+                c.GameId == gameId &&
+                c.Status == ConflictStatus.Open &&
+                c.VersionAId == serverHead!.Id &&
+                c.MachineId == machineId, ct);
+
+            if (conflict is null)
             {
-                Id = Guid.NewGuid(),
-                GameId = gameId,
-                VersionAId = serverHead!.Id,
-                VersionBId = versionId,
-                Status = ConflictStatus.Open,
-                CreatedAt = DateTime.UtcNow
-            };
-            _db.Conflicts.Add(conflict);
+                conflict = new ConflictFlag
+                {
+                    Id = Guid.NewGuid(),
+                    GameId = gameId,
+                    VersionAId = serverHead!.Id,
+                    VersionBId = versionId,
+                    MachineId = machineId,
+                    Status = ConflictStatus.Open,
+                    CreatedAt = now,
+                    LastSeen = now
+                };
+                _db.Conflicts.Add(conflict);
+            }
+            else
+            {
+                // Carry the NEWEST divergent save as the choice offered. The older ones remain in
+                // the version list and can still be promoted with "Set as Latest" — but the newest
+                // is what the user has actually been playing, and it is what they almost always
+                // want. Offering the oldest is precisely what made the console useless mid-incident.
+                conflict.VersionBId = versionId;
+                conflict.Count++;
+                conflict.LastSeen = now;
+            }
+
             await Audit(machineId, gameId, "upload.conflict", contentHash);
             await _db.SaveChangesAsync(ct);
+
+            // Retention must run here too. It used to be reachable only from the fast-forward path
+            // below, so a game stuck in conflict stopped pruning entirely and grew without bound —
+            // 80 versions and 2.66 GB on a game configured to keep 5. Safe to call: the protected
+            // set already covers the head and both versions of every open conflict.
+            await PruneVersionsAsync(gameId, ct);
 
             await LoadMachine(version, ct);
             return new UploadResult(UploadStatus.Conflict, version.ToDto(), conflict.ToDto());
@@ -582,7 +618,16 @@ public sealed class SyncService
         await Audit(null, conflict.GameId, "conflict.resolve", winningVersionId.ToString());
         await _db.SaveChangesAsync();
 
+        // ORDER MATTERS, and the obvious order is wrong. Queue the pulls FIRST: resolving unpins
+        // both of the conflict's versions, so pruning here can legitimately delete the losing one —
+        // and QueueResolutionPullsAsync identifies the machines to notify by looking those versions
+        // up. Prune first and the loser's row is gone before anyone asks who owned it, so only the
+        // winner gets told and the loser stays stuck. Caught by run-agent-tests, not by review.
         await QueueResolutionPullsAsync(conflict);
+
+        // Resolution is the first moment a pile of versions stops being pinned by an open conflict,
+        // so it is the first moment retention can actually act on them.
+        await PruneVersionsAsync(conflict.GameId, CancellationToken.None);
         return true;
     }
 

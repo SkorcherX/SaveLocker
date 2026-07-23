@@ -96,6 +96,28 @@ public class ConflictFlag
     public Guid VersionAId { get; set; }
     public Guid VersionBId { get; set; }
 
+    /// <summary>
+    /// The machine whose push diverged — the one that produced <see cref="VersionBId"/>, and the one
+    /// that is stuck. Part of the dedupe key, and it answers "which machine?" without a join; until
+    /// now only an agent-reported health event could say.
+    /// <para>
+    /// Nullable solely because rows written before dedupe existed have no value. Every new conflict
+    /// sets it.
+    /// </para>
+    /// </summary>
+    public Guid? MachineId { get; set; }
+
+    /// <summary>
+    /// How many divergent pushes this one open conflict represents. A machine that keeps saving while
+    /// conflicted bumps this instead of writing a row per push — the same reasoning that makes agent
+    /// health events deduplicate rather than append (<c>HealthService</c>). One real incident produced
+    /// <b>75 rows for a single unresolved divergence</b>.
+    /// </summary>
+    public int Count { get; set; } = 1;
+
+    /// <summary>When the most recent divergent push arrived. <see cref="CreatedAt"/> stays put.</summary>
+    public DateTime LastSeen { get; set; }
+
     public ConflictStatus Status { get; set; } = ConflictStatus.Open;
     public DateTime CreatedAt { get; set; }
 

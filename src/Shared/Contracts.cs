@@ -130,6 +130,9 @@ public enum ConflictStatus
     Resolved
 }
 
+/// <param name="MachineId">The machine whose push diverged — the one that is stuck.</param>
+/// <param name="Count">Divergent pushes folded into this one conflict; &gt;1 means it kept recurring.</param>
+/// <param name="LastSeen">When the most recent divergent push arrived.</param>
 public record ConflictDto(
     Guid Id,
     Guid GameId,
@@ -139,7 +142,10 @@ public record ConflictDto(
     DateTime CreatedAt,
     Guid? ResolvedVersionId,
     string? ResolvedBy,
-    DateTime? ResolvedAt);
+    DateTime? ResolvedAt,
+    Guid? MachineId = null,
+    int Count = 1,
+    DateTime? LastSeen = null);
 
 // ----- Aggregate state (dashboard + agent sync) -----
 
