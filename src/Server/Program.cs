@@ -497,6 +497,24 @@ admin.MapGet("/games/{id:guid}/versions", async (Guid id, SyncService sync) =>
     Results.Ok((await sync.ListVersionsAsync(id)).Select(v => v.ToDto())))
     .Produces<List<SaveVersionDto>>();
 
+// Download one version from the CONSOLE. The agent group already has this route, but only with a
+// machine key — so an admin could not take a copy of a save before doing something destructive to
+// it, and "back it up first" was not offerable as a UI step. That gap is what made every recovery
+// action during the 2026-07-22 incident feel one-way.
+admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/download", async (
+    Guid id, Guid versionId, HttpContext http, SyncService sync) =>
+{
+    var dl = await sync.DownloadVersionAsync(versionId);
+    // Checked, not assumed: DownloadVersionAsync resolves by version id alone, so without this a
+    // caller could pull any game's archive through any game's URL.
+    if (dl is null || dl.Value.version.GameId != id) return Results.NotFound();
+    return StreamVersion(http, dl);
+});
+
+// Apply retention immediately, instead of only as a side effect of the next upload.
+admin.MapPost("/games/{id:guid}/prune", async (Guid id, SyncService sync) =>
+    Results.Ok(new PruneResult(await sync.PruneNowAsync(id))));
+
 // ---- Admin actions ----
 admin.MapGet("/conflicts", async (SyncService sync) =>
     Results.Ok((await sync.ListOpenConflictsAsync()).Select(c => c.ToDto())))

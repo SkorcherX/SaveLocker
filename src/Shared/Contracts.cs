@@ -200,6 +200,9 @@ public record AgentCommandDto(
 
 public record CommandResultRequest(CommandStatus Status, string? Result);
 
+/// <summary>How many versions an explicit "prune now" actually removed.</summary>
+public record PruneResult(int Removed);
+
 // ----- Enrollment -----
 
 /// <summary>
