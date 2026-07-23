@@ -90,20 +90,97 @@ public sealed class AgentConfig
 
     [JsonIgnore] public string StateDir => Path.GetDirectoryName(Path.GetFullPath(ConfigPath))!;
 
+    /// <summary>Deserialize the config as it currently is on disk, or null if absent/unreadable.</summary>
+    private AgentConfig? ReadOnDisk()
+    {
+        try
+        {
+            return File.Exists(ConfigPath)
+                ? JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(ConfigPath), JsonOpts)
+                : null;
+        }
+        catch { return null; }
+    }
+
     /// <summary>
-    /// Write the whole config. Atomic, and serialized against other processes — but still
-    /// last-writer-wins for anything another process changed in the meantime.
+    /// Write settings and the game list. Atomic, and serialized against other processes.
     /// <para>
-    /// That is fine for settings a human edits (nobody changes the server URL in two places at
-    /// once) and NOT fine for per-game sync state, which the daemon and the launch wrapper both
-    /// rewrite on every sync. Use <see cref="SaveGameSyncState"/> for that.
+    /// <b>Per-game sync bookkeeping is never written here</b> — <see cref="SaveGameSyncState"/> owns
+    /// it, and this method carries whatever is on disk through untouched. Every caller of this one is
+    /// persisting settings or the game list (server URL, machine name, API key, a save folder, a
+    /// removed game); none of them holds a newer parent version than the file does.
+    /// </para>
+    /// <para>
+    /// That used to be a rule stated here and left to callers to remember, and
+    /// <c>CommandPoller.ReconcileGamesAsync</c> did not: the daemon and the tray hold this object for
+    /// their entire lifetime, so on any game-list change it wrote the parent version that was current
+    /// <i>at boot</i> over the one the launch wrapper had just recorded — and the WRAPPER's next push
+    /// was then rejected as a conflict. Same lost update <see cref="SaveGameSyncState"/> exists to
+    /// prevent (<c>Decisions.md</c> §8), reached through a different door. A rule 17 call sites must
+    /// remember is not a rule, so the primitive is now safe instead.
+    /// </para>
+    /// <para>
+    /// Refreshing the in-memory objects from disk is deliberate, not incidental: it converges this
+    /// process's view toward the file rather than away from it, so a long-lived host that saves a
+    /// setting also stops being stale.
+    /// </para>
+    /// <para>
+    /// <b><see cref="TrackedGame.SaveDirectory"/> is the caller's to write.</b> It is reconciled from
+    /// the server, which is its highest authority, and set directly by the agent UI and the CLI — all
+    /// of which route through here. It is deliberately not preserved from disk.
     /// </para>
     /// </summary>
     public void Save()
     {
         using var guard = AgentStateLock.Acquire("config", StateDir);
+
+        var onDisk = ReadOnDisk();
+        if (onDisk is not null)
+        {
+            foreach (var game in Games)
+            {
+                // Absent on disk means this game is new here, so in-memory (null) is already right.
+                var stored = onDisk.Games.FirstOrDefault(g => g.GameId == game.GameId);
+                if (stored is null) continue;
+                game.LastKnownVersionId = stored.LastKnownVersionId;
+                game.LastSyncedHash = stored.LastSyncedHash;
+            }
+            TotalSavesPushed = onDisk.TotalSavesPushed;
+            LastSyncTime = onDisk.LastSyncTime;
+        }
+
         AtomicFile.WriteAllText(ConfigPath, JsonSerializer.Serialize(this, JsonOpts),
             restrictPermissions: true);
+    }
+
+    /// <summary>
+    /// Re-read one game's sync bookkeeping from disk into the caller's object.
+    ///
+    /// The mirror of <see cref="SaveGameSyncState"/>, and the other half of the same bug. That method
+    /// stops this process <b>erasing</b> a parent version another process recorded; this one stops it
+    /// <b>using</b> a parent another process has already superseded.
+    ///
+    /// The daemon loads its config once at boot and holds <see cref="TrackedGame"/> references for the
+    /// process lifetime (<c>Daemon.StartFolderWatchers</c>), so once the launch wrapper pushes on game
+    /// exit, every watch-push here would otherwise present a stale parent. The server correctly
+    /// rejects it as a conflict — and because the conflict path deliberately does not advance the
+    /// pointer (<c>SyncEngine</c>), the daemon never recovers: it conflicts on every save until it is
+    /// restarted, on a fleet of exactly one machine.
+    ///
+    /// <para>
+    /// <see cref="TrackedGame.SaveDirectory"/> is deliberately NOT refreshed here — reconcile owns it,
+    /// and pulling it back from disk mid-sync would fight the poller for no benefit.
+    /// </para>
+    /// </summary>
+    public void RefreshGameSyncState(TrackedGame game)
+    {
+        using var guard = AgentStateLock.Acquire("config", StateDir);
+
+        var stored = ReadOnDisk()?.Games.FirstOrDefault(g => g.GameId == game.GameId);
+        if (stored is null) return;
+
+        game.LastKnownVersionId = stored.LastKnownVersionId;
+        game.LastSyncedHash = stored.LastSyncedHash;
     }
 
     /// <summary>
