@@ -32,7 +32,9 @@ public record GameDto(
     int? RetainVersions = null,
     // Dashboard endpoints carry the game's own patterns; the agent /games endpoint
     // carries the effective set (global defaults ∪ per-game) that agents apply.
-    string[]? ExcludeGlobs = null);
+    string[]? ExcludeGlobs = null,
+    ConflictPolicy ConflictPolicy = ConflictPolicy.Manual,
+    Guid? PreferredMachineId = null);
 
 /// <summary>A specific machine's stored save path for one game.</summary>
 public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);
@@ -366,6 +368,27 @@ public record AgentHealthDto(
 
 /// <summary>Latest available agent version info, served by the SaveLocker server.</summary>
 public record AgentVersionInfo(string LatestVersion, string DownloadUrl);
+
+// ----- Per-game conflict policy -----
+
+/// <summary>
+/// What the server does when an upload diverges from the current head.
+/// Default is <see cref="Manual"/>: record the conflict and wait for an admin to resolve it.
+/// </summary>
+[JsonConverter(typeof(JsonStringEnumConverter<ConflictPolicy>))]
+public enum ConflictPolicy
+{
+    /// <summary>Record the conflict and let an admin resolve it. (Default.)</summary>
+    Manual = 0,
+    /// <summary>The incoming version always wins — no conflict row is created. Useful for
+    /// single-player games where the most recent save is always the right one.</summary>
+    NewestWins = 1,
+    /// <summary>The designated machine's saves always win. When it pushes a divergent save the
+    /// head advances. Pushes from any other machine follow the <see cref="Manual"/> path.</summary>
+    PreferMachine = 2,
+}
+
+public record SetConflictPolicyRequest(ConflictPolicy Policy, Guid? PreferredMachineId = null);
 
 // ----- Server / console build identity -----
 

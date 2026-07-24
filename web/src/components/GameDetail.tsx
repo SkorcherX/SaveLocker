@@ -35,8 +35,19 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   const [savingExcludes, setSavingExcludes] = useState(false);
   const [defaultGlobs, setDefaultGlobs] = useState<string[]>([]);
   const [excludeOpen, setExcludeOpen] = useState(false);
+  const [policyDraft, setPolicyDraft] = useState<string>(summary.game.conflictPolicy ?? 'Manual');
+  const [preferredMachineDraft, setPreferredMachineDraft] = useState<string | null>(summary.game.preferredMachineId ?? null);
+  const [policyForGameId, setPolicyForGameId] = useState(summary.game.id);
+  const [savingPolicy, setSavingPolicy] = useState(false);
 
   const { game, head, lease, hasOpenConflict } = summary;
+
+  // Reset the policy draft when switching games (not on every poll).
+  if (policyForGameId !== game.id) {
+    setPolicyForGameId(game.id);
+    setPolicyDraft(game.conflictPolicy ?? 'Manual');
+    setPreferredMachineDraft(game.preferredMachineId ?? null);
+  }
 
   // Reset the exclude editor when switching games (not on every poll — avoids clobbering edits).
   if (excludeForGameId !== game.id) {
@@ -78,6 +89,18 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     try { await api.setExcludes(game.id, patterns); onRefresh(); }
     catch (e) { alert('Could not save exclude patterns: ' + (e as Error).message); }
     finally { setSavingExcludes(false); }
+  }
+
+  async function handleSavePolicy() {
+    setSavingPolicy(true);
+    try {
+      await api.setConflictPolicy(
+        game.id, policyDraft,
+        policyDraft === 'PreferMachine' ? preferredMachineDraft : null
+      );
+      onRefresh();
+    } catch (e) { alert('Could not save conflict policy: ' + (e as Error).message); }
+    finally { setSavingPolicy(false); }
   }
 
   async function handleRefreshArt() {
@@ -309,6 +332,40 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               <button style={{ padding: '3px 9px', border: '1px solid #494949', color: '#ECEFF1', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: 'pointer', flexShrink: 0 }} onClick={handleSetSaveDir}>Edit</button>
             </div>
 
+            {/* Conflict policy */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#2A3238', padding: '7px 10px', borderRadius: 5, border: '1px solid #494949', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: '#556070', flexShrink: 0 }}>conflict policy:</span>
+              <select
+                value={policyDraft}
+                onChange={e => { setPolicyDraft(e.target.value); if (e.target.value !== 'PreferMachine') setPreferredMachineDraft(null); }}
+                style={{ background: '#1E252A', color: '#ECEFF1', border: '1px solid #3a464f', borderRadius: 4, fontSize: 11, padding: '2px 5px', cursor: 'pointer' }}
+              >
+                <option value="Manual">Manual — resolve conflicts in the console</option>
+                <option value="NewestWins">Newest wins — latest upload always wins</option>
+                <option value="PreferMachine">Prefer machine — one machine always wins</option>
+              </select>
+              {policyDraft === 'PreferMachine' && (
+                <select
+                  value={preferredMachineDraft ?? ''}
+                  onChange={e => setPreferredMachineDraft(e.target.value || null)}
+                  style={{ background: '#1E252A', color: '#ECEFF1', border: '1px solid #3a464f', borderRadius: 4, fontSize: 11, padding: '2px 5px', cursor: 'pointer' }}
+                >
+                  <option value="">— pick a machine —</option>
+                  {machines.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
+              )}
+              {(policyDraft !== (game.conflictPolicy ?? 'Manual') ||
+                (policyDraft === 'PreferMachine' && preferredMachineDraft !== (game.preferredMachineId ?? null))) && (
+                <button
+                  disabled={savingPolicy || (policyDraft === 'PreferMachine' && !preferredMachineDraft)}
+                  onClick={handleSavePolicy}
+                  style={{ padding: '3px 9px', border: '1px solid #129271', color: savingPolicy ? '#556070' : '#129271', background: 'transparent', borderRadius: 4, fontSize: 10, cursor: savingPolicy ? 'default' : 'pointer', flexShrink: 0 }}
+                >
+                  {savingPolicy ? 'Saving…' : 'Save'}
+                </button>
+              )}
+            </div>
+
           </div>
         </div>
       </div>
@@ -324,6 +381,18 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
             {' '}
             <a href="#help/conflicts" style={{ fontSize: 11, color: '#129271', textDecoration: 'underline' }}>Why did this happen?</a>
 
+            {(game.conflictPolicy ?? 'Manual') === 'Manual' && (
+              <div style={{ fontSize: 11, color: '#556070', marginTop: 4 }}>
+                Playing solo?{' '}
+                <button
+                  onClick={() => { setPolicyDraft('NewestWins'); void api.setConflictPolicy(game.id, 'NewestWins').then(onRefresh); }}
+                  style={{ background: 'none', border: 'none', color: '#129271', fontSize: 11, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}
+                >
+                  Set to "Newest wins"
+                </button>
+                {' '}to auto-resolve future conflicts.
+              </div>
+            )}
             {c.count > 1 && (
               <div style={{ fontSize: 11, color: '#8b9aaa', marginTop: 4, lineHeight: 1.5 }}>
                 {c.count} divergent saves folded into this conflict — the <b>newest</b> is offered below.

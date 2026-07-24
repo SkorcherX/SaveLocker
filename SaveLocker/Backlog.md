@@ -142,11 +142,17 @@ deferred piece is called out under 1.2.
 
 ### Tier 2 — prevention
 
-- **2.1 — Per-game conflict policy.** Add `Game.ConflictPolicy` ∈ `{ Manual, NewestWins,
-  PreferMachine }`. For a single-player game across one person's own devices `NewestWins` is right
-  essentially always, and would have made this entire incident a non-event. Keep `Manual` the default;
-  offer the policy at the moment of first conflict. **Highest prevention value in the plan**, but needs
-  a schema change + migration, which is why it is not Tier 0.
+- ~~**2.1 — Per-game conflict policy.**~~ ✅ **DONE 2026-07-23.** `Game.ConflictPolicy` ∈
+  `{ Manual, NewestWins, PreferMachine }` (stored as INTEGER, serialised as string). A
+  `NewestWins` game auto-resolves divergent pushes — no conflict row written, just an
+  `upload.auto_resolved` audit entry. `PreferMachine` routes the preferred machine's pushes through
+  auto-resolve; all others still produce a conflict. `Manual` is the default; no existing game
+  changes behaviour. Migration `20260723231500_AddConflictPolicy` adds `ConflictPolicy INTEGER NOT
+  NULL DEFAULT 0` and `PreferredMachineId TEXT NULL` to the Games table. The console offers the
+  dropdown in every game's detail card; a Save button appears only when the value is dirty.
+  Deleting a machine clears `PreferredMachineId` and resets `ConflictPolicy` to `Manual` on affected
+  games. `openapi.json` + `web/src/api-types.ts` regenerated. 35/35 agent tests, 17/17 concurrency
+  tests pass.
 - **2.2 — The agent should back off when conflicted.** `SyncEngine.cs:178` alerts and retries forever;
   it uploaded ~75 near-identical full archives nobody asked for. After N consecutive conflicts on a
   game, report without uploading the payload — the server already holds a divergent copy.
@@ -166,8 +172,8 @@ deferred piece is called out under 1.2.
 | ~~2b~~ | ~~**0.1**, **0.2**~~ | ✅ done 2026-07-23 — **Tier 0 is complete** |
 | ~~3~~ | ~~1.1, 1.3, 1.6~~ | ✅ done 2026-07-23 — the existing UI is honest |
 | ~~4~~ | ~~1.4, 1.5~~ | ✅ done 2026-07-23 — **shell access is no longer needed** |
-| **5** | **2.1** | Per-game conflict policy. Highest remaining prevention value; schema + migration |
-| 6 | 2.2, 2.3, 0.3, "Keep both" | Polish and hardening |
+| ~~5~~ | ~~**2.1**~~ | ✅ done 2026-07-23 — per-game conflict policy, NewestWins auto-resolves |
+| **6** | **2.2, 2.3, 0.3, "Keep both"** | Polish and hardening |
 
 ⚠️ **Tiers 1 and 2 touch the API** — regenerate `web/src/api-types.ts` and commit the updated
 `src/Server/openapi.json` snapshot, per `CLAUDE.md`.

@@ -90,6 +90,16 @@ public sealed class SyncService
             await _db.MachineSavePaths.Where(p => p.MachineId == machineId).ToListAsync());
         _db.MachineScanCandidates.RemoveRange(
             await _db.MachineScanCandidates.Where(c => c.MachineId == machineId).ToListAsync());
+        // Clear conflict-policy preference references so no game silently points at a deleted machine.
+        var gamesWithPref = await _db.Games
+            .Where(g => g.PreferredMachineId == machineId)
+            .ToListAsync();
+        foreach (var g in gamesWithPref)
+        {
+            g.PreferredMachineId = null;
+            g.ConflictPolicy = ConflictPolicy.Manual;
+        }
+
         _db.Machines.Remove(machine);
         await Audit(null, null, "machine.delete", machine.Name);
         await _db.SaveChangesAsync();
@@ -434,6 +444,25 @@ public sealed class SyncService
 
         if (diverged)
         {
+            // Check conflict policy before recording a conflict row.
+            var autoWins =
+                game.ConflictPolicy == ConflictPolicy.NewestWins ||
+                (game.ConflictPolicy == ConflictPolicy.PreferMachine &&
+                 game.PreferredMachineId.HasValue &&
+                 machineId == game.PreferredMachineId);
+
+            if (autoWins)
+            {
+                // Policy says the incoming version wins — advance head without creating a conflict.
+                game.HeadVersionId = versionId;
+                await Audit(machineId, gameId, "upload.auto_resolved",
+                    $"policy={game.ConflictPolicy} {contentHash}");
+                await _db.SaveChangesAsync(ct);
+                await PruneVersionsAsync(gameId, ct);
+                await LoadMachine(version, ct);
+                return new UploadResult(UploadStatus.Created, version.ToDto(), null);
+            }
+
             var now = DateTime.UtcNow;
 
             // Fold into the machine's existing open conflict rather than opening another. The head
@@ -548,6 +577,32 @@ public sealed class SyncService
         if (game is null) return false;
         game.ExcludeGlobs = GlobConfig.Join(patterns);
         await Audit(null, gameId, "game.excludes", GlobConfig.Parse(game.ExcludeGlobs).Length + " pattern(s)");
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    /// <summary>
+    /// Set the conflict resolution policy for a game. For <see cref="ConflictPolicy.PreferMachine"/>,
+    /// <paramref name="preferredMachineId"/> must identify an existing machine.
+    /// Clears <c>PreferredMachineId</c> when switching away from that policy.
+    /// </summary>
+    public async Task<bool> SetConflictPolicyAsync(Guid gameId, ConflictPolicy policy, Guid? preferredMachineId)
+    {
+        var game = await _db.Games.FindAsync(gameId);
+        if (game is null) return false;
+
+        if (policy == ConflictPolicy.PreferMachine && preferredMachineId.HasValue)
+        {
+            if (await _db.Machines.FindAsync(preferredMachineId.Value) is null) return false;
+        }
+
+        game.ConflictPolicy = policy;
+        game.PreferredMachineId = policy == ConflictPolicy.PreferMachine ? preferredMachineId : null;
+
+        await Audit(null, gameId, "game.conflict_policy",
+            policy == ConflictPolicy.PreferMachine && preferredMachineId.HasValue
+                ? $"{policy}:{preferredMachineId}"
+                : policy.ToString());
         await _db.SaveChangesAsync();
         return true;
     }

@@ -41,6 +41,8 @@ export const api = {
     request<void>(`/games/${gameId}/retain${value !== null ? `?value=${value}` : ''}`, { method: 'POST' }),
   setExcludes: (gameId: string, patterns: string[]) =>
     request<void>(`/games/${gameId}/excludes`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patterns) }),
+  setConflictPolicy: (gameId: string, policy: string, preferredMachineId?: string | null) =>
+    request<void>(`/games/${gameId}/conflict-policy`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policy, preferredMachineId: preferredMachineId ?? null }) }),
   deleteVersion: (gameId: string, versionId: string) =>
     request<void>(`/games/${gameId}/versions/${versionId}`, { method: 'DELETE' }),
 

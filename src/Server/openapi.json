@@ -1,4 +1,4 @@
-﻿{
+{
   "openapi": "3.1.1",
   "info": {
     "title": "SaveLocker API",
@@ -709,6 +709,39 @@
                 "items": {
                   "type": "string"
                 }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/games/{id}/conflict-policy": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetConflictPolicyRequest"
               }
             }
           },
@@ -2217,6 +2250,14 @@
           }
         }
       },
+      "ConflictPolicy": {
+        "enum": [
+          "Manual",
+          "NewestWins",
+          "PreferMachine"
+        ],
+        "default": "Manual"
+      },
       "ConflictStatus": {
         "enum": [
           "Open",
@@ -2564,6 +2605,16 @@
             "items": {
               "type": "string"
             }
+          },
+          "conflictPolicy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "preferredMachineId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },
@@ -2956,6 +3007,24 @@
           "hours": {
             "type": "number",
             "format": "double"
+          }
+        }
+      },
+      "SetConflictPolicyRequest": {
+        "required": [
+          "policy"
+        ],
+        "type": "object",
+        "properties": {
+          "policy": {
+            "$ref": "#/components/schemas/ConflictPolicy"
+          },
+          "preferredMachineId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
           }
         }
       },

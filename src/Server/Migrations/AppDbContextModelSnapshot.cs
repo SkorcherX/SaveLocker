@@ -269,6 +269,12 @@ namespace SaveLocker.Server.Migrations
                     b.Property<string>("ExcludeGlobs")
                         .HasColumnType("TEXT");
 
+                    b.Property<int>("ConflictPolicy")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<Guid?>("PreferredMachineId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("GridUrl")
                         .HasColumnType("TEXT");
 

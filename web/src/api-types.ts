@@ -959,6 +959,45 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/games/{id}/conflict-policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetConflictPolicyRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/games/{id}/versions/{versionId}": {
         parameters: {
             query?: never;
@@ -2346,6 +2385,11 @@ export interface components {
             /** Format: date-time */
             lastSeen?: null | string;
         };
+        /**
+         * @default Manual
+         * @enum {unknown}
+         */
+        ConflictPolicy: "Manual" | "NewestWins" | "PreferMachine";
         /** @enum {unknown} */
         ConflictStatus: "Open" | "Resolved";
         CreateEnrollmentRequest: {
@@ -2428,6 +2472,9 @@ export interface components {
             /** Format: int32 */
             retainVersions?: null | number;
             excludeGlobs?: null | string[];
+            conflictPolicy?: components["schemas"]["ConflictPolicy"];
+            /** Format: uuid */
+            preferredMachineId?: null | string;
         };
         GameStateDto: {
             game: components["schemas"]["GameDto"];
@@ -2542,6 +2589,11 @@ export interface components {
         SetAutoFetchHoursRequest: {
             /** Format: double */
             hours: number;
+        };
+        SetConflictPolicyRequest: {
+            policy: components["schemas"]["ConflictPolicy"];
+            /** Format: uuid */
+            preferredMachineId?: null | string;
         };
         SetSteamGridDbKeyRequest: {
             apiKey: null | string;

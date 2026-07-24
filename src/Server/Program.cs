@@ -401,6 +401,11 @@ admin.MapPost("/games/{id:guid}/retain", async (Guid id, int? value, SyncService
 admin.MapPost("/games/{id:guid}/excludes", async (Guid id, string[] patterns, SyncService sync) =>
     await sync.SetExcludeGlobsAsync(id, patterns) ? Results.Ok() : Results.NotFound());
 
+admin.MapPost("/games/{id:guid}/conflict-policy", async (
+    Guid id, SetConflictPolicyRequest req, SyncService sync) =>
+    await sync.SetConflictPolicyAsync(id, req.Policy, req.PreferredMachineId)
+        ? Results.Ok() : Results.NotFound());
+
 admin.MapDelete("/games/{id:guid}/versions/{versionId:guid}", async (Guid id, Guid versionId, SyncService sync) =>
 {
     var (ok, error) = await sync.DeleteVersionAsync(id, versionId);

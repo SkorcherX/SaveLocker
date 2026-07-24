@@ -233,7 +233,7 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ---
 
-## ▶ NEXT ACTION: **Deploy the container, then backlog item 2.1**
+## ▶ NEXT ACTION: **Deploy the container, then 2.2 / 2.3 / 0.3**
 
 **v0.3.4 is released and its image is stamped correctly** (`ghcr.io/skorcherx/savelocker:latest` and
 `:0.3.4`, `SAVELOCKER_VERSION=0.3.4`). ⏳ **Nobody has pulled it yet** — the console still runs the
@@ -245,15 +245,33 @@ release shipped stamped `0.3.3+11.9ae9307`. Fixed (`tags: ['v*']`), but **confir
 that a `docker-publish` run exists for the tag** — it is unconfirmed whether `paths-ignore` also
 filters tag pushes. `Gotchas.md` has the symptom and the manual recovery.
 
-✅ **Tiers 0 and 1 are COMPLETE** (2026-07-23). The 2026-07-22 incident is fully remediated: the
-self-conflict loop, the 75-row explosion, the unbounded storage, and every console surface that
-misled during recovery. **2.1 (per-game conflict policy) is the highest remaining value** — a
-`NewestWins` option would have made the whole incident a non-event.
+✅ **Tiers 0, 1, and 2.1 are COMPLETE** (2026-07-23). The 2026-07-22 incident is fully remediated
+including the prevention layer: per-game conflict policy (NewestWins / PreferMachine) means the
+whole incident would have been a non-event with a one-dropdown change. **Next: 2.2 (agent backoff
+while conflicted) and 2.3 (escalate stale conflicts), 0.3 (rewind guard on resolve).**
 
-⚠️ **NOTHING from 0.1, 0.2, 0.4 or Tier 1 is deployed.** All of it is server-side; the console ships
-inside the server image. The unRAID container needs `docker compose pull && docker compose up -d`.
-0.1 carries a **migration** (`20260723220958_AddConflictDedupe`) that applies on container start.
+⚠️ **NOTHING from 0.1, 0.2, 0.4, Tier 1, or 2.1 is deployed.** All of it is server-side; the
+console ships inside the server image. The unRAID container needs
+`docker compose pull && docker compose up -d`.
+0.1 carries a **migration** (`20260723220958_AddConflictDedupe`) and 2.1 carries
+`20260723231500_AddConflictPolicy` — both apply on container start.
 Only **0.0** reached the fleet, via the v0.3.3 agent release.
+
+### ✅ 2.1 is DONE (2026-07-23) — per-game conflict policy
+
+`Game.ConflictPolicy` ∈ `{ Manual, NewestWins, PreferMachine }`. A `NewestWins` game
+auto-resolves divergent pushes: no conflict row, just an `upload.auto_resolved` audit entry.
+`PreferMachine` routes the preferred machine's pushes through the same path; all others still
+produce a conflict. `Manual` is the default — no existing game changes behaviour.
+
+- Migration `20260723231500_AddConflictPolicy` adds `ConflictPolicy INTEGER NOT NULL DEFAULT 0`
+  and `PreferredMachineId TEXT NULL`. Stored as INTEGER, serialised as string over the wire.
+- Endpoint: `POST /admin/games/{id}/conflict-policy` (`SetConflictPolicyRequest`).
+- Console: dropdown in the game detail card; Save button appears only when the value is dirty.
+- On machine delete: `PreferredMachineId` cleared, `ConflictPolicy` reset to `Manual` on
+  affected games, so a deleted machine's preference cannot silently persist.
+- `openapi.json` + `web/src/api-types.ts` regenerated and committed.
+- 35/35 agent tests, 17/17 concurrency tests.
 
 ### ✅ Tier 1 is DONE (2026-07-23) — the console no longer needs a shell
 
@@ -266,7 +284,7 @@ Only **0.0** reached the fleet, via the v0.3.3 agent release.
 - **1.6** a `sync.conflict` event shows **Resolve**, not Dismiss — it is the one event that never
   self-heals. Client-side only; `HealthService.DismissAsync` is unchanged.
 
-`run-agent-tests.ps1` is now **35** checks (was 20 this morning).
+`run-agent-tests.ps1` is now **35** checks (was 20 this morning). All pass.
 
 ### ✅ 0.1 + 0.2 are DONE (2026-07-23)
 

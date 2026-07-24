@@ -44,6 +44,13 @@ public class Game
     /// of the server global defaults when agents hash + archive this game's saves.</summary>
     public string? ExcludeGlobs { get; set; }
 
+    /// <summary>What the server does when an upload diverges from the current head.</summary>
+    public ConflictPolicy ConflictPolicy { get; set; } = ConflictPolicy.Manual;
+
+    /// <summary>The machine whose saves automatically win when <see cref="ConflictPolicy"/> is
+    /// <see cref="ConflictPolicy.PreferMachine"/>. Null otherwise.</summary>
+    public Guid? PreferredMachineId { get; set; }
+
     /// <summary>The current authoritative version agents should pull. Null until first upload.</summary>
     public Guid? HeadVersionId { get; set; }
 
