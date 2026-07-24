@@ -5,6 +5,47 @@ Full commit detail in `git log`. Active backlog in `Backlog.md`.
 
 ---
 
+## 2026-07-23 — the Octopath conflict storm, and everything it exposed
+
+One weekend of real play produced **75 open conflicts and 2.66 GB on a game set to retain 5**, and
+escaping it needed `curl` against the admin API. Four defects stacked, each hidden behind the
+previous one. The server was correct on every single request. Narrative:
+`logs/2026-07-23_conflict-storm.md`.
+
+**Two releases.** v0.3.3 (agent, auto-updates Windows) carried the root-cause fix; v0.3.4 (server)
+carried everything else. Five PRs: #18–#22.
+
+- **0.0 — the daemon pushed from state the launch wrapper superseded.** Two processes own
+  `config.json`; the daemon loaded it once at boot and never re-read, so after the wrapper pushed on
+  game exit every watch-push presented the boot-time parent. It conflicted on *every* save until
+  restarted, on a fleet of one machine. `Decisions.md` §10 amends §8, which had fixed only the write
+  half. **Device-verified on a Deck: 4 saves, zero conflicts.** `logs/2026-07-23_agent-stale-parent.md`.
+- **0.4 — resolving reached only the database.** Now enqueues a *guarded* pull for **both** machines;
+  the winner is stuck too, since its pointer still names the parent it presented.
+- **0.1 / 0.2 — conflicts dedupe** (75 → 1, keyed per machine, carrying `Count`/`LastSeen`/`MachineId`)
+  **and retention runs while conflicted.** Migration `20260723220958_AddConflictDedupe`.
+- **Tier 1 — the console.** Every conflict shown newest-first (was `.find()` over an oldest-first
+  list), machine/time/size per option, a confirmation naming what breaks, **Prune now**, version
+  **Download**, and conflict alerts offering **Resolve** instead of Dismiss.
+
+**Suites: `run-agent-tests` 20 → 35, `run-concurrency-tests` 12 → 17.** Every new check was proven to
+fail against pre-fix code before being accepted.
+
+⚠️ **Three lessons worth carrying, all the same shape — the thing that looked verified was not:**
+1. **A rule 17 callers must remember is not a rule.** `Save()`'s "don't write sync state" lived in a
+   doc comment; `CommandPoller` forgot. Fixed by making the primitive safe, not the caller careful.
+2. **The tests caught what review did not, twice** — including a destructive interaction where 0.2's
+   prune deleted the data 0.4 needed, an hour after 0.4 merged green.
+3. **`docker-publish.yml` did not trigger on tags**, so v0.3.4's image shipped stamped
+   `0.3.3+11.9ae9307` — correct code, amber "not a release" chip. Same class as the `fetch-depth: 0`
+   trap: CI version derivation fails *quietly*.
+
+Also: `AGENTS.md` had drifted from `CLAUDE.md` and still said *"EF Core pinned to 9.0.x — do not
+upgrade to 10.x"*, four months after the net10 migration. Both agent files are now tracked and
+generated from `CLAUDE.md`.
+
+---
+
 ## 2026-07-18 — Linux/Deck security hardening → v0.2.0 (PR #8)
 
 Closed all three high-priority hardening items, shipped v0.2.0, and completed the operational

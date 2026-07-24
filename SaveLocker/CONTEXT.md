@@ -235,6 +235,16 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ## ▶ NEXT ACTION: **Deploy the container, then backlog item 2.1**
 
+**v0.3.4 is released and its image is stamped correctly** (`ghcr.io/skorcherx/savelocker:latest` and
+`:0.3.4`, `SAVELOCKER_VERSION=0.3.4`). ⏳ **Nobody has pulled it yet** — the console still runs the
+old image, so none of Tier 0 or Tier 1 is live. Copy `/data/savelocker.db` first: the
+`AddConflictDedupe` migration applies on start and rolling back to 0.3.3 is not supported.
+
+⚠️ **v0.3.4 needed a manual image re-run** — `docker-publish.yml` did not trigger on tags, so the
+release shipped stamped `0.3.3+11.9ae9307`. Fixed (`tags: ['v*']`), but **confirm on the next release
+that a `docker-publish` run exists for the tag** — it is unconfirmed whether `paths-ignore` also
+filters tag pushes. `Gotchas.md` has the symptom and the manual recovery.
+
 ✅ **Tiers 0 and 1 are COMPLETE** (2026-07-23). The 2026-07-22 incident is fully remediated: the
 self-conflict loop, the 75-row explosion, the unbounded storage, and every console surface that
 misled during recovery. **2.1 (per-game conflict policy) is the highest remaining value** — a

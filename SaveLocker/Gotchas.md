@@ -55,6 +55,23 @@ Same incident. Both are correct as implemented; both mislead.
   `savelocker pull` defaults to `force: false` (`AgentCli.cs:266`), whereas the **console's Pull button
   sends `force: true`** (`GameDetail.tsx:370`), which bypasses the guard at `SyncEngine.cs:255`.
 
+## A tagged release gets an UNSTAMPED image — the image build ran before the tag existed
+Hit on v0.3.4 (2026-07-23). `docker-publish.yml` triggered on **push to `main` only**, so the image
+was built by the merge that *preceded* the tag. `git describe` could not see a tag that did not yet
+exist, and `:latest` shipped stamped **`0.3.3+11.9ae9307`** — an amber "dev build" chip on a machine
+actually running the release. That is precisely the question the console-versioning work exists to
+answer ("is the fix deployed?"), so it fails in the least useful way possible.
+- **The code was correct** — same commit as the tag. Only the *version stamp* was wrong, which makes
+  it easy to miss: nothing is broken, the console just lies about which release it is.
+- **Fix:** `tags: ['v*']` added to the trigger. ⚠️ **Unconfirmed whether `paths-ignore` also filters
+  tag pushes** — verify on the next release that a `docker-publish` run exists for the tag.
+- **Manual recovery, if it recurs:** re-run the last `docker-publish` run *after* pushing the tag. A
+  re-run does a fresh checkout, so `git describe` then returns `v<x>-0-g<sha>` and the derivation's
+  `if ahead = 0 then version = tag` branch stamps it cleanly. Verified: the re-run produced
+  `SAVELOCKER_VERSION=0.3.4` and pushed `:latest` + `:0.3.4`.
+- **Same class as the documented `fetch-depth: 0` trap:** CI version derivation depends on git state,
+  and when that state is wrong it fails **quietly** — a plausible-looking number, not an error.
+
 ## `Invoke-RestMethod` does not unroll a JSON array the same way on 5.1 and pwsh 7
 Cost two debugging rounds on 2026-07-23 while testing backlog 0.4, and both rounds blamed the server.
 **Windows PowerShell 5.1 hands a JSON array back as a SINGLE item**, so `@(Invoke-RestMethod ...)`
