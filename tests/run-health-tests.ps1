@@ -1,4 +1,4 @@
-# Agent health reporting (Linux agent Phase 5) - 15 checks. Runs on BOTH Windows and Linux.
+# Agent health reporting (Linux agent Phase 5) - 19 checks. Runs on BOTH Windows and Linux.
 #
 #   Windows: drives src/Agent (net10.0-windows).  Linux: drives src/Agent.Linux (net10.0).
 #
@@ -62,6 +62,8 @@ $env:ASPNETCORE_URLS      = $server
 $env:Storage__DbPath      = Join-Path $state "savelocker.db"
 $env:Storage__ArchiveRoot = Join-Path $state "archives"
 $env:Backup__Enabled      = "false"
+$env:Conflicts__EscalationAfterSeconds = "0"
+$env:Logging__EventLog__LogLevel__Default = "None"
 
 function Start-TestServer {
     # -WindowStyle does not exist on PowerShell Core on Linux ("not supported on this edition"), and
@@ -147,13 +149,16 @@ Agent pull $gameName --config $lapCfg | Out-Null          # laptop syncs to head
 Agent push $gameName --config $pcCfg | Out-Null           # PC advances head
 
 "laptop's own divergent progress" | Set-Content (Join-Path $lapSave "save.dat") -Encoding utf8
-Agent push $gameName --config $lapCfg | Out-Null          # laptop pushes stale parent -> CONFLICT
+$conflictPush = Agent push $gameName --config $lapCfg     # laptop pushes stale parent -> CONFLICT
 
 $lh = Health $lapName
 $conflict = $lh.openEvents | Where-Object { $_.code -eq "sync.conflict" }
 Check "conflict raises an event on the stuck machine" ($null -ne $conflict)
 Check "conflict event is an Error"                    ($conflict.severity -eq "Error")
 Check "conflict event names the game"                 ($conflict.gameName -eq $gameName)
+Check "stale conflict reaches the agent notification path" (($conflictPush -join "`n") -like "*URGENT*$gameName*")
+$adminConflict = Invoke-RestMethod "$server/api/conflicts" | Select-Object -First 1
+Check "stale conflict is escalated in the console contract" ($adminConflict.escalated -eq $true)
 
 # =====================================================================================
 # 3. Dedupe - a persistent fault must not manufacture a row per poll
@@ -230,7 +235,7 @@ if ($null -ne $unreachable) {
 
 ClearEvents
 if ($serverProc -and -not $serverProc.HasExited) { Stop-Process -Id $serverProc.Id -Force }
-Remove-Item Env:ASPNETCORE_URLS, Env:Storage__DbPath, Env:Storage__ArchiveRoot, Env:Backup__Enabled -ErrorAction SilentlyContinue
+Remove-Item Env:ASPNETCORE_URLS, Env:Storage__DbPath, Env:Storage__ArchiveRoot, Env:Backup__Enabled, Env:Conflicts__EscalationAfterSeconds, Env:Logging__EventLog__LogLevel__Default -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "Health: $pass passed, $fail failed."

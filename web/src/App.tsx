@@ -137,6 +137,7 @@ export default function App() {
         build={build}
         unreadNotes={unreadNotes}
         problems={problems}
+        escalatedConflicts={data?.conflicts.filter(c => c.escalated) ?? []}
         onDismissProblem={handleDismissProblem}
       />
 

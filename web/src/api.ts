@@ -17,7 +17,10 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
     ...opts,
     headers: { ...headers(), ...(opts.headers as Record<string, string> || {}) },
   });
-  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`${res.status} ${res.statusText}${detail ? `: ${detail}` : ''}`);
+  }
   const ct = res.headers.get('content-type') || '';
   return ct.includes('json') ? res.json() : res.text() as unknown as T;
 }
@@ -45,6 +48,8 @@ export const api = {
     request<void>(`/games/${gameId}/conflict-policy`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ policy, preferredMachineId: preferredMachineId ?? null }) }),
   deleteVersion: (gameId: string, versionId: string) =>
     request<void>(`/games/${gameId}/versions/${versionId}`, { method: 'DELETE' }),
+  setVersionProtected: (gameId: string, versionId: string, value: boolean) =>
+    request<void>(`/games/${gameId}/versions/${versionId}/protected?value=${value}`, { method: 'POST' }),
 
   /** Apply the game's retention limit now, rather than waiting for the next upload to trigger it. */
   pruneNow: (gameId: string) =>
@@ -69,7 +74,11 @@ export const api = {
   },
   setLatest: (gameId: string, versionId: string) => request<void>(`/games/${gameId}/set-latest?version=${versionId}`, { method: 'POST' }),
   forceRelease: (gameId: string) => request<void>(`/games/${gameId}/lease/force`, { method: 'DELETE' }),
-  resolveConflict: (conflictId: string, versionId: string) => request<void>(`/conflicts/${conflictId}/resolve?version=${versionId}`, { method: 'POST' }),
+  resolveConflict: (conflictId: string, versionId: string, keepBoth = false) =>
+    request<void>(
+      `/conflicts/${conflictId}/resolve?version=${versionId}&keepBoth=${keepBoth}`,
+      { method: 'POST' },
+    ),
 
   queueCommand: (machineId: string, gameId: string, type: string, force: boolean) =>
     request<void>('/commands', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ machineId, gameId, type, force }) }),

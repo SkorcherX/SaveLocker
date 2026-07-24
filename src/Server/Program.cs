@@ -42,6 +42,7 @@ builder.Services.AddHostedService<AgentInstallerPollerService>();
 
 builder.Services.AddSingleton<ArchiveStore>();
 builder.Services.AddSingleton<AgentInstallerService>();
+builder.Services.AddSingleton<ConflictEscalationPolicy>();
 builder.Services.AddScoped<SyncService>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<ArtService>();
@@ -348,9 +349,8 @@ agent.MapPost("/agent/games/{id:guid}/template", async (Guid id, string? value, 
 // headless spoke visible at all: the Deck cannot toast, so it tells the server and the console shows it.
 agent.MapPost("/agent/health", async (AgentHeartbeat beat, HttpContext http, HealthService health) =>
 {
-    await health.RecordHeartbeatAsync(http.CurrentMachine().Id, beat);
-    return Results.Ok();
-});
+    return Results.Ok(await health.RecordHeartbeatAsync(http.CurrentMachine().Id, beat));
+}).Produces<AgentHeartbeatResponse>();
 
 agent.MapGet("/agent/latest", (IConfiguration cfg, AgentInstallerService installer, HttpContext ctx) =>
 {
@@ -409,6 +409,13 @@ admin.MapPost("/games/{id:guid}/conflict-policy", async (
 admin.MapDelete("/games/{id:guid}/versions/{versionId:guid}", async (Guid id, Guid versionId, SyncService sync) =>
 {
     var (ok, error) = await sync.DeleteVersionAsync(id, versionId);
+    return ok ? Results.Ok() : (error == "not_found" ? Results.NotFound() : Results.BadRequest(error));
+});
+
+admin.MapPost("/games/{id:guid}/versions/{versionId:guid}/protected", async (
+    Guid id, Guid versionId, bool value, SyncService sync) =>
+{
+    var (ok, error) = await sync.SetVersionProtectedAsync(id, versionId, value);
     return ok ? Results.Ok() : (error == "not_found" ? Results.NotFound() : Results.BadRequest(error));
 });
 
@@ -522,12 +529,15 @@ admin.MapPost("/games/{id:guid}/prune", async (Guid id, SyncService sync) =>
 
 // ---- Admin actions ----
 admin.MapGet("/conflicts", async (SyncService sync) =>
-    Results.Ok((await sync.ListOpenConflictsAsync()).Select(c => c.ToDto())))
+    Results.Ok(await sync.ListOpenConflictsAsync()))
     .Produces<List<ConflictDto>>();
 
-admin.MapPost("/conflicts/{id:guid}/resolve", async (Guid id, Guid version, SyncService sync) =>
-    await sync.ResolveConflictAsync(id, version, "admin")
-        ? Results.Ok() : Results.BadRequest("Could not resolve conflict."));
+admin.MapPost("/conflicts/{id:guid}/resolve", async (
+    Guid id, Guid version, bool? keepBoth, SyncService sync) =>
+{
+    var (ok, error) = await sync.ResolveConflictAsync(id, version, "admin", keepBoth ?? false);
+    return ok ? Results.Ok() : Results.BadRequest(error ?? "Could not resolve conflict.");
+});
 
 admin.MapPost("/games/{id:guid}/rollback", async (Guid id, Guid version, SyncService sync) =>
     await sync.RollbackAsync(id, version, "admin")

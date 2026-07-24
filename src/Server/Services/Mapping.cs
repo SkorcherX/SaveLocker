@@ -21,7 +21,7 @@ public static class Mapping
 
     public static SaveVersionDto ToDto(this SaveVersion v) =>
         new(v.Id, v.GameId, v.MachineId, v.Machine?.Name ?? "", v.CreatedAt,
-            v.ContentHash, v.Size, v.ParentVersionId);
+            v.ContentHash, v.Size, v.ParentVersionId, v.Protected);
 
     public static LeaseDto ToDto(this Lease? lease, Guid gameId) =>
         lease is null
@@ -33,8 +33,8 @@ public static class Mapping
         new(c.Id, c.MachineId, c.Machine?.Name, c.GameId, c.Type, c.Force,
             c.Status, c.CreatedAt, c.CompletedAt, c.Result);
 
-    public static ConflictDto ToDto(this ConflictFlag c) =>
+    public static ConflictDto ToDto(this ConflictFlag c, bool escalated = false) =>
         new(c.Id, c.GameId, c.VersionAId, c.VersionBId, c.Status, c.CreatedAt,
             c.ResolvedVersionId, c.ResolvedBy, c.ResolvedAt,
-            c.MachineId, c.Count, c.LastSeen);
+            c.MachineId, c.Count, c.LastSeen, escalated);
 }

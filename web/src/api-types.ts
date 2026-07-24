@@ -694,7 +694,9 @@ export interface paths {
                     headers: {
                         [name: string]: unknown;
                     };
-                    content?: never;
+                    content: {
+                        "application/json": components["schemas"]["AgentHeartbeatResponse"];
+                    };
                 };
             };
         };
@@ -1029,6 +1031,44 @@ export interface paths {
                 };
             };
         };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/versions/{versionId}/protected": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query: {
+                    value: boolean;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                    versionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -1610,6 +1650,7 @@ export interface paths {
             parameters: {
                 query: {
                     version: string;
+                    keepBoth?: boolean;
                 };
                 header?: never;
                 path: {
@@ -2312,6 +2353,9 @@ export interface components {
             resolvedGameIds?: null | string[];
             pathCandidates?: null | components["schemas"]["ScanPathCandidate"][];
         };
+        AgentHeartbeatResponse: {
+            escalatedConflicts: components["schemas"]["ConflictEscalationDto"][];
+        };
         AgentInstallerStatus: {
             version: string;
             fileName: string;
@@ -2384,6 +2428,20 @@ export interface components {
             count: number;
             /** Format: date-time */
             lastSeen?: null | string;
+            /** @default false */
+            escalated: boolean;
+        };
+        ConflictEscalationDto: {
+            /** Format: uuid */
+            conflictId: string;
+            /** Format: uuid */
+            gameId: string;
+            gameName: string;
+            stuckMachineName: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: int32 */
+            count: number;
         };
         /**
          * @default Manual
@@ -2558,6 +2616,8 @@ export interface components {
             size: number;
             /** Format: uuid */
             parentVersionId: null | string;
+            /** @default false */
+            protected: boolean;
         };
         ScanPathCandidate: {
             /** Format: uuid */

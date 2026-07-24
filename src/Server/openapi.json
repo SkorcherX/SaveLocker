@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5179/"
+      "url": "http://localhost:5191/"
     }
   ],
   "paths": {
@@ -524,7 +524,14 @@
         },
         "responses": {
           "200": {
-            "description": "OK"
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentHeartbeatResponse"
+                }
+              }
+            }
           }
         }
       }
@@ -776,6 +783,46 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/games/{id}/versions/{versionId}/protected": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "value",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -1236,6 +1283,13 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "keepBoth",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -1993,6 +2047,20 @@
           }
         }
       },
+      "AgentHeartbeatResponse": {
+        "required": [
+          "escalatedConflicts"
+        ],
+        "type": "object",
+        "properties": {
+          "escalatedConflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ConflictEscalationDto"
+            }
+          }
+        }
+      },
       "AgentInstallerStatus": {
         "required": [
           "version",
@@ -2247,6 +2315,48 @@
               "string"
             ],
             "format": "date-time"
+          },
+          "escalated": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "ConflictEscalationDto": {
+        "required": [
+          "conflictId",
+          "gameId",
+          "gameName",
+          "stuckMachineName",
+          "createdAt",
+          "count"
+        ],
+        "type": "object",
+        "properties": {
+          "conflictId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "gameId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "gameName": {
+            "type": "string"
+          },
+          "stuckMachineName": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -2898,6 +3008,10 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "protected": {
+            "type": "boolean",
+            "default": false
           }
         }
       },

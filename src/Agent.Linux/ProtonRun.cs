@@ -76,7 +76,7 @@ public static class ProtonRun
         // out now. What it cannot send survives on disk: the events file is shared with the daemon,
         // which drains it on its next heartbeat — and the server deduplicates, so an event sent
         // twice costs nothing while an event lost costs the user a silent failure.
-        await health.SendAsync(api, config, offlineQueue);
+        await health.SendAsync(api, config, offlineQueue, AgentLogger.Log);
 
         return exitCode;
     }

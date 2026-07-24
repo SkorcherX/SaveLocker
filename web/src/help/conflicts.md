@@ -16,7 +16,7 @@ When an agent pushes a save, the server compares your upload's **parent version 
 
 ## Why does a "behind" machine keep conflicting?
 
-When a conflict is raised, the server sets a conflict flag for that game. The pushing machine's **known parent** is now stale — it still points to its last successful push, not the new head that the other machine wrote. Until the conflict is resolved, every subsequent push from the behind machine will also conflict because its parent is still wrong.
+When a conflict is raised, the server sets a conflict flag for that game. The pushing machine's **known parent** is now stale — it still points to its last successful push, not the new head that the other machine wrote. The first three attempts preserve the newest divergent snapshot on the server. After that, ordinary pushes report the unresolved conflict without uploading another full archive. A forced push remains available as an explicit override.
 
 The agent does **not** automatically advance its known parent when a conflict occurs — it waits for you to resolve it explicitly so you can decide which save to keep.
 
@@ -25,8 +25,11 @@ The agent does **not** automatically advance its known parent when a conflict oc
 **Option A — Dashboard resolve (recommended):**
 1. Open the dashboard and find the game showing a **conflict** badge.
 2. Click the game, then click **Resolve conflict** in the Conflicts section.
-3. Choose which version to keep (your local save or the server's current head).
+3. Choose which version becomes **Latest**. Use **Keep both** if you also want both conflict snapshots protected from automatic retention.
 4. After resolving, the conflicting machine will pull the winning version on its next sync.
+
+Protected snapshots show a **Protected** badge under Versions. Click **Unprotect** when you no longer
+need the extra copy; it can then be removed the next time retention runs.
 
 **Option B — Force Pull from the agent:**
 1. **Windows:** right-click the SaveLocker tray icon → open the agent window, find the game, and click **Force Pull**.
@@ -35,7 +38,11 @@ The agent does **not** automatically advance its known parent when a conflict oc
 
 ## Conflicts on a Steam Deck
 
-A Deck is headless — it can't pop a conflict banner. It is **not** silent, though: the agent reports the stuck game to the server, so the console shows a **problem badge** in the nav bar and marks that machine in **Configuration → Machines** (per-machine health: online / offline, agent version, last sync). Resolve it the same way — dashboard **Resolve conflict**, or `savelocker pull --force` on the Deck. The event auto-clears once that machine syncs the game cleanly again.
+A Deck has no tray and no pop-ups. It is **not** silent, though: the agent reports the stuck game to the server, so the console shows a **problem badge** in the nav bar and marks that machine in **Configuration → Machines** (per-machine health: online / offline, agent version, last sync). Resolve it the same way — dashboard conflict controls, or `savelocker pull --force` on the Deck. The event auto-clears once that machine syncs the game cleanly again.
+
+After six hours, an unresolved conflict is marked **Overdue** in the console and is sent to connected
+Windows tray agents as an urgent notification. This lets a PC alert you even when the stuck machine
+is a Deck that cannot show a toast.
 
 ## Common causes
 

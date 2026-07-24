@@ -193,24 +193,40 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
    * this was the only one that did not, despite being the most consequential button here. The
    * dialog names the consequence people do not expect: newer saves stop being what machines pull.
    */
-  async function handleResolveConflict(conflictId: string, versionId: string) {
+  async function handleResolveConflict(conflictId: string, versionId: string, keepBoth: boolean) {
     const v = versions.find(x => x.id === versionId);
     const newer = v ? versions.filter(x => new Date(asUtc(x.createdAt)) > new Date(asUtc(v.createdAt))).length : 0;
     const others = gameConflicts.length - 1;
 
     const msg =
-      'Keep this save as Latest?\n\n' +
+      (keepBoth
+        ? 'Keep both saves and use this one as Latest?\n\n'
+        : 'Use this save as Latest?\n\n') +
       (v ? `${v.machineName} — ${when(v.createdAt)} (${fmtSize(v.size)})\n\n` : '') +
       (newer > 0
         ? `${newer} newer save${newer > 1 ? 's' : ''} will no longer be what machines pull. ` +
           'Nothing is deleted — you can still promote one later with "Set as Latest".\n\n'
         : '') +
+      (keepBoth
+        ? 'Both conflict snapshots will be protected from automatic pruning until you unprotect them under Versions.\n\n'
+        : '') +
       'Both machines in this conflict will be told to pull.' +
       (others > 0 ? `\n\n${others} other conflict${others > 1 ? 's' : ''} on this game will remain.` : '');
 
     if (!confirm(msg)) return;
-    try { await api.resolveConflict(conflictId, versionId); onRefresh(); }
+    try { await api.resolveConflict(conflictId, versionId, keepBoth); onRefresh(); }
     catch (e) { alert('Resolve failed: ' + (e as Error).message); }
+  }
+
+  async function handleSetVersionProtected(v: Version, value: boolean) {
+    if (!value && !confirm(
+      'Unprotect this version?\n\nIt may be permanently deleted the next time retention runs.'
+    )) return;
+    try {
+      await api.setVersionProtected(game.id, v.id, value);
+      setVersions(await api.versions(game.id));
+      onRefresh();
+    } catch (e) { alert('Could not update protection: ' + (e as Error).message); }
   }
 
   async function handlePruneNow() {
@@ -374,12 +390,17 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
       {gameConflicts.map(c => {
         const stuck = machines.find(m => m.id === c.machineId)?.name;
         return (
-          <div key={c.id} style={{ background: '#241a1a', border: '1px solid #4a2a2a', borderRadius: 8, padding: '10px 12px' }}>
+          <div key={c.id} style={{ background: '#241a1a', border: `1px solid ${c.escalated ? '#e5534b' : '#4a2a2a'}`, borderRadius: 8, padding: '10px 12px' }}>
             <b style={{ color: '#f4a60d' }}>
               Conflict{stuck ? ` — ${stuck} cannot sync` : ''}: choose the version to keep
             </b>
             {' '}
             <a href="#help/conflicts" style={{ fontSize: 11, color: '#129271', textDecoration: 'underline' }}>Why did this happen?</a>
+            {c.escalated && (
+              <div style={{ fontSize: 11, color: '#e5534b', marginTop: 5, fontWeight: 700 }}>
+                Overdue — this conflict has been unresolved for more than six hours.
+              </div>
+            )}
 
             {(game.conflictPolicy ?? 'Manual') === 'Manual' && (
               <div style={{ fontSize: 11, color: '#556070', marginTop: 4 }}>
@@ -406,17 +427,28 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               {[c.versionAId, c.versionBId].map(vid => {
                 const v = versions.find(x => x.id === vid);
                 return (
-                  <button key={vid}
-                    onClick={() => handleResolveConflict(c.id, vid)}
-                    style={{ padding: '7px 13px', background: '#129271', color: '#fff', border: 'none', borderRadius: 5, fontSize: 12, cursor: 'pointer', textAlign: 'left', lineHeight: 1.5 }}
-                  >
-                    <div style={{ fontWeight: 600 }}>
-                      Keep {v ? v.machineName : shortId(vid)}{vid === headId ? ' — current Latest' : ''}
+                  <div key={vid} style={{ background: '#1E252A', border: '1px solid #4a2a2a', borderRadius: 5, padding: 8 }}>
+                    <div style={{ fontWeight: 600, fontSize: 12 }}>
+                      {v ? v.machineName : shortId(vid)}{vid === headId ? ' — current Latest' : ''}
                     </div>
-                    <div style={{ fontSize: 10.5, opacity: 0.85, fontFamily: "'JetBrains Mono', monospace" }}>
+                    <div style={{ fontSize: 10.5, color: '#8b9aaa', fontFamily: "'JetBrains Mono', monospace", margin: '2px 0 7px' }}>
                       {v ? `${when(v.createdAt)} · ${fmtSize(v.size)}` : shortId(vid)}
                     </div>
-                  </button>
+                    <div style={{ display: 'flex', gap: 5 }}>
+                      <button
+                        onClick={() => handleResolveConflict(c.id, vid, false)}
+                        style={{ padding: '4px 9px', background: '#129271', color: '#fff', border: 'none', borderRadius: 4, fontSize: 10.5, cursor: 'pointer' }}
+                      >
+                        Use as Latest
+                      </button>
+                      <button
+                        onClick={() => handleResolveConflict(c.id, vid, true)}
+                        style={{ padding: '4px 9px', background: 'transparent', color: '#fdce63', border: '1px solid #fdce63', borderRadius: 4, fontSize: 10.5, cursor: 'pointer' }}
+                      >
+                        Keep both · use this
+                      </button>
+                    </div>
+                  </div>
                 );
               })}
             </div>
@@ -698,6 +730,11 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                             ? <span style={{ padding: '2px 7px', background: '#129271', color: '#fff', borderRadius: 3, fontSize: 10, fontWeight: 600, letterSpacing: '0.04em' }}>Latest</span>
                             : <button style={{ padding: '2px 8px', border: '1px solid #f4a60d', color: '#f4a60d', background: 'transparent', borderRadius: 3, fontSize: 10, cursor: 'pointer' }} onClick={() => handleSetLatest(v.id)}>Set as Latest</button>
                           }
+                          {v.protected && (
+                            <span title="Protected from automatic pruning" style={{ padding: '2px 7px', border: '1px solid #fdce63', color: '#fdce63', borderRadius: 3, fontSize: 10 }}>
+                              Protected
+                            </span>
+                          )}
                         </div>
                       </td>
                       <td style={tdStyle}>{v.machineName}</td>
@@ -715,6 +752,15 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
                           >
                             Download
                           </button>
+                          {v.protected && (
+                            <button
+                              onClick={() => handleSetVersionProtected(v, false)}
+                              title="Allow automatic retention to prune this version"
+                              style={{ padding: '2px 8px', border: '1px solid #fdce63', color: '#fdce63', background: 'transparent', borderRadius: 3, fontSize: 10, cursor: 'pointer' }}
+                            >
+                              Unprotect
+                            </button>
+                          )}
                           {v.id !== headId && (
                             <button
                               onClick={() => handleDeleteVersion(v.id)}

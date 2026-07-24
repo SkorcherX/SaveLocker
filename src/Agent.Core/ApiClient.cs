@@ -1,6 +1,7 @@
 ﻿using System.Net;
 using System.Net.Http.Json;
 using System.Net.Security;
+using System.Text.Json;
 using SaveLocker.Shared;
 
 namespace SaveLocker.Agent;
@@ -8,6 +9,7 @@ namespace SaveLocker.Agent;
 /// <summary>Typed HTTP client for the SaveLocker server REST API.</summary>
 public sealed class ApiClient
 {
+    private static readonly JsonSerializerOptions WebJson = new(JsonSerializerDefaults.Web);
     private readonly HttpClient _http;
 
     /// <summary>
@@ -128,10 +130,16 @@ public sealed class ApiClient
     /// Report this machine's health. Piggybacks the existing poll, so it adds no new schedule — and
     /// it is the only way a headless agent can tell anyone anything (Decisions.md §2).
     /// </summary>
-    public async Task ReportHealthAsync(AgentHeartbeat beat, CancellationToken ct = default)
+    public async Task<AgentHeartbeatResponse> ReportHealthAsync(
+        AgentHeartbeat beat, CancellationToken ct = default)
     {
         var resp = await _http.PostAsJsonAsync("/api/agent/health", beat, ct);
         resp.EnsureSuccessStatusCode();
+        var payload = await resp.Content.ReadAsStringAsync(ct);
+        if (string.IsNullOrWhiteSpace(payload))
+            return new AgentHeartbeatResponse(Array.Empty<ConflictEscalationDto>());
+        return JsonSerializer.Deserialize<AgentHeartbeatResponse>(payload, WebJson)
+               ?? new AgentHeartbeatResponse(Array.Empty<ConflictEscalationDto>());
     }
 
     /// <summary>Agent command channel: claim this machine's pending commands.</summary>

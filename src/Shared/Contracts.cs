@@ -105,7 +105,8 @@ public record SaveVersionDto(
     DateTime CreatedAt,
     string ContentHash,
     long Size,
-    Guid? ParentVersionId);
+    Guid? ParentVersionId,
+    bool Protected = false);
 
 [JsonConverter(typeof(JsonStringEnumConverter<UploadStatus>))]
 public enum UploadStatus
@@ -135,6 +136,7 @@ public enum ConflictStatus
 /// <param name="MachineId">The machine whose push diverged — the one that is stuck.</param>
 /// <param name="Count">Divergent pushes folded into this one conflict; &gt;1 means it kept recurring.</param>
 /// <param name="LastSeen">When the most recent divergent push arrived.</param>
+/// <param name="Escalated">True once the conflict has remained open past the server's escalation threshold.</param>
 public record ConflictDto(
     Guid Id,
     Guid GameId,
@@ -147,7 +149,8 @@ public record ConflictDto(
     DateTime? ResolvedAt,
     Guid? MachineId = null,
     int Count = 1,
-    DateTime? LastSeen = null);
+    DateTime? LastSeen = null,
+    bool Escalated = false);
 
 // ----- Aggregate state (dashboard + agent sync) -----
 
@@ -324,6 +327,18 @@ public record AgentHeartbeat(
     // to an older server has it ignored, so the fleet and the container can be upgraded in either
     // order (see CONTEXT.md's deploy note).
     ScanPathCandidate[]? PathCandidates = null);
+
+/// <summary>An unresolved conflict old enough to demand attention on an agent that can toast.</summary>
+public record ConflictEscalationDto(
+    Guid ConflictId,
+    Guid GameId,
+    string GameName,
+    string? StuckMachineName,
+    DateTime CreatedAt,
+    int Count);
+
+/// <summary>Server guidance returned with a heartbeat.</summary>
+public record AgentHeartbeatResponse(ConflictEscalationDto[] EscalatedConflicts);
 
 /// <summary>
 /// "This machine's scan found a save folder for a game it tracks but has not mapped." Reported so

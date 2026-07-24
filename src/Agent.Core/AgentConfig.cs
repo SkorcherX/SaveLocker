@@ -144,6 +144,7 @@ public sealed class AgentConfig
                 if (stored is null) continue;
                 game.LastKnownVersionId = stored.LastKnownVersionId;
                 game.LastSyncedHash = stored.LastSyncedHash;
+                game.ConsecutiveConflicts = stored.ConsecutiveConflicts;
             }
             TotalSavesPushed = onDisk.TotalSavesPushed;
             LastSyncTime = onDisk.LastSyncTime;
@@ -181,6 +182,7 @@ public sealed class AgentConfig
 
         game.LastKnownVersionId = stored.LastKnownVersionId;
         game.LastSyncedHash = stored.LastSyncedHash;
+        game.ConsecutiveConflicts = stored.ConsecutiveConflicts;
     }
 
     /// <summary>
@@ -226,6 +228,7 @@ public sealed class AgentConfig
 
         target.LastKnownVersionId = game.LastKnownVersionId;
         target.LastSyncedHash = game.LastSyncedHash;
+        target.ConsecutiveConflicts = game.ConsecutiveConflicts;
         target.SaveDirectory = game.SaveDirectory;
 
         if (countPush) onDisk.TotalSavesPushed++;
@@ -264,6 +267,11 @@ public sealed class TrackedGame
     public Guid? LastKnownVersionId { get; set; }
     /// <summary>Content hash of the local save at last sync, to detect real changes.</summary>
     public string? LastSyncedHash { get; set; }
+    /// <summary>
+    /// Consecutive uploads the server rejected as conflicts. After three, ordinary pushes stop
+    /// sending full archives until a clean pull/push resets the count; forced pushes still bypass it.
+    /// </summary>
+    public int ConsecutiveConflicts { get; set; }
     /// <summary>Effective exclude globs (global defaults ∪ per-game) from the server;
     /// files matching these are skipped when hashing and archiving.</summary>
     public List<string> ExcludeGlobs { get; set; } = new();

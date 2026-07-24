@@ -75,6 +75,9 @@ public class SaveVersion
     /// <summary>The version this snapshot was based on (the head the uploader last knew).</summary>
     public Guid? ParentVersionId { get; set; }
 
+    /// <summary>Exempt from automatic retention until an admin unprotects it.</summary>
+    public bool Protected { get; set; }
+
     /// <summary>Relative path of the stored archive within the archive store.</summary>
     public string ArchivePath { get; set; } = "";
 }

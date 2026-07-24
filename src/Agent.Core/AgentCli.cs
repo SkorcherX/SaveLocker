@@ -256,7 +256,7 @@ public static class AgentCli
                     var force = opts.ContainsKey("force");
                     foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
                         await engine.PushAsync(g, force);
-                    await health.SendAsync(Api(), config, null);
+                    await health.SendAsync(Api(), config, null, Log);
                     break;
                 }
 
@@ -275,7 +275,7 @@ public static class AgentCli
                         }
                         await engine.PullAsync(g, force);
                     }
-                    await health.SendAsync(Api(), config, null);
+                    await health.SendAsync(Api(), config, null, Log);
                     break;
                 }
 

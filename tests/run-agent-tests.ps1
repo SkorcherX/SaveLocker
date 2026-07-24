@@ -1,4 +1,4 @@
-# Agent integration tests — 20 checks on Windows / 15 on Linux. Runs on BOTH.
+# Agent integration tests — 45 checks on Windows / 43 on Linux. Runs on BOTH.
 #
 #   Windows: Windows PowerShell 5.1 or pwsh, drives src/Agent (net10.0-windows).
 #   Linux:   pwsh (PowerShell Core), drives src/Agent.Linux (net10.0).
@@ -234,6 +234,16 @@ $conflictCount = [int]$open[0].PSObject.Properties['count'].Value
 Check "the conflict counted every divergent push"   ($conflictCount -eq 3)
 Check "the conflict names the stuck machine"        (-not [string]::IsNullOrWhiteSpace("$($open[0].machineId)"))
 
+# Three rejected payloads are enough evidence. A fourth ordinary push reports the condition but
+# must not archive or upload the same divergent save again; a force-push remains the explicit escape.
+$beforeBackoff = JsonArray "http://localhost:5179/api/games/$gameId/versions"
+$backedOff = Agent push --config $lapCfg SyncGame
+$afterBackoff = JsonArray "http://localhost:5179/api/games/$gameId/versions"
+$openAfterBackoff = @((JsonArray "http://localhost:5179/api/conflicts") | Where-Object { "$($_.gameId)" -eq $gameId })
+Check "fourth conflicted push reports upload backoff" (($backedOff -join "`n") -like "*upload paused after 3*")
+Check "backoff sent no fourth archive"                 ($afterBackoff.Count -eq $beforeBackoff.Count)
+Check "backoff did not bump the server conflict"       ([int]$openAfterBackoff[0].PSObject.Properties['count'].Value -eq 3)
+
 # Newest-first: the save the user has actually been playing is the one offered. Surfacing the oldest
 # is exactly what made the console useless during the incident.
 $versions = JsonArray "http://localhost:5179/api/games/$gameId/versions"
@@ -243,8 +253,33 @@ Check "retention still runs while conflicted"         ($versions.Count -le 4)
 $conf = (JsonArray "http://localhost:5179/api/conflicts") | Select-Object -First 1
 Check "the server recorded an open conflict" ($null -ne $conf)
 
-# Resolve in favour of the laptop's divergent version - the ordinary "newest wins" case.
-Invoke-RestMethod "http://localhost:5179/api/conflicts/$($conf.id)/resolve?version=$($conf.versionBId)" -Method Post | Out-Null
+# A Set-as-Latest that happened after the conflict must not be silently undone by resolving to an
+# older option. Pick an intervening divergent version that is newer than VersionA but is not one of
+# the two options currently offered.
+$intervening = $versions | Where-Object {
+    "$($_.id)" -ne "$($conf.versionAId)" -and "$($_.id)" -ne "$($conf.versionBId)"
+} | Sort-Object { [DateTime]$_.createdAt } -Descending | Select-Object -First 1
+Invoke-RestMethod "http://localhost:5179/api/games/$gameId/set-latest?version=$($intervening.id)" -Method Post | Out-Null
+
+$rewindCode = try {
+    (Invoke-WebRequest "http://localhost:5179/api/conflicts/$($conf.id)/resolve?version=$($conf.versionAId)" `
+        -Method Post -UseBasicParsing).StatusCode
+} catch { $_.Exception.Response.StatusCode.value__ }
+$headAfterBlockedRewind = (Invoke-RestMethod "http://localhost:5179/api/games/$gameId/state").head.id
+$rewindAudit = JsonArray "http://localhost:5179/api/audit?limit=50" |
+    Where-Object { $_.action -eq "conflict.resolve_rewind_blocked" }
+Check "resolve refuses to rewind a newer Latest"       ($rewindCode -eq 400)
+Check "blocked rewind leaves Latest untouched"         ("$headAfterBlockedRewind" -eq "$($intervening.id)")
+Check "blocked rewind is distinctly audited"           (@($rewindAudit).Count -ge 1)
+
+# Keep both: the laptop's newest divergent version becomes Latest, while both snapshots are
+# protected from retention until the admin explicitly unprotects one.
+Invoke-RestMethod "http://localhost:5179/api/conflicts/$($conf.id)/resolve?version=$($conf.versionBId)&keepBoth=true" -Method Post | Out-Null
+$afterKeepBoth = JsonArray "http://localhost:5179/api/games/$gameId/versions"
+$protectedConflictVersions = @($afterKeepBoth | Where-Object {
+    "$($_.id)" -in @("$($conf.versionAId)", "$($conf.versionBId)") -and $_.protected
+})
+Check "Keep both protects both conflict versions" ($protectedConflictVersions.Count -eq 2)
 
 $queued = @((JsonArray "http://localhost:5179/api/commands") | Where-Object {
     "$($_.type)" -eq "Pull" -and "$($_.status)" -eq "Pending" -and "$($_.gameId)" -eq "$($conf.gameId)"
@@ -277,10 +312,24 @@ Check "the loser pulls the winner cleanly" (
 # (X-Api-Key group), so "back this save up before doing something destructive to it" could not be
 # offered as a console step at all. Those two gaps are why recovering from the 2026-07-22 incident
 # needed curl against the admin API.
+$beforeUnprotect = JsonArray "http://localhost:5179/api/games/$gameId/versions"
+Check "protected conflict versions survive automatic pruning" (
+    @($beforeUnprotect | Where-Object {
+        "$($_.id)" -in @("$($conf.versionAId)", "$($conf.versionBId)")
+    }).Count -eq 2
+)
+
+Invoke-RestMethod "http://localhost:5179/api/games/$gameId/versions/$($conf.versionAId)/protected?value=false" -Method Post | Out-Null
 $pruned = Invoke-RestMethod "http://localhost:5179/api/games/$gameId/prune" -Method Post
 $after  = JsonArray "http://localhost:5179/api/games/$gameId/versions"
 Check "prune-now reports what it removed"   ($null -ne $pruned.removed)
 Check "prune-now respects the retain limit" ($after.Count -le 3)
+Check "unprotected losing version becomes prunable" (
+    @($after | Where-Object { "$($_.id)" -eq "$($conf.versionAId)" }).Count -eq 0
+)
+Check "the still-protected version survives pruning" (
+    @($after | Where-Object { "$($_.id)" -eq "$($conf.versionBId)" -and $_.protected }).Count -eq 1
+)
 
 $headVersionId = "$($after[0].id)"
 $dl = Invoke-WebRequest "http://localhost:5179/api/games/$gameId/versions/$headVersionId/download" -UseBasicParsing

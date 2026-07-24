@@ -12,13 +12,19 @@ public sealed class SyncService
 {
     private readonly AppDbContext _db;
     private readonly ArchiveStore _store;
+    private readonly ConflictEscalationPolicy _conflictEscalation;
     private readonly TimeSpan _leaseDuration = TimeSpan.FromHours(6);
     private readonly int _retainPerGame;
 
-    public SyncService(AppDbContext db, ArchiveStore store, IConfiguration config)
+    public SyncService(
+        AppDbContext db,
+        ArchiveStore store,
+        IConfiguration config,
+        ConflictEscalationPolicy conflictEscalation)
     {
         _db = db;
         _store = store;
+        _conflictEscalation = conflictEscalation;
         _retainPerGame = config.GetValue<int?>("Storage:RetainVersionsPerGame") ?? 10;
     }
 
@@ -529,7 +535,8 @@ public sealed class SyncService
 
     /// <summary>
     /// Keep only the most recent N versions per game (per-game limit, falling back to the
-    /// server global default). Never prunes the current head or open-conflict versions.
+    /// server global default). Never prunes the current head, open-conflict versions, or versions
+    /// an admin protected.
     /// </summary>
     private async Task PruneVersionsAsync(Guid gameId, CancellationToken ct)
     {
@@ -552,7 +559,7 @@ public sealed class SyncService
 
         foreach (var old in versions.Skip(limit))
         {
-            if (protectedIds.Contains(old.Id)) continue;
+            if (old.Protected || protectedIds.Contains(old.Id)) continue;
             _store.Delete(old.ArchivePath);
             _db.SaveVersions.Remove(old);
         }
@@ -631,6 +638,19 @@ public sealed class SyncService
         return (true, null);
     }
 
+    /// <summary>Protect or unprotect a version from automatic retention.</summary>
+    public async Task<(bool ok, string? error)> SetVersionProtectedAsync(
+        Guid gameId, Guid versionId, bool value)
+    {
+        var version = await _db.SaveVersions.FindAsync(versionId);
+        if (version is null || version.GameId != gameId) return (false, "not_found");
+
+        version.Protected = value;
+        await Audit(null, gameId, value ? "version.protect" : "version.unprotect", versionId.ToString());
+        await _db.SaveChangesAsync();
+        return (true, null);
+    }
+
     // ----- Download -----
 
     public async Task<(SaveVersion version, Stream content)?> DownloadHeadAsync(Guid gameId)
@@ -659,11 +679,17 @@ public sealed class SyncService
     /// showed. Dedupe (0.1) makes this mostly moot by collapsing a game to one row per machine, but
     /// the ordering was wrong on its own merits.
     /// </summary>
-    public async Task<List<ConflictFlag>> ListOpenConflictsAsync() =>
-        await _db.Conflicts.Where(c => c.Status == ConflictStatus.Open)
+    public async Task<List<ConflictDto>> ListOpenConflictsAsync()
+    {
+        var now = DateTime.UtcNow;
+        var conflicts = await _db.Conflicts.Where(c => c.Status == ConflictStatus.Open)
             .OrderByDescending(c => c.LastSeen)
             .ThenByDescending(c => c.CreatedAt)
             .ToListAsync();
+        return conflicts
+            .Select(c => c.ToDto(_conflictEscalation.IsEscalated(c, now)))
+            .ToList();
+    }
 
     /// <summary>
     /// Admin: apply this game's retention limit right now, without waiting for a push to trigger it.
@@ -682,23 +708,59 @@ public sealed class SyncService
         return before - await _db.SaveVersions.CountAsync(v => v.GameId == gameId);
     }
 
-    /// <summary>Resolve a conflict by promoting the chosen version to head.</summary>
-    public async Task<bool> ResolveConflictAsync(Guid conflictId, Guid winningVersionId, string resolvedBy)
+    /// <summary>
+    /// Resolve a conflict by promoting the chosen version to head. Refuses to replace a newer head
+    /// with an older conflict option.
+    /// </summary>
+    public async Task<(bool ok, string? error)> ResolveConflictAsync(
+        Guid conflictId,
+        Guid winningVersionId,
+        string resolvedBy,
+        bool keepBoth = false)
     {
         var conflict = await _db.Conflicts.FindAsync(conflictId);
-        if (conflict is null || conflict.Status != ConflictStatus.Open) return false;
+        if (conflict is null || conflict.Status != ConflictStatus.Open)
+            return (false, "Conflict is no longer open.");
         if (winningVersionId != conflict.VersionAId && winningVersionId != conflict.VersionBId)
-            return false;
+            return (false, "The chosen version is not part of this conflict.");
 
         var game = await _db.Games.FindAsync(conflict.GameId);
-        if (game is null) return false;
+        var winner = await _db.SaveVersions.FindAsync(winningVersionId);
+        if (game is null || winner is null)
+            return (false, "The game or chosen version no longer exists.");
+
+        var currentHead = game.HeadVersionId is { } headId
+            ? await _db.SaveVersions.FindAsync(headId)
+            : null;
+        if (currentHead is not null &&
+            currentHead.Id != winner.Id &&
+            winner.CreatedAt < currentHead.CreatedAt)
+        {
+            await Audit(null, conflict.GameId, "conflict.resolve_rewind_blocked",
+                $"winner={winner.Id} currentHead={currentHead.Id}");
+            await _db.SaveChangesAsync();
+            return (false,
+                "Latest changed after this conflict opened. Resolving to that older save would rewind it; review the current versions first.");
+        }
+
+        if (keepBoth)
+        {
+            var versions = await _db.SaveVersions
+                .Where(v => v.Id == conflict.VersionAId || v.Id == conflict.VersionBId)
+                .ToListAsync();
+            if (versions.Count != 2)
+                return (false, "One of the conflict versions no longer exists.");
+            foreach (var version in versions) version.Protected = true;
+        }
 
         game.HeadVersionId = winningVersionId;
         conflict.Status = ConflictStatus.Resolved;
         conflict.ResolvedVersionId = winningVersionId;
         conflict.ResolvedBy = resolvedBy;
         conflict.ResolvedAt = DateTime.UtcNow;
-        await Audit(null, conflict.GameId, "conflict.resolve", winningVersionId.ToString());
+        await Audit(null, conflict.GameId,
+            keepBoth ? "conflict.resolve_keep_both" : "conflict.resolve",
+            winningVersionId.ToString());
         await _db.SaveChangesAsync();
 
         // ORDER MATTERS, and the obvious order is wrong. Queue the pulls FIRST: resolving unpins
@@ -711,7 +773,7 @@ public sealed class SyncService
         // Resolution is the first moment a pile of versions stops being pinned by an open conflict,
         // so it is the first moment retention can actually act on them.
         await PruneVersionsAsync(conflict.GameId, CancellationToken.None);
-        return true;
+        return (true, null);
     }
 
     /// <summary>

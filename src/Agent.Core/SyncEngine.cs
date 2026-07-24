@@ -18,6 +18,7 @@ public sealed class SyncEngine
     private readonly string _tempDir;
     private readonly OfflineQueue? _offlineQueue;
     private readonly TimeSpan _leaseRenewInterval = TimeSpan.FromHours(3);
+    private const int ConflictUploadLimit = 3;
     private readonly Dictionary<Guid, System.Threading.Timer> _leaseTimers = new();
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, SemaphoreSlim> _pushLocks = new();
 
@@ -155,6 +156,16 @@ public sealed class SyncEngine
             return new UploadResult(UploadStatus.NoChange, null, null);
         }
 
+        if (!force && game.ConsecutiveConflicts >= ConflictUploadLimit)
+        {
+            ReportOnly(
+                $"[{game.Name}] CONFLICT still unresolved — upload paused after " +
+                $"{game.ConsecutiveConflicts} rejected attempts; no archive was sent. " +
+                "Resolve it in the dashboard or force-push explicitly.",
+                AgentEventCodes.Conflict, AgentEventSeverity.Error, game.GameId);
+            return new UploadResult(UploadStatus.Conflict, null, null);
+        }
+
         var archive = TempArchive(game.GameId, "push");
         SaveArchive.CreateArchive(game.SaveDirectory, archive, game.ExcludeGlobs);
 
@@ -168,6 +179,7 @@ public sealed class SyncEngine
                 case UploadStatus.Created:
                     game.LastKnownVersionId = result.Version!.Id;
                     game.LastSyncedHash = hash;
+                    game.ConsecutiveConflicts = 0;
                     countPush = true;
                     touchSyncTime = true;
                     _log($"[{game.Name}] pushed new version.");
@@ -176,15 +188,21 @@ public sealed class SyncEngine
                 case UploadStatus.NoChange:
                     game.LastKnownVersionId = result.Version?.Id ?? game.LastKnownVersionId;
                     game.LastSyncedHash = hash;
+                    game.ConsecutiveConflicts = 0;
                     touchSyncTime = true;
                     _log($"[{game.Name}] server already had this content.");
                     _health?.MarkSynced(game.GameId);
                     break;
                 case UploadStatus.Conflict:
+                    game.ConsecutiveConflicts++;
                     // The server already recorded the ConflictFlag, so the dashboard knows a conflict
                     // exists. What it cannot know is WHICH machine is stuck behind it — that is this.
-                    Alert($"[{game.Name}] CONFLICT: your save diverged from the server. " +
-                         "Resolve it in the dashboard.",
+                    Alert(game.ConsecutiveConflicts >= ConflictUploadLimit
+                            ? $"[{game.Name}] CONFLICT: your save diverged from the server. " +
+                              $"Automatic uploads are now paused after {game.ConsecutiveConflicts} attempts " +
+                              "until the conflict is resolved and pulled."
+                            : $"[{game.Name}] CONFLICT: your save diverged from the server. " +
+                              "Resolve it in the dashboard.",
                         AgentEventCodes.Conflict, AgentEventSeverity.Error, game.GameId);
                     break;
             }
@@ -250,6 +268,7 @@ public sealed class SyncEngine
             {
                 game.LastKnownVersionId = versionId;
                 game.LastSyncedHash = headHash;
+                game.ConsecutiveConflicts = 0;
                 _config.SaveGameSyncState(game);
                 _log($"[{game.Name}] already up to date.");
                 _health?.MarkSynced(game.GameId);
@@ -288,6 +307,7 @@ public sealed class SyncEngine
             }
             game.LastKnownVersionId = versionId;
             game.LastSyncedHash = headHash;
+            game.ConsecutiveConflicts = 0;
             _config.SaveGameSyncState(game, touchSyncTime: true);
             _log($"[{game.Name}] restored latest save from server.");
             _health?.MarkSynced(game.GameId);

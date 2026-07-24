@@ -23,11 +23,16 @@ public sealed class HealthService
     public static readonly TimeSpan StaleAfter = TimeSpan.FromMinutes(5);
 
     private readonly AppDbContext _db;
+    private readonly ConflictEscalationPolicy _conflictEscalation;
 
-    public HealthService(AppDbContext db) => _db = db;
+    public HealthService(AppDbContext db, ConflictEscalationPolicy conflictEscalation)
+    {
+        _db = db;
+        _conflictEscalation = conflictEscalation;
+    }
 
     /// <summary>Record a heartbeat, fold in any reported events, and close what the agent just fixed.</summary>
-    public async Task RecordHeartbeatAsync(Guid machineId, AgentHeartbeat beat)
+    public async Task<AgentHeartbeatResponse> RecordHeartbeatAsync(Guid machineId, AgentHeartbeat beat)
     {
         var now = DateTime.UtcNow;
 
@@ -59,6 +64,29 @@ public sealed class HealthService
             await ApplyPathCandidateAsync(machineId, candidate, now);
 
         await _db.SaveChangesAsync();
+
+        var cutoff = now - _conflictEscalation.After;
+        var conflicts = await _db.Conflicts
+            .Where(c => c.Status == ConflictStatus.Open && c.CreatedAt <= cutoff)
+            .Include(c => c.Game)
+            .OrderBy(c => c.CreatedAt)
+            .ToListAsync();
+        var stuckMachineIds = conflicts
+            .Where(c => c.MachineId.HasValue)
+            .Select(c => c.MachineId!.Value)
+            .Distinct()
+            .ToArray();
+        var machineNames = await _db.Machines
+            .Where(m => stuckMachineIds.Contains(m.Id))
+            .ToDictionaryAsync(m => m.Id, m => m.Name);
+
+        return new AgentHeartbeatResponse(conflicts.Select(c => new ConflictEscalationDto(
+            c.Id,
+            c.GameId,
+            c.Game?.Name ?? "(deleted game)",
+            c.MachineId is { } stuckId ? machineNames.GetValueOrDefault(stuckId) : null,
+            c.CreatedAt,
+            c.Count)).ToArray());
     }
 
     /// <summary>

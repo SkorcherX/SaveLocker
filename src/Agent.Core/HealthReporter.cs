@@ -49,6 +49,7 @@ public sealed class HealthReporter
     private readonly HashSet<Guid> _resolvedThisSession = new();
     /// <summary>Resolutions this process has already delivered, so the merge does not re-send them forever.</summary>
     private readonly HashSet<Guid> _sentResolvedThisSession = new();
+    private readonly HashSet<Guid> _notifiedConflictEscalations = new();
     /// <summary>
     /// Events this process has delivered. Without this the merge re-adopts them straight back off
     /// disk — the copy another process wrote is still sitting there — and every heartbeat re-sends
@@ -139,7 +140,11 @@ public sealed class HealthReporter
     /// reporting must not be able to break syncing.
     /// </summary>
     public async Task<bool> SendAsync(
-        ApiClient api, AgentConfig config, OfflineQueue? offlineQueue, CancellationToken ct = default)
+        ApiClient api,
+        AgentConfig config,
+        OfflineQueue? offlineQueue,
+        Action<string>? notify = null,
+        CancellationToken ct = default)
     {
         Pending[] events;
         Guid[] resolved;
@@ -176,14 +181,26 @@ public sealed class HealthReporter
             ResolvedGameIds: resolved,
             PathCandidates: pathCandidates.Length == 0 ? null : pathCandidates);
 
+        AgentHeartbeatResponse response;
         try
         {
-            await api.ReportHealthAsync(beat, ct);
+            response = await api.ReportHealthAsync(beat, ct);
         }
         catch (Exception ex)
         {
             AgentLogger.LogException("HealthReporter.Send", ex);
             return false;
+        }
+
+        foreach (var conflict in response.EscalatedConflicts)
+        {
+            if (!_notifiedConflictEscalations.Add(conflict.ConflictId)) continue;
+            var stuck = string.IsNullOrWhiteSpace(conflict.StuckMachineName)
+                ? ""
+                : $" {conflict.StuckMachineName} cannot sync.";
+            notify?.Invoke(
+                $"URGENT: {conflict.GameName} has had an unresolved conflict for over 6 hours.{stuck} " +
+                "Open the SaveLocker console to resolve it.");
         }
 
         // Clear only what was actually sent — a fault reported while the request was in flight must

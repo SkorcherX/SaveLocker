@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { getPassword, setPassword as persistPassword } from '../api';
-import type { AgentEvent, ServerBuildInfo } from '../types';
+import type { AgentEvent, Conflict, ServerBuildInfo } from '../types';
 import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
 type View = 'games' | 'config' | 'audit' | 'help' | 'whats-new';
@@ -24,6 +24,7 @@ interface Props {
   /** Open problems reported by agents, worst first. This is the only way a headless Deck's
    *  failures reach a human — it cannot toast, so the console has to (Decisions.md §2). */
   problems?: AgentEvent[];
+  escalatedConflicts?: Conflict[];
   onDismissProblem?: (id: string) => void;
 }
 
@@ -38,7 +39,17 @@ function ago(t: string): string {
   return `${Math.round(hours / 24)}d ago`;
 }
 
-export function NavBar({ view, onViewChange, onConnect, onRefresh, build, unreadNotes = false, problems = [], onDismissProblem }: Props) {
+export function NavBar({
+  view,
+  onViewChange,
+  onConnect,
+  onRefresh,
+  build,
+  unreadNotes = false,
+  problems = [],
+  escalatedConflicts = [],
+  onDismissProblem,
+}: Props) {
   const [keyInput, setKeyInput] = useState(getPassword());
   const [showProblems, setShowProblems] = useState(false);
 
@@ -147,6 +158,20 @@ export function NavBar({ view, onViewChange, onConnect, onRefresh, build, unread
         </button>
 
         <button className={ghostBtn} onClick={onRefresh}>↻ Refresh</button>
+
+        {escalatedConflicts.length > 0 && (
+          <button
+            onClick={() => onViewChange('games')}
+            title="These conflicts have been unresolved for more than six hours"
+            style={{
+              padding: '5px 12px', background: '#351b1b', color: '#e5534b',
+              border: '1px solid #e5534b', borderRadius: 5, fontSize: 12,
+              fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            Overdue conflicts: {escalatedConflicts.length}
+          </button>
+        )}
 
         {/* Agent problems. Absent when there are none — a healthy fleet should be quiet. */}
         {problems.length > 0 && (

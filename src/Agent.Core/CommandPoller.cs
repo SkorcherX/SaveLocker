@@ -85,7 +85,7 @@ public sealed class CommandPoller : IDisposable
             // threw — a tick that failed is precisely the tick the console needs to hear about.
             // HealthReporter.SendAsync never throws.
             if (_health is not null)
-                await _health.SendAsync(_api(), _config, _offlineQueue);
+                await _health.SendAsync(_api(), _config, _offlineQueue, _notify);
 
             Interlocked.Exchange(ref _busy, 0);
         }
