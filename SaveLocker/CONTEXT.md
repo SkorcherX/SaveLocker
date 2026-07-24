@@ -5,7 +5,7 @@
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
 **Current released version:** **v0.3.4** (tagged 2026-07-23). The conflict-handling completion batch
-below is built and verified in the working tree but is not released yet.
+below is built, verified, and committed on `main` at `8d998e7`, but is not released yet.
 
 ### v0.3.2 — the save-root class, closed at three layers
 
@@ -245,7 +245,7 @@ release shipped stamped `0.3.3+11.9ae9307`. Fixed (`tags: ['v*']`), but **confir
 that a `docker-publish` run exists for the tag** — it is unconfirmed whether `paths-ignore` also
 filters tag pushes. `Gotchas.md` has the symptom and the manual recovery.
 
-✅ **The entire conflict-handling batch is COMPLETE in the working tree** (2026-07-23): Tiers 0–2,
+✅ **The entire conflict-handling batch is COMPLETE on `main`** (2026-07-23, `8d998e7`): Tiers 0–2,
 including agent backoff, six-hour escalation to the console and Windows tray, the resolve rewind
 guard, and Keep both via protected versions. It is not tagged or deployed. Migration
 `20260724042148_AddProtectedSaveVersions` applies on server start.
