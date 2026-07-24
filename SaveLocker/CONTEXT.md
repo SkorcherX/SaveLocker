@@ -266,6 +266,9 @@ guard, and Keep both via protected versions. It is not tagged or deployed. Migra
 - Migration `20260724042148_AddProtectedSaveVersions`; OpenAPI snapshot and web types regenerated.
 - Verified: agent **45/45**, health **19/19**, concurrency **17/17**; server, Windows agent, Linux
   agent, and web builds pass. Web lint passes. EF reports no pending model changes.
+- **CI follow-up (`1c88a18`):** the Linux agent suite's “did not 401” assertion searched all status
+  text for `401`; a random short version ID containing those digits produced a false failure after
+  the authenticated status check had already passed. It now asserts the command's exit code.
 
 ⚠️ **NOTHING from 0.1, 0.2, 0.4, Tier 1, or 2.1 is deployed.** All of it is server-side; the
 console ships inside the server image. The unRAID container needs
