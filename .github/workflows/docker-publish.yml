@@ -3,6 +3,17 @@ name: Build and publish server image
 on:
   push:
     branches: [main]
+    # Tags too, or a release NEVER gets a correctly-stamped image. The version comes from
+    # `git describe` at build time, so a build triggered by the merge that precedes the tag cannot
+    # see it: v0.3.4 shipped with :latest stamped 0.3.3+11.9ae9307 and needed a manual re-run to
+    # correct. The chip then reads amber "not a release" on a machine running the release, which is
+    # exactly the question the version work exists to answer. See Gotchas.md.
+    #
+    # ⚠️ Unconfirmed: whether `paths-ignore` below also filters TAG pushes. If it does, tagging a
+    # commit whose files all match the ignore list would still skip the build. Confirm on the next
+    # release by checking a docker-publish run exists for the tag; the fallback is re-running the
+    # workflow once the tag exists, which is what corrected v0.3.4.
+    tags: ['v*']
     # Docs-only commits do not change the image, and rebuilding for them burns a build and mints a
     # pointless new version tag. A push is skipped only when EVERY changed file matches, so a commit
     # touching both docs and code still builds.
