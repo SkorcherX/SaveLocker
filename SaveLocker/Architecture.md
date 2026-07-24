@@ -65,9 +65,15 @@ On upload the agent sends the version it last knew (`parent`):
 Leases prevent most conflicts up front; hashing/lineage is the safety net.
 
 ## Data model (SQLite via EF Core)
-EF-managed entities: `Machine`, `Game` (holds `HeadVersionId`), `SaveVersion` (parent chain + `ContentHash`), `Lease` (one per game, unique index), `ConflictFlag`, `AuditLog`, `AgentCommand`, `AppSetting` (key/value store), `MachineSavePath` (composite key `(MachineId, GameId)` → a machine's stored save folder for a game).
+EF-managed entities: `Machine`, `Game` (holds `HeadVersionId`), `SaveVersion` (parent chain +
+`ContentHash`; `Protected` exempts a snapshot from automatic retention), `Lease` (one per game,
+unique index), `ConflictFlag`, `AuditLog`, `AgentCommand`, `AppSetting` (key/value store),
+`MachineSavePath` (composite key `(MachineId, GameId)` → a machine's stored save folder for a game).
 
 > **"Latest" = the head.** `Game.HeadVersionId` is the authoritative version agents pull; the dashboard labels it **Latest**; the admin action to set it is **"Set as Latest"**.
 
 ## Retention
-After a successful upload, `SyncService.PruneVersionsAsync` keeps the newest `Storage:RetainVersionsPerGame` (default 10) per game, deleting older archives. Never prunes the head or versions referenced by an open conflict. Per-game override: `Game.RetainVersions` (nullable — null uses global default; 0 = unlimited).
+After a successful upload, `SyncService.PruneVersionsAsync` keeps the newest
+`Storage:RetainVersionsPerGame` (default 10) per game, deleting older archives. Never prunes the
+head, versions referenced by an open conflict, or versions explicitly protected by an admin.
+Per-game override: `Game.RetainVersions` (nullable — null uses global default; 0 = unlimited).

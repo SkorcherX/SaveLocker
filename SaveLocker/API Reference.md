@@ -26,7 +26,8 @@ Server endpoints (`src/Server/Program.cs`).
 - `DELETE /api/games/{id}` → 204 (admin: remove game + versions, archives, leases, conflicts).
 - `GET /api/overview` → `GameStateDto[]` (dashboard's single fetch).
 - `GET /api/games/{id}/state` → `GameStateDto`.
-- `GET /api/games/{id}/versions` → `SaveVersionDto[]`.
+- `GET /api/games/{id}/versions` → `SaveVersionDto[]`. Each version carries `protected`; protected
+  versions are exempt from automatic retention until an admin clears it.
 
 ## Server settings
 - `GET /api/settings` → `ServerSettingsDto { steamGridDbConfigured, steamGridDbKeyMasked, steamGridDbFromConfig, autoFetchHours }`. Never returns the raw key.
@@ -45,12 +46,17 @@ Server endpoints (`src/Server/Program.cs`).
 - `GET /api/versions/{versionId}/download` → that version's zip.
 
 ## Admin
-- `GET /api/conflicts` → open `ConflictDto[]`.
-- `POST /api/conflicts/{id}/resolve?version={winningVersionId}` → 200 / 400.
+- `GET /api/conflicts` → open `ConflictDto[]`. `escalated` becomes true after the conflict has been
+  open for six hours.
+- `POST /api/conflicts/{id}/resolve?version={winningVersionId}&keepBoth={bool}` → 200 / 400.
+  Refuses to replace a newer current head with an older conflict option. With `keepBoth=true`, the
+  chosen version becomes Latest and both conflict snapshots are protected from retention.
 - `POST /api/games/{id}/rollback?version={versionId}` → 200 / 400.
 - `POST /api/games/{id}/set-latest?version={versionId}` → 200 / 400. Same head-pointer move as rollback; backs the **"Set as Latest"** dashboard action + initial-sync wizard.
 - `POST /api/games/{id}/retain?value={n?}` → 200 / 404. Set per-game version retention limit (null = global default).
 - `DELETE /api/games/{id}/versions/{versionId}` → 200 / 404 / 400. Refuses if it is the head or referenced by an open conflict.
+- `POST /api/games/{id}/versions/{versionId}/protected?value={bool}` → 200 / 404. Protect or
+  unprotect a version from automatic retention.
 - `GET /api/games/{id}/paths` → `[{ machineId, machineName, path }]` — per-machine save path overrides.
 - `POST /api/games/{id}/paths/{machineId}?value={path}` → 200. Set/clear the save path override.
 - `DELETE /api/games/{id}/paths/{machineId}` → 204.
@@ -60,7 +66,7 @@ Server endpoints (`src/Server/Program.cs`).
 - `GET /api/admin/backups` → `BackupInfo[]` `{ fileName, sizeBytes, createdAt }`, newest first.
 
 ## Agent health (agent-auth)
-- `POST /api/agent/health` body `AgentHeartbeat { agentVersion, platform, lastSyncTime?, trackedGames, unmappedGames, offlineQueueDepth, events?, resolvedGameIds? }` → 200. Piggybacks the existing ~20 s poll, so it adds no schedule. **This is the only way a headless agent can tell anyone anything** (`Decisions.md` §2 — the console is the Deck's UI).
+- `POST /api/agent/health` body `AgentHeartbeat { agentVersion, platform, lastSyncTime?, trackedGames, unmappedGames, offlineQueueDepth, events?, resolvedGameIds? }` → `AgentHeartbeatResponse { escalatedConflicts }`. Piggybacks the existing ~20 s poll, so it adds no schedule. **This is the only way a headless agent can tell anyone anything** (`Decisions.md` §2 — the console is the Deck's UI). A conflict open for more than six hours is returned so a Windows tray agent can notify the user even when the stuck machine is a Deck.
   - `events[]` = `{ code, severity, message, gameId?, occurredAt? }`. Codes are the fixed vocabulary in `src/Shared/AgentEventCodes.cs`. They carry only what the server **cannot infer** — a blocked pull, a missing save folder, a rejected upload, a settle-gate timeout, an unreachable server. (A *conflict* the server already knows about; the event ties it to the machine that is **stuck**.)
   - **Deduplicated** on (machine, game, code) while open: a persistent fault bumps `lastSeen`/`count` instead of adding a row every poll.
   - `resolvedGameIds[]` = games that just synced cleanly. Their open events **auto-close**, so a machine that recovers does not leave a stale alarm on the console.

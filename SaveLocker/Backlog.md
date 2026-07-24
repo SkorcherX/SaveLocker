@@ -7,7 +7,7 @@ Not-yet-done work only. Shipped items are indexed in `logs/shipped-2026-07.md`
 > operational follow-up is done (container updated, fleet keys rotated). Indexed in
 > `logs/shipped-2026-07.md`; rationale in `Decisions.md` §7–§9; narrative in `logs/sessions.md`.
 
-## 🔴 ACTIVE — conflict handling (the 2026-07-22 Octopath incident)
+## ✅ COMPLETE — conflict handling (the 2026-07-22 Octopath incident)
 
 One real play session on a Deck produced **75 open conflicts and 2.66 GB of saves on a game
 configured to retain 5**, and escaping it required `curl` against the admin API. Nothing here is
@@ -29,10 +29,9 @@ each fix revealed the next one:
 | 4 | Pulled to fix that → **still** conflicted on every save | the daemon never re-reads `config.json`, so it pushes from state the wrapper superseded |
 
 ⚠️ **Item 4 was the root cause of the loop and was invisible until items 1–3 were worked around.**
-✅ **Fixed and device-verified 2026-07-23** (0.0 below). **The remaining items are still live:** the
-loop is gone, but a genuine two-machine conflict would still produce a row per push (0.1), still
-stall retention (0.2), and still leave the console showing the oldest and least useful one (1.1).
-**Next up is 0.4.**
+✅ **The entire incident follow-up is complete as of 2026-07-23:** the root cause, data-layer
+containment, console recovery, policy prevention, payload backoff, stale escalation, rewind guard,
+and Keep both retention path are all implemented and covered by the integration suites.
 
 ### Tier 0 — data-layer defects (small diffs, highest blast-radius reduction)
 
@@ -97,12 +96,11 @@ stall retention (0.2), and still leave the console showing the oldest and least 
     check.** A force-push with no gameplay since prunes nothing and looks like the fix failed. This
     wasted real time during the incident and is unchanged by 0.2.
 
-- **0.3 — Resolving must not silently rewind the head.** `SyncService.cs:577` writes `HeadVersionId`
-  with no regard for what is already there — which is how a resolve silently undoes a "Set as Latest".
-  At minimum audit it distinctly when the winning version is *older* than the current head; right now
-  the destructive case is indistinguishable from a normal resolve in the audit log.
+- ~~**0.3 — Resolving must not silently rewind the head.**~~ ✅ **DONE 2026-07-23.** Resolution
+  refuses to replace a newer current head with an older conflict option, leaves Latest untouched,
+  returns the reason to the console, and writes `conflict.resolve_rewind_blocked` to the audit log.
 
-### Tier 1 — console UX ✅ **DONE 2026-07-23, except "Keep both"**
+### Tier 1 — console UX ✅ **DONE 2026-07-23**
 
 The maintainer's requirement was: no `curl`, and not tedious. All six items are addressed; the one
 deferred piece is called out under 1.2.
@@ -114,9 +112,10 @@ deferred piece is called out under 1.2.
   and size; the card names the stuck machine and, when `Count > 1`, explains that older divergent
   saves are folded in and still promotable. `fmtSize` is adaptive — the old fixed-MB formatter
   rendered every small save as "0.00 MB", precisely where a size is being read to tell two apart.
-  - ⏳ **DEFERRED: "Keep both".** Needs a `Protected` flag on `SaveVersion` exempting it from pruning,
-    plus a migration and UI for un-protecting. Worth doing, but it is a schema change and a data-model
-    decision, not a console tweak — so it is its own item rather than a rider on this one.
+  - ✅ **"Keep both" DONE 2026-07-23.** The chosen save becomes Latest while both conflict
+    snapshots are marked `Protected`, exempting them from automatic retention. The Versions table
+    labels protected rows and offers **Unprotect**; the next prune may then remove them. Migration
+    `20260724042148_AddProtectedSaveVersions`.
   - ⏳ Not done: the file-count / newest-mtime **delta**. The server does not store it; it would need
     computing at upload time or deriving from the archive on demand.
 - ~~**1.3 — Confirm before resolving.**~~ ✅ Names the save, and the consequence people do not expect:
@@ -153,15 +152,14 @@ deferred piece is called out under 1.2.
   Deleting a machine clears `PreferredMachineId` and resets `ConflictPolicy` to `Manual` on affected
   games. `openapi.json` + `web/src/api-types.ts` regenerated. 35/35 agent tests, 17/17 concurrency
   tests pass.
-- **2.2 — The agent should back off when conflicted.** `SyncEngine.cs:178` alerts and retries forever;
-  it uploaded ~75 near-identical full archives nobody asked for. After N consecutive conflicts on a
-  game, report without uploading the payload — the server already holds a divergent copy.
-  - ⚠️ Verify first whether `2659.3 MB / 80` ≈ one save, which would confirm the archives are
-    near-duplicates and the backoff saves real Deck wifi, not just server disk.
-- **2.3 — Escalate a conflict that goes unread.** A conflict open >6 h is categorically different from
-  one open 5 minutes — it means the human does not know. Escalation must reach the Windows tray as
-  well as the console, since the Deck cannot toast (`Decisions.md` §2). In this incident that would
-  have reached the maintainer on the PC while the Deck stayed silent.
+- ~~**2.2 — The agent should back off when conflicted.**~~ ✅ **DONE 2026-07-23.** After three
+  consecutive rejected payloads for a game, ordinary pushes keep reporting the conflict but stop
+  creating or uploading archives. A clean pull/push resets the persisted counter; force-push is the
+  explicit bypass. `2659.3 MB / 80 = 33.24 MB`, consistent with repeatedly sending one full save.
+- ~~**2.3 — Escalate a conflict that goes unread.**~~ ✅ **DONE 2026-07-23.** After six hours the
+  conflict DTO is marked escalated, the console shows a persistent **Overdue conflicts** badge, and
+  heartbeat responses carry the stale conflict to connected agents. A Windows tray shows it as an
+  urgent notification; each long-lived agent deduplicates the notification by conflict ID.
 
 ### Suggested sequencing
 
@@ -173,7 +171,7 @@ deferred piece is called out under 1.2.
 | ~~3~~ | ~~1.1, 1.3, 1.6~~ | ✅ done 2026-07-23 — the existing UI is honest |
 | ~~4~~ | ~~1.4, 1.5~~ | ✅ done 2026-07-23 — **shell access is no longer needed** |
 | ~~5~~ | ~~**2.1**~~ | ✅ done 2026-07-23 — per-game conflict policy, NewestWins auto-resolves |
-| **6** | **2.2, 2.3, 0.3, "Keep both"** | Polish and hardening |
+| ~~6~~ | ~~2.2, 2.3, 0.3, "Keep both"~~ | ✅ done 2026-07-23 — conflict handling batch complete |
 
 ⚠️ **Tiers 1 and 2 touch the API** — regenerate `web/src/api-types.ts` and commit the updated
 `src/Server/openapi.json` snapshot, per `CLAUDE.md`.

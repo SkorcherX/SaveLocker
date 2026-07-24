@@ -4,8 +4,8 @@
 
 **Repo:** https://github.com/SkorcherX/SaveLocker | **Branch:** main
 
-**Current version:** **v0.3.2** (tagged 2026-07-20 — **four save-path bugs found on real hardware,
-plus templated save paths**). It supersedes v0.3.1, which was tagged but never published (below).
+**Current released version:** **v0.3.4** (tagged 2026-07-23). The conflict-handling completion batch
+below is built and verified in the working tree but is not released yet.
 
 ### v0.3.2 — the save-root class, closed at three layers
 
@@ -233,7 +233,7 @@ since `main` sits one commit past the v0.3.2 tag. The chip only goes green on a 
 
 ---
 
-## ▶ NEXT ACTION: **Deploy the container, then 2.2 / 2.3 / 0.3**
+## ▶ NEXT ACTION: **Review/release the completed conflict batch, then deploy**
 
 **v0.3.4 is released and its image is stamped correctly** (`ghcr.io/skorcherx/savelocker:latest` and
 `:0.3.4`, `SAVELOCKER_VERSION=0.3.4`). ⏳ **Nobody has pulled it yet** — the console still runs the
@@ -245,10 +245,27 @@ release shipped stamped `0.3.3+11.9ae9307`. Fixed (`tags: ['v*']`), but **confir
 that a `docker-publish` run exists for the tag** — it is unconfirmed whether `paths-ignore` also
 filters tag pushes. `Gotchas.md` has the symptom and the manual recovery.
 
-✅ **Tiers 0, 1, and 2.1 are COMPLETE** (2026-07-23). The 2026-07-22 incident is fully remediated
-including the prevention layer: per-game conflict policy (NewestWins / PreferMachine) means the
-whole incident would have been a non-event with a one-dropdown change. **Next: 2.2 (agent backoff
-while conflicted) and 2.3 (escalate stale conflicts), 0.3 (rewind guard on resolve).**
+✅ **The entire conflict-handling batch is COMPLETE in the working tree** (2026-07-23): Tiers 0–2,
+including agent backoff, six-hour escalation to the console and Windows tray, the resolve rewind
+guard, and Keep both via protected versions. It is not tagged or deployed. Migration
+`20260724042148_AddProtectedSaveVersions` applies on server start.
+
+### ✅ Final conflict batch is DONE (2026-07-23) — 2.2 / 2.3 / 0.3 / Keep both
+
+- **Agent backoff:** three rejected archives are enough. Later ordinary pushes report the open
+  conflict without creating or uploading another archive; a clean pull/push resets the persisted
+  counter and force-push bypasses it. `2659.3 MB / 80 = 33.24 MB`, confirming the incident repeatedly
+  sent roughly one full save.
+- **Stale escalation:** at six hours the console shows a persistent **Overdue conflicts** badge and
+  heartbeat responses carry the conflict to agents; a connected Windows tray raises the notification
+  the silent Deck cannot.
+- **Rewind guard:** resolving to an option older than the current Latest returns 400, leaves the head
+  untouched, and audits `conflict.resolve_rewind_blocked`.
+- **Keep both:** the selected snapshot becomes Latest and both conflict snapshots are protected from
+  automatic retention. The Versions table labels them and offers **Unprotect**.
+- Migration `20260724042148_AddProtectedSaveVersions`; OpenAPI snapshot and web types regenerated.
+- Verified: agent **45/45**, health **19/19**, concurrency **17/17**; server, Windows agent, Linux
+  agent, and web builds pass. Web lint passes. EF reports no pending model changes.
 
 ⚠️ **NOTHING from 0.1, 0.2, 0.4, Tier 1, or 2.1 is deployed.** All of it is server-side; the
 console ships inside the server image. The unRAID container needs
@@ -458,9 +475,9 @@ See `Backlog.md` for the full list.
 | Run tests (Windows) | `.\tests\run-agent-tests.ps1` (server must be on :5179) |
 | Run tests (Linux) | `pwsh tests/run-agent-tests.ps1` — same script, drives the Linux agent |
 | Enrollment tests | `.\tests\run-enrollment-tests.ps1` (16 checks; needs :5179). Run it **after** the agent suite — it adds a game + machine to the DB |
-| Agent integration | `.\tests\run-agent-tests.ps1` (**20** on Windows / 15 on Linux). Needs a server on :5179 — and `.verify/` cleared **in the same breath**, see `Gotchas.md` |
+| Agent integration | `.\tests\run-agent-tests.ps1` (**45** on Windows / 43 on Linux). Needs a server on :5179 — and `.verify/` cleared **in the same breath**, see `Gotchas.md` |
 | Local agent API security | `.\tests\run-local-api-tests.ps1` (**22** checks). Starts its own daemon on **:5188** via `daemon --port`, so it never collides with a real agent on :5178. Needs nothing running. Now also proves the path browser is **rooted** — outside `$HOME`/Steam is refused, including via `..` and via a symlink that lives *inside* `$HOME` |
-| Cross-process state | `.\tests\run-concurrency-tests.ps1` (12 checks; own server on **:5183**, own daemon on **:5189**). Daemon vs. a second process over `config.json`, the offline queue and health events. Verified to FAIL against pre-fix code |
+| Cross-process state | `.\tests\run-concurrency-tests.ps1` (17 checks; own server on **:5183**, own daemon on **:5189**). Daemon vs. a second process over `config.json`, the offline queue and health events. Verified to FAIL against pre-fix code |
 
 **WSL is a working test bed — use it.** Ubuntu 24.04 is provisioned (see Toolchain below) with a clone at
 `~/SaveLocker`. `dotnet` and `pwsh` are **not on a non-interactive PATH**, which makes them look absent;
@@ -476,7 +493,7 @@ bash tests/linux/run-linux-tests.sh          # 33 checks
 ```
 ⚠️ Suites that need a server on :5179 must be given **isolated `Storage__DbPath` / `Storage__ArchiveRoot`**.
 Reusing a dirty dev DB fails 12/16 of the enrollment suite for reasons that look exactly like a code regression.
-| Health tests | `.\tests\run-health-tests.ps1` (17 checks). **Starts and stops its own server on :5181** — it has to, since one check pushes while the server is *down*. Needs nothing running |
+| Health tests | `.\tests\run-health-tests.ps1` (19 checks). **Starts and stops its own server on :5181** — it has to, since one check pushes while the server is *down*. Needs nothing running |
 | Hardening tests | `.\tests\run-hardening-tests.ps1` (14 on Linux / 13 on Windows; own server on :5182). Security: symlink escape on archive **and on restore-delete**, zip-slip. Windows uses junctions (no elevation); Linux uses symlinks |
 | TOFU pin tests (TLS) | `.\tests\run-enrollment-tls-tests.ps1` (6 checks; starts its own HTTPS server on :5443). Needs `dotnet dev-certs https --trust` — local only, not in CI |
 | Linux fake-game harness | `tests/linux/run-linux-tests.sh` (27 checks; starts its own server) |

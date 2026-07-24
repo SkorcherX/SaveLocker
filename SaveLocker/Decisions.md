@@ -179,3 +179,21 @@ Amends §8, which fixed only half of this. §8 stopped a long-lived process **er
 ## Environment facts (user-provided)
 - Games are **standalone builds**, not bought on Steam/Epic → save locations unpredictable, hence manifest-based detection + manual `--dir` fallback.
 - Sync trigger: **hybrid** (automatic background + manual override).
+
+## 11. Conflict pressure is capped on bytes and escalated on attention (locked 2026-07-23)
+A conflict is a safety stop, not permission to upload the same full save forever. The first three
+rejected payloads preserve a useful divergent history. After that, ordinary pushes report the
+condition without creating an archive or sending its bytes. The counter is persisted per game,
+shared under the same config lock as parent/hash state, and resets only after a clean push or pull.
+A forced push remains the explicit bypass.
+
+Six hours is the attention threshold. The console marks the conflict overdue and every heartbeat
+returns stale conflicts so a connected Windows tray can notify the user even when the stuck machine
+is a Deck. Long-lived agents notify once per conflict ID; the server keeps returning it until it is
+resolved so restarts still produce a reminder.
+
+“Keep both” does not create two heads. The chosen snapshot becomes the single authoritative Latest,
+while both conflict snapshots receive `SaveVersion.Protected` and are exempt from automatic
+retention. Protection can be removed explicitly from the Versions table. Conflict resolution also
+refuses to promote an option older than the current head, because a resolution must not silently
+undo a later Set as Latest.
