@@ -353,8 +353,9 @@ try {
         -ContentType "application/json" -Body (@{ password = $adminPw } | ConvertTo-Json) | Out-Null
 
     $statusPw = Agent status --config $pcCfg
+    $statusExit = $LASTEXITCODE
     Check "status still works once an admin password is set" (($statusPw -join "`n") -like "*SyncGame*")
-    Check "status did not 401"                               (-not (($statusPw -join "`n") -like "*401*"))
+    Check "status exits successfully with an admin password" ($statusExit -eq 0)
 }
 finally {
     # Clear it, or every later suite against this server needs the header.
