@@ -31,6 +31,14 @@ verification that did not happen before the tag. Write-ups:
   - **LAN enrollment-URL check** on the real deployment (`logs/2026-07-27_console-bugbounty.md` →
     Verification).
 
+- **Back off when the server stays unreachable.** A Deck away from home retries forever at a fixed
+  cadence: the offline drainer every 30 s (re-archiving the save folder each time before it finds
+  out) *and* the command poller every 20 s, which also carries the heartbeat — roughly five failed
+  requests a minute, indefinitely. Costs battery and metered traffic while travelling. Needs one
+  shared backoff policy across all three loops, and a reset that does not make arriving home mean
+  waiting out a 30-minute sleep. Bounded task, decisions to settle first, and the measurement that
+  proves it: `tasks/OfflineBackoff.md`.
+
 - **Missing regression tests from the Linux bounty — LA-04/05/06/07.** Folder-watcher refresh,
   multi-game add, the Game Mode window crash and the settings-write clobber all have code fixes and
   no tests. This is why several items above have to be checked by hand.
