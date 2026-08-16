@@ -386,6 +386,22 @@ behave in ways that look like bugs.
   files updated, old code still running, nothing reported. It is the flag's only effect anywhere in
   the loader, and since `plugin.json` is the one file the agent cannot rewrite, **an installation
   predating that flag can never self-update** and needs one manual reinstall.
+- **Decky's backend poisons `LD_LIBRARY_PATH` for every process the plugin spawns.** Decky Loader
+  ships as a PyInstaller one-file bundle, which unpacks its own copies of the libraries it was built
+  against into `/tmp/_MEIxxxxxx` and puts that directory on `LD_LIBRARY_PATH`. Children inherit it,
+  and a SteamOS binary that then loads a system library needing a **newer** one dies in the dynamic
+  linker before running a line: `systemctl: /tmp/_MEIFrnTgA/libcrypto.so.3: version 'OPENSSL_3.4.0'
+  not found (required by …libsystemd-shared-257.7-2.5.so)`, exit 1. This broke `systemctl --user
+  restart savelocker.service` on a Deck whose unit was present, enabled and **active**, so the
+  failure looked like a missing install. `main.py`'s `_clean_env()` restores `LD_LIBRARY_PATH_ORIG`
+  (where PyInstaller saves the real value) and is used by **every** subprocess, not just systemctl.
+  Confirmed both ways on hardware 2026-08-16 — setting that variable by hand reproduces it exactly,
+  `env -u LD_LIBRARY_PATH` clears it.
+- **Do not pattern-match a subprocess's stderr on a bare phrase.** `describeRestartFailure` turned
+  the linker error above into "savelocker.service is not installed" because the text contains the
+  words *not found*. Anchor on something that can only mean the one thing (the unit's own name), and
+  pass anything unrecognised through **verbatim** — the tool's own words were the entire diagnosis
+  here, and paraphrasing them cost the first attempt.
 - **Do not ask for the `_root` flag.** Everything the backend needs belongs to the desktop user: the
   `api-token` is 0600 owned by them and the agent's API is loopback. Root buys nothing and a
   root-created file under `~/.local/share/SaveLocker` breaks the agent's next write as that user.
