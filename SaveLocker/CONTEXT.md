@@ -15,8 +15,7 @@ embedded React agent UI + a gamepad-native Deck Game Mode UI. See [[Architecture
 first time that feature has run on hardware (see below — it took a plugin fix). v0.5.8's rollout is
 complete too.
 
-The **decky-plugin** row of Config → Agent updates is still **empty**, so no Deck is offered a
-plugin update — the release to put in it is now **v0.2.2** and uploading it is Next action 1. GHCR
+The **decky-plugin** row of Config → Agent updates carries **v0.2.2**, and the Deck is on it. GHCR
 package `savelocker` is **public** ([[Gotchas]]).
 
 **Decky plugin:** its own repo, <https://github.com/SkorcherX/SaveLocker-Decky>, at **v0.2.2**
@@ -118,30 +117,26 @@ had never been watched, and it was the standing caveat in v0.5.7's release notes
 was a plain **reboot** — chosen over Desktop mode precisely because it needs no terminal, which is
 the argument `logs/2026-08-15_install-update-now.md` is built on.
 
-Still unseen on hardware: the **agent UI's Updates panel**, and everything about the plugin updating
-itself (nothing has been uploaded to the decky-plugin row yet). "Install update now" is no longer on
-this list — see the top of this file.
+**Phase 5 is proven on hardware, and was proven earlier than this file claimed.** The Deck's
+`agent.log` shows the daemon's own 6-hourly check installing the plugin unattended **twice on
+2026-08-15** — `plugin check: updated v0.1.0 → v0.2.0` at 17:16 and `→ v0.2.1` at 19:59 — so the
+decky-plugin row was never empty and the channel was never unexercised. Both claims sat in this file
+for a day. A third update, `v0.2.1 → v0.2.2`, ran on 2026-08-16 and was watched directly: the server
+hosted the zip, the agent wrote 4 files (leaving root's `plugin.json` alone) and Decky hot-reloaded
+within the same second. **Lesson for this vault: "unseen on hardware" is a claim about the logs, and
+the logs are on the device — check them before repeating it.**
+
+Still unseen on hardware: the **agent UI's Updates panel**. "Install update now" and the plugin
+update channel are both off this list.
 
 Everything shipped before this: `logs/sessions.md` (reverse-chronological) and
 `logs/shipped-2026-07.md`.
 
 ## Next action
 
-1. **Prove Phase 5 on the Deck — and the Deck is now in the ideal state to prove it.** The harness
-   covers the agent's half with a fake plugin directory; what it cannot cover is the part that makes
-   the feature work at all — Decky noticing the files change and reloading. That mechanism *was*
-   observed by hand during Phase 4 (`touch` as the desktop user, and repeated `scp`s of real builds),
-   so this is not a guess, but the agent doing it by itself has never happened on hardware, and
-   neither has the server hosting a real plugin zip. **Upload SaveLocker-Decky v0.2.2's
-   `SaveLocker.zip` in Config → Agent updates → Decky plugin** (type the version — Decky's artifact
-   is always `SaveLocker.zip`) and watch the Deck pick it up. The Deck's `package.json` still reads
-   **0.2.1** while running 0.2.2's code, because 2026-08-16's fix was `scp`'d in by hand — so it is
-   genuinely behind by the only measure Decky and the agent use, and a real update will correct it.
-   A manual reinstall through Decky always works, and is what the refusal path tells the user to do.
-   Details and the two deviations from the plan: `logs/2026-08-15_decky-plugin.md`.
-2. **Whenever the next release after v0.5.9 is cut, fold in the console UI/audit cleanup above** —
+1. **Whenever the next release after v0.5.9 is cut, fold in the console UI/audit cleanup above** —
    it's on `main` but landed after v0.5.8 was tagged, so no release notes mention it.
-3. **Check the live server for duplicate games.** Canonical naming stops *new* splits; it does not
+2. **Check the live server for duplicate games.** Canonical naming stops *new* splits; it does not
    merge what a server already holds under two spellings, and there is no merge tool ([[Backlog]]).
 
 Everything else — the WA-03 second-account ACL test, the remaining Windows manual gates, the LAN
@@ -153,14 +148,15 @@ baseline drift — is prioritised in [[Backlog]].
 Read `logs/2026-08-15_decky-plugin.md` and [[Gotchas]] → *Decky plugin* first. Both carry
 things that were measured on hardware and cannot be re-derived by reading code.
 
-**The Deck.** `deck@192.168.68.73`, key auth is set up (see the maintainer — the key is deliberately
-not named here). **The address is DHCP and moved once already** (.67 → .73 on 2026-08-16), so a
-refused connection may be that rather than a sleeping Deck. It is awake only when the maintainer
+**The Deck.** `deck@192.168.68.76`, key auth is set up (see the maintainer — the key is deliberately
+not named here). **The address is DHCP and moved twice in one day** (.67 → .73 → .76 on 2026-08-16),
+so a refused connection may be that rather than a sleeping Deck — and a *new* address with the same
+host key is the same machine, not a warning worth acting on. It is awake only when the maintainer
 wakes it. Useful state on it:
 - agent **v0.5.9**, service `savelocker.service` active and enabled, 4 tracked games, all with
   launch options confirmed;
-- plugin at `~/homebrew/plugins/SaveLocker` — **0.2.2's code, `package.json` still reading 0.2.1**
-  (hand-`scp`'d fix; see Next action 1) — and a config backup at
+- plugin **v0.2.2** at `~/homebrew/plugins/SaveLocker`, installed by the agent itself, and a config
+  backup at
   `~/savelocker-decky-backup-20260815-112213` (`config.json`, `shortcuts.vdf`, `localconfig.vdf`);
 - `~/savelocker-plugin-stage/` is the staging directory for anything needing `sudo`.
 

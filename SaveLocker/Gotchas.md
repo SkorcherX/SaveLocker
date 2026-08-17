@@ -386,6 +386,12 @@ behave in ways that look like bugs.
   files updated, old code still running, nothing reported. It is the flag's only effect anywhere in
   the loader, and since `plugin.json` is the one file the agent cannot rewrite, **an installation
   predating that flag can never self-update** and needs one manual reinstall.
+- **Uploading a plugin to the console does not mean a Deck has it.** The daemon checks for both its
+  own update and the plugin's 5 s after start and then **every 6 hours** (`Daemon.cs`), and the timer
+  does not run while the device is suspended — so a Deck can sit a long time on the old version with
+  nothing wrong. `savelocker plugin-update` forces it; `grep 'plugin check' agent.log` is the record
+  of every check the daemon has made, including the boring ones. Do not conclude the channel failed
+  until that log has a line newer than the upload.
 - **Decky's backend poisons `LD_LIBRARY_PATH` for every process the plugin spawns.** Decky Loader
   ships as a PyInstaller one-file bundle, which unpacks its own copies of the libraries it was built
   against into `/tmp/_MEIxxxxxx` and puts that directory on `LD_LIBRARY_PATH`. Children inherit it,
