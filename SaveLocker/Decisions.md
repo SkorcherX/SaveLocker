@@ -288,6 +288,12 @@ session can judge an edge case, not to reopen the choice.
   save-variant model — different formats/paths/line-endings per platform). A Proton save is a
   Windows save, byte-identical to a Windows PC's — existing content-hash lineage works with zero
   server schema change. **Never sync a native-Linux save into a Windows install.**
+  <br>**Revisit requested 2026-08-19** (maintainer: willing to accept per-game uncertainty on restore
+  in exchange for being able to try it at all — "if it doesn't [work] I have my OS save already
+  there"). The scope call itself still stands until the save-variant model exists; a phased plan for
+  building that model — the missing piece named above — is scoped in [[Backlog]] → *Native Linux save
+  support*. The one part of this decision that plan must not weaken: a Windows/Proton save and a
+  native-Linux save of the same game must never share a version lineage, however the UI presents them.
 - **Linux discovery:** `shortcuts.vdf` (non-Steam shortcuts), Heroic's library files, **and — since
   2026-08-10 — `libraryfolders.vdf`/`*.acf` (installed Steam games)**. Steam's shortcut AppID is
   signed in the VDF but the `compatdata/<id>/` folder name is unsigned —
@@ -310,6 +316,42 @@ session can judge an edge case, not to reopen the choice.
   Valve mints a new appid per Proton release, so any such list is stale the day it is written. Both
   scanners use the marker file; the appid list survives only for Steamworks Common Redistributables,
   which ships no toolmanifest. Pinned by a fixture whose appid is deliberately unguessable.
+  <br>**A MoonDeck (Decky streaming plugin) shortcut's own AppID never gets a prefix either**
+  (2026-08-19, `logs/2026-08-19_moondeck-save-detection.md`) — its `Exe` launches MoonDeck's own
+  streaming client, never the game, so Steam has nothing to make compatdata for. When the same title
+  is (or was) ALSO installed locally under Proton, the real AppID is in `LaunchOptions`
+  (`MOONDECK_STEAM_APP_ID=`), and that is the prefix any local save data lives in — found via
+  Cyberpunk 2077 on the maintainer's own Deck, where the Steam-Store copy had since been uninstalled
+  but its compatdata (and real save data, 9 days old) was still there. `SteamShortcuts.MoonDeckAppId`
+  carries it; `LinuxGameScanner` tries it only after the shortcut's own prefix fails to resolve, with
+  `installDir` left null since `StartDir` here is MoonDeck's script directory, not the game's.
+  <br>**An installed game's `&lt;root&gt;` is always the caller's verified Steam root, never derived
+  from whichever compatdata path is being tried** (same 2026-08-19 session). Steam Cloud's own sync
+  folder (`&lt;root&gt;/userdata/&lt;storeUserId&gt;/&lt;appid&gt;/remote`) exists exactly once, at
+  the true Steam root, regardless of which library holds a game's files or compatdata — deriving
+  `&lt;root&gt;` from the prefix path instead (the general-purpose `SteamLayout.RootFromCompatData`)
+  silently pointed it at a secondary library with no `userdata` at all. Found via Left 4 Dead 2, whose
+  compatdata does not exist anywhere on the maintainer's Deck at all — resolution is now attempted
+  even then, since a `&lt;root&gt;`-anchored template needs no prefix to exist.
+  <br>**A relocated install (most commonly internal storage → SD card) can leave a fresh, USELESS
+  prefix at the new location while the original, working one stays in the main root** — Steam
+  re-creates a prefix there rather than moving the old one, and the fresh one's special folders can be
+  auto-created with different casing than an existing save history expects (Borderlands 2:
+  `My games` where the manifest and the original prefix both say `My Games`; Linux is
+  case-sensitive). The fallback to the main root's own compatdata is therefore tried whenever the
+  current library's prefix resolves NOTHING, not only when the directory is missing outright — a
+  present-but-unusable prefix looks identical to an absent one from outside, and the first cut of this
+  fix (checking only `Directory.Exists`) missed exactly this shape.
+  <br>**A MoonDeck shortcut's real AppID is reclassified as `SteamInstalled`, not `SteamShortcut`,
+  when Steam's own `libraryfolders.vdf` — specifically its per-library `apps` block — says the AppID
+  is installed somewhere** (`SteamRoots.AllKnownInstalledAppIds`, same session). A resolved compatdata
+  prefix can never justify this by itself: Steam does not clean up compatdata on uninstall, so a real
+  prefix full of real save data is equally consistent with "genuinely installed, on media not
+  reachable right now" and "was installed once, uninstalled since, orphaned data left behind." The
+  `apps` block is the one place that says which — and it survives its own library's media being
+  absent, because it lives in the SAME file on the always-reachable main root, not on the card
+  itself. Found via Cyberpunk 2077 a second time: genuinely Steam-installed on a card labelled "SD2"
+  that stayed unmounted throughout, reclassified correctly with no card swap needed at all.
 - **Linux UI: headless daemon serving the existing React UI** on `:5178` (Desktop Mode = KDE +
   browser). **Game Mode has no browser**, so `savelocker ui` (SDL + Dear ImGui, in-process against
   `Agent.Core`, no second API client) covers Status/Add game/Set folder/Launch setup as a gamepad

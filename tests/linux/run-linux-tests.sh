@@ -136,6 +136,44 @@ out2="$(agent resolve --config "${deck_cfg}" --prefix "${PORTABLE_PREFIX}" \
 check "resolve refuses a <base>-only save path" \
   "$(contains "${out2}" "no existing save directory found")"
 
+# ── Discovery: MoonDeck-streamed shortcuts ────────────────────────────────────────────────────
+# A MoonDeck shortcut's Exe launches its streaming client, not the game, so Steam never creates a
+# compatdata prefix for the shortcut's OWN AppID. When the same title is also installed locally
+# under Proton, the real AppID lives in LaunchOptions (MOONDECK_STEAM_APP_ID=...) and that prefix
+# is where the game's actual saves are — found on a real Deck where Cyberpunk 2077 was invisible to
+# scan for exactly this reason.
+check "scan finds the MoonDeck shortcut"           "$(contains "${out}" "MoonDeck Streamed Game")"
+check "scan resolves save via MOONDECK_STEAM_APP_ID" \
+  "$(contains "${out}" "${MOONDECK_REAL_SAVE}")"
+# The Cyberpunk 2077 shape: a game that is BOTH genuinely installed (real Steam Cloud) AND has a
+# MoonDeck shortcut pointing at it. The installed copy must survive the dedupe — a SteamShortcut
+# candidate is unconditionally HasSteamCloud: false, so without the MoonDeck-aware tie-break this
+# would wrongly favor the streaming pointer purely because "prefer the copy Cloud doesn't cover"
+# does not know the pointer isn't an independent build. Regression pin for a bug introduced by the
+# MoonDeck fix itself: before that fix the pointer never resolved anything, so it never reached this
+# tie by construction — not because the ordering was correct.
+check "dual-source game resolves" \
+  "$(contains "${out}" "${DUAL_SOURCE_SAVE}")"
+check "the genuinely-installed copy wins over its own MoonDeck shortcut" \
+  "$(contains "${out}" "Fake Dual Source Game  <SteamInstalled> [Steam Cloud] appid=${DUAL_SOURCE_APPID}")"
+check "only one Fake Dual Source Game row survives the dedupe" \
+  "$([ "$(printf '%s\n' "${out}" | grep -c 'Fake Dual Source Game')" = 1 ] && echo 0 || echo 1)"
+
+# The Cyberpunk 2077 shape exactly: installed on a library that is not mounted AT ALL (no ACF
+# reachable anywhere), known only via Steam's own "apps" bookkeeping and a MoonDeck shortcut naming
+# the real AppID. Must be reported as SteamInstalled, not SteamShortcut — a resolved compatdata
+# prefix alone could never justify that (Steam does not clean up compatdata on uninstall, so a real
+# prefix proves nothing about whether the game is STILL installed), but the apps block does.
+check "scan finds the phantom-installed game"       "$(contains "${out}" "${PHANTOM_INSTALLED_SAVE}")"
+check "it is reported as SteamInstalled, not a shortcut" \
+  "$(contains "${out}" "Fake Phantom Installed Game  <SteamInstalled> [Steam Cloud] appid=${PHANTOM_INSTALLED_APPID}")"
+# A duplicate shortcut (same name, different dead AppID, no LaunchOptions) must not win the dedupe
+# over the one that actually resolves — the shape found on the real Deck for other titles.
+check "the resolving MoonDeck row wins over its dead duplicate" \
+  "$(contains "${out}" "MoonDeck Streamed Game  <SteamShortcut>")"
+check "only one MoonDeck Streamed Game row survives the dedupe" \
+  "$([ "$(printf '%s\n' "${out}" | grep -c 'MoonDeck Streamed Game')" = 1 ] && echo 0 || echo 1)"
+
 # ── Discovery: installed Steam games ────────────────────────────────────────────────────────
 # These were deliberately not discovered at all until now, on the reasoning that Steam Cloud covers
 # them. The UI filters what the scan returns, so "hidden by default" and "never scanned" look
@@ -152,6 +190,23 @@ check "Steam runtimes are not offered as games" \
 # and Steam Linux Runtime 4.0 all arrived as enrollable games. toolmanifest.vdf is the real marker.
 check "an unknown compat tool is not offered as a game" \
   "$([ "$(contains "${out}" "Proton 99.0")" = 1 ] && echo 0 || echo 1)"
+
+# A game relocated to a second library (e.g. moved to an SD card to free space) can end up with a
+# fresh, USELESS prefix at the new location (Steam re-creates one; it just has nothing the manifest
+# matches) while the ORIGINAL prefix, left behind in the main root, has the real save history —
+# found on a real Deck (2026-08-19): Borderlands 2. Resolves only if the scan retries the main root
+# whenever the current library's own prefix resolves NOTHING, not only when it is missing outright.
+check "scan finds the relocated game"              "$(contains "${out}" "Fake Relocated Game")"
+check "relocated game resolves via the main root's prefix" \
+  "$(contains "${out}" "${RELOCATED_SAVE}")"
+
+# A game with NO compatdata prefix anywhere — its only save path is Steam's own Cloud sync folder
+# under userdata, which needs no Wine prefix at all. Found on the same Deck: Left 4 Dead 2. Also
+# proves <root> comes from the real Steam root and not from a library the (missing) prefix path
+# happens to point at — userdata exists exactly once, never per-library.
+check "scan finds the cloud-only game"              "$(contains "${out}" "Fake Cloud Only Game")"
+check "cloud-only game resolves with no prefix at all" \
+  "$(contains "${out}" "${CLOUD_ONLY_SAVE}")"
 
 # ── Steam Cloud is per-game manifest data, not "Steam installed it" ──────────────────────────
 # The flag was hardcoded true for every installed Steam title, and the default Add Games view HIDES
@@ -272,6 +327,26 @@ check "doctor finds the Heroic config root" "$(contains "${out}" "${HEROIC_CONFI
 # Which shape a prefix has decides where the manifest's tokens resolve, so doctor must say.
 check "doctor names the wine-shaped prefix"  "$(contains "${out}" "(wine, user deck)")"
 check "doctor names the proton-shaped prefix" "$(contains "${out}" "(proton, user steamuser)")"
+
+# A MoonDeck shortcut's own AppID never gets a prefix, and doctor must not stop at that — it has to
+# say the real local prefix its LaunchOptions names DOES exist, since that is what makes the "no
+# prefix, launch it once" advice above wrong for this specific shortcut.
+check "doctor points at the real local prefix MoonDeck streams" \
+  "$(contains "${out}" "MoonDeck streams appid ${MOONDECK_REAL_APPID}")"
+check "doctor names the actual prefix path" "$(contains "${out}" "${MOONDECK_REAL_PREFIX}")"
+# The duplicate shortcut (same name, different dead AppID) is worth a note, but the machine still
+# works — scan's dedupe already picked the one that resolves — so it must not fail doctor's exit code.
+check "doctor notes the duplicate MoonDeck shortcut" \
+  "$(contains "${out}" "'MoonDeck Streamed Game' has 2 shortcuts with different AppIDs")"
+
+# A library libraryfolders.vdf still names but that does not exist right now (an SD card that isn't
+# inserted) must be called out by name, not silently skipped the way LibraryPaths correctly skips it
+# for scanning purposes — found on a real Deck (2026-08-19): a genuinely Steam-installed game
+# (Cyberpunk 2077, on a card labelled "SD2") had no way to explain why it was invisible.
+check "doctor names the unmounted library" \
+  "$(contains "${out}" "library configured but not mounted right now: ${UNMOUNTED_LIBRARY}")"
+# Not a fault — an unmounted card is completely normal — so it must not fail doctor's exit code.
+check "an unmounted library is not a doctor problem" "${doctor_rc}"
 
 # doctor must describe the state root it is ACTUALLY using. ${deck_cfg} is deliberately outside
 # AgentConfig.DefaultDir, and doctor used to print (and probe) the default regardless - declaring

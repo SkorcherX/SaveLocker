@@ -29,37 +29,79 @@ public sealed class LinuxGameScanner : IGameScanner
 
     public async Task<IReadOnlyList<ScanCandidate>> ScanAsync(CancellationToken ct = default)
     {
-        var results = new List<ScanCandidate>();
+        // Paired with a flag for the final dedupe below: true only when a SteamShortcut candidate
+        // resolved through the MoonDeck fallback (a DIFFERENT game's prefix, not its own) rather than
+        // its own compatdata or a portable folder. Local to this method on purpose — nothing
+        // downstream of the dedupe needs to know how a survivor was found, only that it was.
+        var results = new List<(ScanCandidate Candidate, bool ViaMoonDeck)>();
 
         foreach (var root in SteamRoots.Find())
         {
+            // Steam's own record of what is installed where, across every configured library —
+            // mounted or not (SteamRoots.AllKnownInstalledAppIds). A MoonDeck shortcut whose real
+            // AppID appears here is not a "non-Steam shortcut" at all; it is a genuine Steam-Store
+            // install that merely cannot be read from directly right now, because its library's
+            // media is not currently connected. Computed once per root, reused for every shortcut.
+            var knownInstalled = SteamRoots.AllKnownInstalledAppIds(root);
+
             foreach (var s in await SteamShortcuts.ReadAllAsync(root, ct))
             {
                 ct.ThrowIfCancellationRequested();
                 var prefix = s.AppId is null ? null : SteamRoots.CompatDataPath(root, s.AppId);
-                var save = await SuggestSaveDirAsync(s, prefix, ct);
+                var (save, usedPrefix) = await SuggestSaveDirAsync(s, root, prefix, ct);
 
-                results.Add(new ScanCandidate(
+                // A resolved compatdata prefix alone can never make this distinction: Steam does not
+                // clean up compatdata on uninstall, so a real prefix full of real save data proves
+                // nothing about whether the game is STILL installed anywhere. The apps block does.
+                var realAppId = s.MoonDeckAppId;
+                var confirmedInstalled = realAppId is not null && knownInstalled.Contains(realAppId);
+
+                results.Add((new ScanCandidate(
                     Name: s.AppName,
                     SuggestedSaveDir: save,
-                    Source: ScanSource.SteamShortcut,
-                    HasSteamCloud: false,          // non-Steam shortcuts have no Cloud, by definition
+                    Source: confirmedInstalled ? ScanSource.SteamInstalled : ScanSource.SteamShortcut,
+                    // A confirmed install gets the manifest's real answer, exactly like any other
+                    // installed game — not the shortcut default, which exists only because a
+                    // non-Steam shortcut is never Steam Cloud-eligible in the first place.
+                    HasSteamCloud: confirmedInstalled
+                        ? await _detection.HasSteamCloudAsync(s.AppName, ct) ?? true
+                        : false,
                     ManifestKey: save is null
                         ? null
                         : await _detection.CanonicalNameAsync(s.AppName, ct) ?? s.AppName,
-                    InstallDir: s.StartDir,
-                    SteamAppId: s.AppId,
-                    PrefixPath: prefix,
+                    // s.StartDir is the shortcut's own launch directory — for a MoonDeck shortcut
+                    // that is MoonDeck's script folder, not the game's, and would be actively
+                    // misleading attached to a candidate now presented as genuinely installed. We do
+                    // not know the real install directory without the ACF, which is exactly what is
+                    // unreachable here — admitted, not guessed at.
+                    InstallDir: confirmedInstalled ? null : s.StartDir,
+                    // The real AppID, not the shortcut's synthetic one, once confirmed — it is what
+                    // the launch wrapper needs to match a genuine LOCAL Steam+Proton launch, the only
+                    // kind it can ever hook (a MoonDeck-streamed session cannot be, regardless of
+                    // which AppID is recorded).
+                    SteamAppId: confirmedInstalled ? realAppId : s.AppId,
+                    // The prefix that actually produced the save dir, for the path browser — a
+                    // MoonDeck shortcut resolves via a DIFFERENT prefix than its own (below), and
+                    // opening the browser at the dead one would strand the user at an empty prefix.
+                    PrefixPath: usedPrefix ?? prefix,
                     // Carried for parity, and because config is shared between hosts — but Linux
                     // drives lifecycle from the launch wrapper, not from process polling, so
-                    // nothing here depends on it (Decisions.md §3).
-                    SuggestedProcessName: GameActivity.ProcessNameFromExe(s.Exe)));
+                    // nothing here depends on it (Decisions.md §3). Null once confirmedInstalled for
+                    // the same reason every other SteamInstalled candidate carries null: a script's
+                    // name is not the game's process name any more than a folder's is.
+                    SuggestedProcessName: confirmedInstalled
+                        ? null
+                        : GameActivity.ProcessNameFromExe(s.Exe)),
+                    // Still tracked even once reclassified: if the real ACF ever becomes reachable
+                    // too (the library gets mounted), that direct read is more authoritative than
+                    // this inferred stand-in, and should keep winning the dedupe below.
+                    ViaMoonDeck: usedPrefix is not null && usedPrefix != prefix));
             }
 
-            results.AddRange(await ScanInstalledSteamGamesAsync(root, ct));
+            results.AddRange((await ScanInstalledSteamGamesAsync(root, ct)).Select(c => (c, false)));
         }
 
-        results.AddRange(await ScanHeroicAsync(ct));
+        results.AddRange((await ScanHeroicAsync(ct)).Select(c => (c, false)));
 
         // Normalised, for the same reason as the Windows scanner: one game, one row, however the
         // shortcut happens to be spelled.
@@ -69,14 +111,22 @@ public sealed class LinuxGameScanner : IGameScanner
         // picks the Heroic one — the shortcut's copy cannot resolve, because Steam never made a
         // compatdata prefix for a game it does not launch.
         return results
-            .GroupBy(c => ManifestLoader.NormalizeName(c.Name), StringComparer.Ordinal)
+            .GroupBy(r => ManifestLoader.NormalizeName(r.Candidate.Name), StringComparer.Ordinal)
             .Select(g => g
-                .OrderByDescending(c => c.SuggestedSaveDir is not null)
+                .OrderByDescending(r => r.Candidate.SuggestedSaveDir is not null)
+                // A MoonDeck shortcut only ever resolves by pointing at ANOTHER install's real
+                // prefix — it is never itself a local install — so it loses to a genuine one before
+                // the Cloud tie-break below even applies. Without this, a MoonDeck shortcut for a
+                // game that is ALSO genuinely installed with real Steam Cloud would win the Cloud
+                // tie-break purely because a SteamShortcut candidate is unconditionally
+                // HasSteamCloud: false, handing the survivor the streaming pointer's own AppID —
+                // one the launch wrapper only ever sees during a MoonDeck session, never a real one.
+                .ThenBy(r => r.ViaMoonDeck)
                 // A tie goes to the copy Steam does NOT back up. The same game can be both an
                 // installed Steam title and a shortcut the user made to a DRM-free build; enrolling
                 // the one that already has Cloud is the less useful of the two.
-                .ThenBy(c => c.HasSteamCloud)
-                .First())
+                .ThenBy(r => r.Candidate.HasSteamCloud)
+                .First().Candidate)
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -109,16 +159,32 @@ public sealed class LinuxGameScanner : IGameScanner
     ///
     /// <para>
     /// A Proton game's saves live in its own prefix, and for an installed title that prefix is
-    /// <c>compatdata/&lt;appid&gt;</c> in the library the game is installed in — not in the main
-    /// Steam root, which is where a non-Steam shortcut's prefix always goes. A game on an SD card
-    /// therefore resolves only if the library and the prefix are walked together, which is why this
-    /// iterates <see cref="SteamRoots.LibraryPaths"/> rather than reusing the caller's root.
+    /// normally <c>compatdata/&lt;appid&gt;</c> in the library the game is installed in — not in the
+    /// main Steam root, which is where a non-Steam shortcut's prefix always goes. A game on an SD
+    /// card therefore resolves only if the library and the prefix are walked together, which is why
+    /// this iterates <see cref="SteamRoots.LibraryPaths"/> rather than reusing the caller's root.
     /// </para>
     ///
     /// <para>
-    /// A title with no prefix at all is a native-Linux build (Decisions.md §1: out of scope) or one
-    /// that has never been launched. It is still listed, with no save folder — the user can set one,
-    /// and the alternative is a game that is plainly installed silently missing from the list.
+    /// "Normally", not always: moving a game's install location (most commonly internal storage to
+    /// an SD card, found on a real Deck 2026-08-19 — Borderlands 2) does not always take a USABLE
+    /// prefix with it. Steam can spin up a fresh one at the new location whose special folders were
+    /// auto-created with different casing than an existing manifest path expects — Borderlands 2's
+    /// SD-card prefix has <c>My games</c>, the manifest wants <c>My Games</c>, and Linux is
+    /// case-sensitive — while the ORIGINAL prefix, still sitting in the main root from before the
+    /// move, has the real save history and resolves fine. The fallback is therefore tried whenever
+    /// the current library's prefix resolves NOTHING, not only when it is missing outright — a
+    /// present-but-unusable prefix and an absent one look identical from here. And some templates
+    /// (Steam Cloud's own sync folder, <c>&lt;root&gt;/userdata/…</c> — Left 4 Dead 2 on the same
+    /// Deck) live under the Steam root itself and need no prefix to exist at all, which is why
+    /// resolution is attempted regardless of whether either prefix is found.
+    /// </para>
+    ///
+    /// <para>
+    /// A title that resolves nothing at all is a native-Linux build (Decisions.md §1: out of scope)
+    /// or one that has never actually been launched under Proton. It is still listed, with no save
+    /// folder — the user can set one, and the alternative is a game that is plainly installed
+    /// silently missing from the list.
     /// </para>
     /// </summary>
     private async Task<List<ScanCandidate>> ScanInstalledSteamGamesAsync(
@@ -147,11 +213,24 @@ public sealed class LinuxGameScanner : IGameScanner
                     : NullIfMissing(Path.Combine(steamapps, "common", installDir));
                 if (IsCompatTool(installPath)) continue;
 
+                // <root> is built from steamRoot directly everywhere below, NOT derived from
+                // whichever prefix is tried (Detection.ResolveProtonAsync's usual
+                // SteamLayout.RootFromCompatData) — Steam Cloud's own sync folder
+                // (<root>/userdata/<storeUserId>/<appid>/remote) lives under userdata, which exists
+                // exactly once, at the real Steam client root, regardless of which library holds the
+                // game's files, its compatdata, or whether a prefix exists at all. Deriving <root>
+                // from a secondary library's prefix path would silently point it at a library with no
+                // userdata folder at all.
                 var prefix = Path.Combine(steamapps, "compatdata", appId);
-                var save = Directory.Exists(prefix)
-                    ? (await _detection.ResolveProtonAsync(name, prefix, installPath, ct))
-                        .FirstOrDefault()
-                    : null;
+                var save = await ResolveInstalledAsync(name, prefix, installPath, steamRoot, ct);
+
+                if (save is null && !string.Equals(steamRoot, library, StringComparison.Ordinal))
+                {
+                    var mainRootPrefix = Path.Combine(steamRoot, "steamapps", "compatdata", appId);
+                    var fallbackSave = await ResolveInstalledAsync(
+                        name, mainRootPrefix, installPath, steamRoot, ct);
+                    if (fallbackSave is not null) (save, prefix) = (fallbackSave, mainRootPrefix);
+                }
 
                 results.Add(new ScanCandidate(
                     Name: name,
@@ -178,6 +257,26 @@ public sealed class LinuxGameScanner : IGameScanner
         }
 
         return results;
+    }
+
+    /// <summary>
+    /// Try one compatdata prefix (which need not exist — see below) for an installed Steam game.
+    /// Shared so the main-root fallback in <see cref="ScanInstalledSteamGamesAsync"/> is a second
+    /// call with a different prefix, not a second copy of the resolution call.
+    /// <para>
+    /// <paramref name="storeRoot"/> is always the caller's verified Steam root, never derived from
+    /// <paramref name="prefix"/> — see the caller for why. <see cref="PathResolver.Proton"/> only
+    /// builds strings; a prefix that does not exist just yields tokens that fail their own
+    /// <c>Directory.Exists</c> check inside <see cref="ManifestLoader.ResolveSaveDirectories"/>,
+    /// which is what lets a <c>&lt;root&gt;</c>-anchored template (Steam Cloud's own sync folder)
+    /// resolve even when there is no prefix anywhere at all.
+    /// </para>
+    /// </summary>
+    private async Task<string?> ResolveInstalledAsync(
+        string name, string prefix, string? installPath, string storeRoot, CancellationToken ct)
+    {
+        var resolver = PathResolver.Proton(prefix, installPath, storeRoot: storeRoot);
+        return (await _detection.ResolveSaveDirectoriesAsync(name, resolver, ct)).FirstOrDefault();
     }
 
     /// <summary>
@@ -309,19 +408,23 @@ public sealed class LinuxGameScanner : IGameScanner
     }
 
     /// <summary>
-    /// Best guess at a shortcut's save directory. Two shapes exist and both are real:
+    /// Best guess at a shortcut's save directory. Three shapes exist and all are real:
     ///
     /// 1. <b>In-prefix</b> — the game writes to Windows paths inside its Wine prefix. The Ludusavi
     ///    manifest's tokens resolve there, via a resolver built for THIS game's prefix.
-    /// 2. <b>Portable</b> — the game writes next to its own .exe. That is a plain Linux path on the
+    /// 2. <b>MoonDeck-streamed</b> — the shortcut's own <c>Exe</c> launches MoonDeck's streaming
+    ///    client, not the game, so Steam never creates a compatdata prefix for it. When the same
+    ///    title is ALSO installed locally under Proton, <c>LaunchOptions</c> names the real AppID
+    ///    (<see cref="SteamShortcut.MoonDeckAppId"/>) and that prefix is where local saves live.
+    /// 3. <b>Portable</b> — the game writes next to its own .exe. That is a plain Linux path on the
     ///    native filesystem and needs no prefix resolution at all. Common for the standalone builds
     ///    this feature exists for, so it is checked even when a prefix exists.
     ///
-    /// Null when neither resolves, which on Linux is the expected case rather than a failure: most
+    /// Null when none resolves, which on Linux is the expected case rather than a failure: most
     /// standalone builds are absent from the manifest, so <c>add-game --dir</c> is the primary path.
     /// </summary>
-    private async Task<string?> SuggestSaveDirAsync(
-        SteamShortcut shortcut, string? compatDataPath, CancellationToken ct)
+    private async Task<(string? Save, string? UsedPrefix)> SuggestSaveDirAsync(
+        SteamShortcut shortcut, string steamRoot, string? compatDataPath, CancellationToken ct)
     {
         if (compatDataPath is not null)
         {
@@ -330,10 +433,20 @@ public sealed class LinuxGameScanner : IGameScanner
             // reason a shortcut now resolves at all.
             var dirs = await _detection.ResolveProtonAsync(
                 shortcut.AppName, compatDataPath, installDir: shortcut.StartDir, ct);
-            if (dirs.FirstOrDefault() is { } inPrefix) return inPrefix;
+            if (dirs.FirstOrDefault() is { } inPrefix) return (inPrefix, compatDataPath);
         }
 
-        return PortableSaveDir(shortcut);
+        if (shortcut.MoonDeckAppId is { } moonDeckAppId &&
+            SteamRoots.CompatDataPath(steamRoot, moonDeckAppId) is { } moonDeckPrefix)
+        {
+            // installDir is deliberately NOT shortcut.StartDir here: StartDir is MoonDeck's own
+            // streaming-client script directory, not the game's — passing it as <base> would
+            // resolve template paths into a directory that has nothing to do with the game.
+            var dirs = await _detection.ResolveProtonAsync(shortcut.AppName, moonDeckPrefix, installDir: null, ct);
+            if (dirs.FirstOrDefault() is { } inPrefix) return (inPrefix, moonDeckPrefix);
+        }
+
+        return (PortableSaveDir(shortcut), null);
     }
 
     /// <summary>

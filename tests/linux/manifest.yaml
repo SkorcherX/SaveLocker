@@ -72,3 +72,54 @@ Heroic Offline Game:
     <winDocuments>/HeroicOfflineGame:
       tags:
         - save
+
+# A MoonDeck-streamed game, ALSO installed locally under Proton. Its shortcut's own AppID never
+# gets a compatdata prefix (Steam launches MoonDeck's client script, not the game); this only
+# resolves if discovery reads MOONDECK_STEAM_APP_ID out of LaunchOptions and tries THAT prefix too.
+MoonDeck Streamed Game:
+  files:
+    <winAppData>/MoonDeckStreamedGame:
+      tags:
+        - save
+
+# Installed in a second library, but its compatdata prefix is left behind in the MAIN Steam root —
+# the shape of a game moved to an SD card after Steam already created its prefix elsewhere. Only
+# resolves if discovery falls back to the main root when the current library's own prefix is missing.
+Fake Relocated Game:
+  files:
+    <winAppData>/FakeRelocatedGame:
+      tags:
+        - save
+
+# Installed, but has no compatdata prefix anywhere — its only save path is Steam's own Cloud sync
+# folder under the Steam root's userdata, which needs no Wine prefix to resolve at all. Only
+# resolves if discovery does not gate resolution on a prefix existing first.
+Fake Cloud Only Game:
+  files:
+    <root>/userdata/<storeUserId>/440904/remote:
+      tags:
+        - save
+
+# Genuinely installed with real Steam Cloud AND has a MoonDeck shortcut pointing at it — the
+# Cyberpunk 2077 shape. The installed copy must win the dedupe despite having Steam Cloud, because a
+# MoonDeck shortcut is a pointer, not an independent build; unlike the DRM-free-shortcut case, Cloud
+# coverage here says nothing about which candidate is more useful to track.
+Fake Dual Source Game:
+  cloud:
+    steam: true
+  files:
+    <winAppData>/FakeDualSourceGame:
+      tags:
+        - save
+
+# Installed on a library that is not mounted at all — no ACF reachable anywhere, only Steam's own
+# "apps" bookkeeping (which survives the library being absent) and a MoonDeck shortcut naming the
+# same real AppID. Real Steam Cloud, to prove HasSteamCloud switches from the shortcut default
+# (always false) to the manifest's real answer once the install is confirmed this way.
+Fake Phantom Installed Game:
+  cloud:
+    steam: true
+  files:
+    <winAppData>/FakePhantomInstalledGame:
+      tags:
+        - save
