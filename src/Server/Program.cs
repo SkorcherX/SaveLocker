@@ -307,6 +307,60 @@ agent.MapPost("/games/{id:guid}/upload", async (
     }
 }).Produces<UploadResult>();
 
+// ---- Upload (chunked) — see Gotchas.md → "Cloudflare's 100s edge timeout". A proxied edge (or any
+// reverse proxy with a fixed request timeout) kills a single-shot upload once the archive is large
+// enough and the link slow enough that streaming it takes longer than that timeout allows. This is
+// the same conflict-aware ingest as the route above, fed by bytes that arrive over several short
+// requests instead of one long one. Additive: the route above is untouched for agents that predate it.
+agent.MapPost("/games/{id:guid}/upload/begin", async (
+    Guid id, HttpContext http, BeginUploadRequest req, SyncService sync, CancellationToken ct) =>
+{
+    if (string.IsNullOrWhiteSpace(req.ContentHash))
+        return Results.BadRequest("Missing content hash.");
+
+    var machine = http.CurrentMachine();
+    var (sessionId, noChange) = await sync.BeginChunkedUploadAsync(
+        id, machine.Id, req.ParentVersionId, req.ContentHash, req.Force, ct);
+    return Results.Ok(new BeginUploadResponse(sessionId, noChange));
+}).Produces<BeginUploadResponse>();
+
+agent.MapPut("/games/{id:guid}/upload/{sessionId:guid}/chunk", async (
+    Guid id, Guid sessionId, long offset, HttpContext http, SyncService sync, IConfiguration cfg,
+    CancellationToken ct) =>
+{
+    // Same cap as the single-shot route, applied per request rather than to the whole archive — a
+    // chunk is a few MB by convention, so this is a defensive ceiling, not something normal traffic
+    // should ever approach.
+    var sizeCap = http.Features.Get<IHttpMaxRequestBodySizeFeature>();
+    if (sizeCap is { IsReadOnly: false })
+        sizeCap.MaxRequestBodySize = (long)(cfg.GetValue<int?>("Storage:MaxUploadMb") ?? 200) * 1024 * 1024;
+
+    var machine = http.CurrentMachine();
+    try
+    {
+        var bytesReceived = await sync.AppendUploadChunkAsync(
+            id, machine.Id, sessionId, offset, http.Request.Body, ct);
+        return Results.Ok(new ChunkAppendResponse(bytesReceived));
+    }
+    catch (UnknownUploadSessionException ex) { return Results.NotFound(ex.Message); }
+    catch (UploadOffsetMismatchException ex) { return Results.Conflict(ex.Message); }
+    catch (ArchiveTooLargeException ex)
+    {
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge);
+    }
+}).Produces<ChunkAppendResponse>();
+
+agent.MapPost("/games/{id:guid}/upload/{sessionId:guid}/complete", async (
+    Guid id, Guid sessionId, HttpContext http, SyncService sync, CancellationToken ct) =>
+{
+    var machine = http.CurrentMachine();
+    try
+    {
+        return Results.Ok(await sync.CompleteChunkedUploadAsync(id, machine.Id, sessionId, ct));
+    }
+    catch (UnknownUploadSessionException ex) { return Results.NotFound(ex.Message); }
+}).Produces<UploadResult>();
+
 agent.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, SyncService sync) =>
     StreamVersion(http, await sync.DownloadHeadAsync(id)));
 

@@ -3,6 +3,7 @@ import type { AgentState, LeaseWarning } from '../types'
 import { api } from '../api'
 import { LaunchSetupCard } from './LaunchSetupCard'
 import { DeckyPluginCard } from './DeckyPluginCard'
+import { ActivityCard } from './ActivityCard'
 
 interface Props {
   state: AgentState | null
@@ -81,6 +82,9 @@ export function OverviewView({ state, onWarningDismissed }: Props) {
         {/* After the launch-options card on purpose: the manual step is the supported one, and this
             is the optional thing that can remove it. Both hide themselves on Windows. */}
         <DeckyPluginCard />
+        {/* Last: what's happening right now is the thing worth checking back on, so it sits where a
+            user's eye lands after everything else is already known to be fine. */}
+        <ActivityCard />
       </div>
     </div>
   )

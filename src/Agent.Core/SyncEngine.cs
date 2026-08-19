@@ -17,6 +17,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
     private readonly HealthReporter? _health;
     private readonly string _tempDir;
     private readonly OfflineQueue? _offlineQueue;
+    private readonly SyncActivityTracker? _activity;
     private readonly TimeSpan _leaseRenewInterval = ResolveRenewInterval();
     private const int ConflictUploadLimit = 3;
     private readonly Dictionary<Guid, System.Threading.Timer> _leaseTimers = new();
@@ -61,7 +62,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
     /// (Decisions.md §2). Both hosts report, so the console is one honest view of the whole fleet.
     /// </param>
     public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, Action<string>? notify = null,
-        OfflineQueue? offlineQueue = null, HealthReporter? health = null)
+        OfflineQueue? offlineQueue = null, HealthReporter? health = null, SyncActivityTracker? activity = null)
     {
         _config = config;
         _api = api;
@@ -70,6 +71,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         _notify = notify ?? (_ => { });
         _health = health;
         _offlineQueue = offlineQueue;
+        _activity = activity;
         _tempDir = Path.Combine(config.StateDir, "tmp");
         Directory.CreateDirectory(_tempDir);
         CleanStaleTemps();
@@ -149,6 +151,11 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
 
         var gate = _pushLocks.GetOrAdd(game.GameId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
+        // Brackets the whole attempt regardless of which exit path below is taken (success, no
+        // change, conflict, contention, or an exception) — the alternative was threading Begin/End
+        // through every return in PushCoreAsync, and a phase change mid-attempt (settle -> upload)
+        // is handled there instead, once the state that matters (which game, when it started) exists.
+        _activity?.Begin(game.Name, settle ? SyncPhase.Settling : SyncPhase.Pushing);
         try
         {
             // Fails closed. Proceeding unlocked here meant this process archived and rewrote sync
@@ -169,7 +176,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
             ReportContention(game, "push", ex);
             return null;
         }
-        finally { gate.Release(); }
+        finally { gate.Release(); _activity?.End(); }
     }
 
     private async Task<UploadResult?> PushCoreAsync(TrackedGame game, bool force, bool settle, CancellationToken ct)
@@ -205,6 +212,10 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
                     AgentEventCodes.SettleTimeout, AgentEventSeverity.Warning, game.GameId);
         }
 
+        // Whether or not settle ran, everything from here on is the "Pushing" phase — settle only
+        // ever set Settling in the first place when it was going to run at all.
+        _activity?.SetPhase(SyncPhase.Pushing);
+
         var hash = SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs);
         if (!force && hash == game.LastSyncedHash)
         {
@@ -227,7 +238,8 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
 
         try
         {
-            var result = await _api.UploadAsync(game.GameId, hash, game.LastKnownVersionId, force, archive, ct);
+            var result = await _api.UploadAsync(game.GameId, hash, game.LastKnownVersionId, force, archive,
+                onProgress: (done, total) => _activity?.Progress(done, total), ct: ct);
             var countPush = false;
             var touchSyncTime = false;
             switch (result.Status)
@@ -337,6 +349,9 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         }
 
         using var _lock = crossProcess;
+        // Begin here, not before the lock: the two early refusals above (running, unsafe path) never
+        // attempted a pull at all, so there is nothing for the activity feed to show in progress.
+        _activity?.Begin(game.Name, SyncPhase.Pulling);
         // LastSyncedHash gates the un-pushed-changes check below, so a stale one is not merely
         // untidy: it makes a legitimate pull look like it would overwrite local progress, and the
         // pull is refused. Refresh before either is read.
@@ -426,7 +441,28 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         finally
         {
             if (File.Exists(archive)) File.Delete(archive);
+            _activity?.End();
         }
+    }
+
+    /// <summary>
+    /// Pull then push every game, skipping the pull (not the push) for whatever is currently running
+    /// — the same "sync all" both the tray menu and the agent UI's Overview button offer, kept in one
+    /// place so the two cannot drift. A running game still gets pushed: that is the normal folder-
+    /// watch behaviour and costs the user nothing, it only forgoes restoring a save out from under it.
+    /// </summary>
+    public async Task<string> SyncAllAsync(IReadOnlyList<TrackedGame> games, CancellationToken ct = default)
+    {
+        var skipped = new List<string>();
+        foreach (var g in games)
+        {
+            if (GameActivity.IsActive(g)) skipped.Add(g.Name);
+            else await PullAsync(g, ct: ct);
+            await PushAsync(g, ct: ct);
+        }
+        return skipped.Count == 0
+            ? "Sync all complete."
+            : $"Sync all complete. Not pulled (still running): {string.Join(", ", skipped)}.";
     }
 
     /// <summary>

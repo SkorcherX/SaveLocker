@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi;
 
 namespace SaveLocker.Agent;
 
@@ -33,6 +34,12 @@ public sealed class AgentApiServer : IDisposable
     // server is offering something newer" — and the only one anything may offer to install now.
     // Injected because Updater lives in Agent.Linux: Windows stages nothing and supplies nothing.
     private readonly Func<StagedUpdateInfo?> _stagedUpdate;
+    // Owned by the host so it outlives any single engine rebuild (a settings change replaces the
+    // engine; the activity feed a user is watching should not reset because of that).
+    private readonly SyncActivityTracker _activity;
+    // "Sync all" for the Overview page's button — same operation the tray menu offers, resolved
+    // against whichever engine and game list are current at the moment it is clicked.
+    private readonly Func<Task<string>> _syncAll;
     private readonly string _uiRoot;
     private readonly LocalAuth _auth;
     // Lease warnings are persisted, not held in memory: the Linux launch wrapper is a separate
@@ -58,7 +65,9 @@ public sealed class AgentApiServer : IDisposable
         Func<LaunchCommandDto>? launchInfo = null,
         Action? onGamesChanged = null,
         Func<DeckyStatusDto>? deckyStatus = null,
-        Func<StagedUpdateInfo?>? stagedUpdate = null)
+        Func<StagedUpdateInfo?>? stagedUpdate = null,
+        SyncActivityTracker? activity = null,
+        Func<Task<string>>? syncAll = null)
     {
         _browser = new PathBrowser(browseRoots);
         Port = port;
@@ -75,6 +84,8 @@ public sealed class AgentApiServer : IDisposable
         _onGamesChanged = onGamesChanged;
         _getUpdateResult = getUpdateResult ?? (() => null);
         _stagedUpdate = stagedUpdate ?? (() => null);
+        _activity = activity ?? new SyncActivityTracker();
+        _syncAll = syncAll ?? (() => Task.FromResult("Not available."));
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
         _auth = LocalAuth.LoadOrCreate(config.ConfigPath);
         _leaseWarnings = LeaseWarningStore.For(config);
@@ -103,7 +114,25 @@ public sealed class AgentApiServer : IDisposable
 
         // No CORS policy on purpose: the bundled UI is same-origin, so nothing legitimate needs
         // one, and the previous AllowAnyOrigin let any web page read this API's responses.
-        builder.Services.AddOpenApi();
+        builder.Services.AddOpenApi(o =>
+        {
+            // .NET 10 emits OpenAPI 3.1, which hedges `long` as ["integer","string"] for a
+            // serializer that might fall back to a string — System.Text.Json never does. Left in,
+            // every byte-count field (ActivitySnapshotDto's progress) generates as `number | string`
+            // in agent-ui's types for a case that cannot occur. Same fix as the server's own
+            // AddOpenApi (Program.cs) — see its comment for the full reasoning.
+            o.AddSchemaTransformer((schema, _, _) =>
+            {
+                if (schema.Type is { } t
+                    && t.HasFlag(JsonSchemaType.String)
+                    && (t.HasFlag(JsonSchemaType.Integer) || t.HasFlag(JsonSchemaType.Number)))
+                {
+                    schema.Type = t & ~JsonSchemaType.String;
+                    schema.Pattern = null;
+                }
+                return Task.CompletedTask;
+            });
+        });
 
         _app = builder.Build();
         _app.Use(GuardAsync);
@@ -513,6 +542,28 @@ public sealed class AgentApiServer : IDisposable
             return TypedResults.Ok(new OkResponse());
         }).Produces<OkResponse>();
 
+        // What the Overview page's activity card polls: what is syncing right now (with byte
+        // progress for a push) and a short rolling history of what just happened. Cheap — an
+        // in-memory read, no I/O — so the UI can poll it far more often than the 10 s /api/state tick.
+        app.MapGet("/api/activity", () =>
+        {
+            var current = _activity.Current();
+            var recent = _activity.Recent()
+                .Select(e => new ActivityLogEntryDto(e.TimestampUtc, e.Message))
+                .ToArray();
+            return new ActivityDto(
+                new ActivitySnapshotDto(
+                    current.GameName, current.Phase.ToString(), current.BytesDone, current.BytesTotal,
+                    current.StartedAtUtc),
+                recent);
+        }).Produces<ActivityDto>();
+
+        // The Overview page's "Sync now" button: pull then push every tracked game, same as the tray
+        // menu's "Sync All". Fire-and-poll from the UI's side — the response is a summary line, and
+        // progress for whichever game is mid-sync shows up on the next /api/activity poll regardless.
+        app.MapPost("/api/sync", async () => new SyncNowResponse(await _syncAll()))
+            .Produces<SyncNowResponse>();
+
         app.MapGet("/api/agent-version", () =>
         {
             var latest = _getUpdateResult() is UpdateResult.Available available
@@ -813,3 +864,16 @@ public sealed record EnrollResponse(int Enrolled, int Skipped);
 public sealed record RegisterResponse(string MachineName);
 public sealed record FolderResponse(string? Path);
 public sealed record SuggestedPathDto(string? Path);
+
+/// <param name="GameName">Null when nothing is syncing right now.</param>
+/// <param name="Phase">One of "Idle", "Pulling", "Settling", "Pushing" — a plain string rather than
+/// a typed enum so the local API's slim JSON pipeline needs no enum-converter configuration for it,
+/// matching every other DTO in this file.</param>
+/// <param name="BytesDone">Meaningful only during "Pushing" — see the chunk loop in
+/// <see cref="ApiClient.UploadAsync"/>, the only place that knows progress mid-transfer. Zero for
+/// every other phase.</param>
+public sealed record ActivitySnapshotDto(
+    string? GameName, string Phase, long BytesDone, long BytesTotal, DateTime? StartedAtUtc);
+public sealed record ActivityLogEntryDto(DateTime TimestampUtc, string Message);
+public sealed record ActivityDto(ActivitySnapshotDto Current, ActivityLogEntryDto[] Recent);
+public sealed record SyncNowResponse(string Message);

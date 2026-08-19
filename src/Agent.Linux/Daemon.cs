@@ -34,6 +34,8 @@ public sealed class Daemon : IAsyncDisposable
     // Written from an API request thread (server URL change, registration), read from watcher,
     // poller and drainer threads — the publish has to be visible to all of them.
     private volatile SyncEngine _engine;
+    // Outlives every engine rebuild on purpose — see AgentApiServer's field of the same type.
+    private readonly SyncActivityTracker _activity = new();
 
     /// <summary>
     /// <paramref name="apiPort"/> is overridable so a test harness can run a daemon alongside the
@@ -52,7 +54,7 @@ public sealed class Daemon : IAsyncDisposable
 
     private SyncEngine BuildEngine() =>
         new(_config, ApiClient.For(_config),
-            log: AgentLogger.Log, notify: Notify, offlineQueue: _offlineQueue, health: _health);
+            log: Log, notify: Notify, offlineQueue: _offlineQueue, health: _health, activity: _activity);
 
     /// <summary>
     /// There is nobody here to notify — a toast is impossible in Game Mode — so locally a
@@ -61,6 +63,14 @@ public sealed class Daemon : IAsyncDisposable
     /// (Decisions.md §2).
     /// </summary>
     private static void Notify(string message) => AgentLogger.Log(message);
+
+    // The engine's routine-progress sink: the file log exactly as before, plus the agent UI's
+    // Overview activity feed. One delegate so nothing else has to know the feed exists.
+    private void Log(string message)
+    {
+        AgentLogger.Log(message);
+        _activity.Record(message);
+    }
 
     /// <summary>
     /// Record the AppID a tracked game's own save folder reveals, for games that never got one.
@@ -136,7 +146,9 @@ public sealed class Daemon : IAsyncDisposable
             // Also per request: this daemon stages updates on its own timer, and whether a game is
             // running — which is what decides if a restart would install anything — changes minute
             // to minute. A value captured at startup would be wrong by the time anyone read it.
-            stagedUpdate: () => Updater.StagedUpdate(_config));
+            stagedUpdate: () => Updater.StagedUpdate(_config),
+            activity: _activity,
+            syncAll: () => _engine.SyncAllAsync(_config.Games));
         _apiServer.Start();
 
         _drainer = new OfflineQueueDrainer(_offlineQueue, _config, () => _engine, Notify);

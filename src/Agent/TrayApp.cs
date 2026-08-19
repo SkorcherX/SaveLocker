@@ -49,6 +49,8 @@ internal sealed class TrayContext : ApplicationContext
     private readonly ProcessWatcher _processWatcher;
     // Rebuilt from an API request thread; read from watcher/poller threads. See Daemon._engine.
     private volatile SyncEngine _engine = null!;
+    // Outlives every engine rebuild on purpose — see AgentApiServer's field of the same type.
+    private readonly SyncActivityTracker _activity = new();
 
     private UpdateChecker? _updateChecker;
     private readonly System.Threading.Timer _updateTimer;
@@ -101,7 +103,9 @@ internal sealed class TrayContext : ApplicationContext
             onConnectionChanged: RebuildEngine,
             getUpdateResult: () => LastUpdateResult,
             browseRoots: GameScanner.BrowseRoots(),
-            onGamesChanged: () => _ui.Post(() => { RebuildMenu(); StartFolderWatchers(); }));
+            onGamesChanged: () => _ui.Post(() => { RebuildMenu(); StartFolderWatchers(); }),
+            activity: _activity,
+            syncAll: () => _engine.SyncAllAsync(_config.Games));
         _apiServer.Start();
 
         _commandPoller = new CommandPoller(
@@ -169,8 +173,8 @@ internal sealed class TrayContext : ApplicationContext
         // Windows toasts AND reports: the tray tells the user in front of it, health reporting tells
         // the console. One dashboard then shows the whole fleet, Deck and PC alike.
         var replaced = _engine;
-        _engine = new SyncEngine(_config, api, log: AgentLogger.Log, notify: Notify,
-            offlineQueue: _offlineQueue, health: _health);
+        _engine = new SyncEngine(_config, api, log: Log, notify: Notify,
+            offlineQueue: _offlineQueue, health: _health, activity: _activity);
 
         // Retire the engine we just replaced, or its lease timers keep renewing against the old
         // server forever while exit releases against the new one. Off the calling thread because
@@ -304,21 +308,7 @@ internal sealed class TrayContext : ApplicationContext
 
     // ─── Tray actions ────────────────────────────────────────────────────────────
 
-    private async Task SyncAll()
-    {
-        var skipped = new List<string>();
-        foreach (var g in _config.Games)
-        {
-            // A running game is skipped for the pull only. Pushing while it runs is the normal
-            // folder-watch behaviour and takes nothing away from the user.
-            if (GameActivity.IsActive(g)) skipped.Add(g.Name);
-            else await _engine.PullAsync(g);
-            await _engine.PushAsync(g);
-        }
-        Notify(skipped.Count == 0
-            ? "Sync all complete."
-            : $"Sync all complete. Not pulled (still running): {string.Join(", ", skipped)}.");
-    }
+    private async Task SyncAll() => Notify(await _engine.SyncAllAsync(_config.Games));
 
     private void OpenDashboard()
     {
@@ -510,6 +500,14 @@ internal sealed class TrayContext : ApplicationContext
 
     private void Notify(string message) => _ui.Post(() =>
         _icon.ShowBalloonTip(4000, "SaveLocker", message, ToolTipIcon.Info));
+
+    // The engine's routine-progress sink: the file log exactly as before, plus the agent UI's
+    // Overview activity feed. One delegate so nothing else has to know the feed exists.
+    private void Log(string message)
+    {
+        AgentLogger.Log(message);
+        _activity.Record(message);
+    }
 
     protected override void Dispose(bool disposing)
     {

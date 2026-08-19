@@ -228,6 +228,16 @@ public record UploadResult(
     SaveVersionDto? Version,
     ConflictDto? Conflict);
 
+// ----- Upload (chunked) -----
+
+public record BeginUploadRequest(string ContentHash, Guid? ParentVersionId, bool Force);
+
+/// <summary>Either <see cref="SessionId"/> is set and the caller uploads chunks against it, or
+/// <see cref="NoChange"/> is set and there is nothing to send — the server already has this content.</summary>
+public record BeginUploadResponse(Guid? SessionId, UploadResult? NoChange);
+
+public record ChunkAppendResponse(long BytesReceived);
+
 // ----- Conflicts -----
 
 [JsonConverter(typeof(JsonStringEnumConverter<ConflictStatus>))]

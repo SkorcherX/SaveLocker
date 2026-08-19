@@ -871,6 +871,76 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/activity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ActivityDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/sync": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SyncNowResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent-version": {
         parameters: {
             query?: never;
@@ -910,12 +980,31 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ActivityDto: {
+            current: components["schemas"]["ActivitySnapshotDto"];
+            recent: components["schemas"]["ActivityLogEntryDto"][];
+        };
+        ActivityLogEntryDto: {
+            /** Format: date-time */
+            timestampUtc: string;
+            message: string;
+        };
+        ActivitySnapshotDto: {
+            gameName: null | string;
+            phase: string;
+            /** Format: int64 */
+            bytesDone: number;
+            /** Format: int64 */
+            bytesTotal: number;
+            /** Format: date-time */
+            startedAtUtc: null | string;
+        };
         AgentConfigDto: {
             serverUrl: string;
             machineName: string;
             startWithWindows: boolean;
             /** Format: int32 */
-            settleQuietSeconds: number | string;
+            settleQuietSeconds: number;
         };
         AgentStateDto: {
             connected: boolean;
@@ -925,13 +1014,13 @@ export interface components {
             serverUrl: string;
             startWithWindows: boolean;
             /** Format: int32 */
-            gamesTracked: number | string;
+            gamesTracked: number;
             /** Format: int32 */
-            savesBacked: number | string;
+            savesBacked: number;
             lastSyncAgo: string;
             leaseWarnings: components["schemas"]["LeaseWarningDto"][];
             /** Format: int32 */
-            settleQuietSeconds: number | string;
+            settleQuietSeconds: number;
             platform: string;
         };
         AgentVersionDto: {
@@ -952,7 +1041,7 @@ export interface components {
         };
         CandidateDto: {
             /** Format: int32 */
-            id: number | string;
+            id: number;
             name: string;
             source: string;
             hasSteamCloud: boolean;
@@ -970,7 +1059,7 @@ export interface components {
             machineName: null | string;
             startWithWindows: null | boolean;
             /** Format: int32 */
-            settleQuietSeconds: null | number | string;
+            settleQuietSeconds: null | number;
         };
         DeckyStatusDto: {
             applicable: boolean;
@@ -983,13 +1072,13 @@ export interface components {
             gameName: null | string;
         };
         EnrollRequest: {
-            ids: null | (number | string)[];
+            ids: null | number[];
         };
         EnrollResponse: {
             /** Format: int32 */
-            enrolled: number | string;
+            enrolled: number;
             /** Format: int32 */
-            skipped: number | string;
+            skipped: number;
         };
         ErrorResponse: {
             error: string;
@@ -1008,12 +1097,12 @@ export interface components {
         };
         LaunchOptionCurrentDto: {
             /** Format: uint32 */
-            steamAppId: number | string;
+            steamAppId: number;
             current: null | string;
         };
         LaunchOptionRowDto: {
             /** Format: uint32 */
-            steamAppId: number | string;
+            steamAppId: number;
             /** Format: uuid */
             gameId: string;
             name: string;
@@ -1024,7 +1113,7 @@ export interface components {
         };
         LaunchOptionsAppliedRequest: {
             /** Format: uint32 */
-            steamAppId: number | string;
+            steamAppId: number;
             applied: boolean;
             error: null | string;
         };
@@ -1050,12 +1139,15 @@ export interface components {
         };
         ResolvedLaunchOptionDto: {
             /** Format: uint32 */
-            steamAppId: number | string;
+            steamAppId: number;
             desired: string;
             changed: boolean;
         };
         SuggestedPathDto: {
             path: null | string;
+        };
+        SyncNowResponse: {
+            message: string;
         };
         TrackedGameDto: {
             /** Format: uuid */

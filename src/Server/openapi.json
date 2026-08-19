@@ -296,6 +296,133 @@
         }
       }
     },
+    "/api/games/{id}/upload/begin": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BeginUploadResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}/upload/{sessionId}/chunk": {
+      "put": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChunkAppendResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}/upload/{sessionId}/complete": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "sessionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/games/{id}/download": {
       "get": {
         "tags": [
@@ -2374,6 +2501,67 @@
           "totalBackups": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "BeginUploadRequest": {
+        "required": [
+          "contentHash",
+          "parentVersionId",
+          "force"
+        ],
+        "type": "object",
+        "properties": {
+          "contentHash": {
+            "type": "string"
+          },
+          "parentVersionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "force": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BeginUploadResponse": {
+        "required": [
+          "sessionId",
+          "noChange"
+        ],
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "uuid"
+          },
+          "noChange": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UploadResult"
+              }
+            ]
+          }
+        }
+      },
+      "ChunkAppendResponse": {
+        "required": [
+          "bytesReceived"
+        ],
+        "type": "object",
+        "properties": {
+          "bytesReceived": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },

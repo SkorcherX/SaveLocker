@@ -499,20 +499,9 @@ public sealed class SyncService
         Guid gameId, Guid machineId, Guid? parentVersionId,
         string contentHash, Stream archive, bool force, CancellationToken ct = default)
     {
-        var game = await _db.Games.FindAsync(new object?[] { gameId }, ct)
-                   ?? throw new InvalidOperationException("Unknown game.");
-
-        var serverHead = game.HeadVersionId is null
-            ? null
-            : await _db.SaveVersions.FindAsync(new object?[] { game.HeadVersionId }, ct);
-
-        // No-op if the content already matches the head.
-        if (serverHead is not null && serverHead.ContentHash == contentHash)
-            return new UploadResult(UploadStatus.NoChange, serverHead.ToDto(), null);
-
-        var diverged = !force
-                       && serverHead is not null
-                       && serverHead.Id != parentVersionId;
+        var (game, serverHead, diverged, noChange) =
+            await PrepareUploadAsync(gameId, parentVersionId, contentHash, force, ct);
+        if (noChange is not null) return noChange;
 
         // Persist the incoming archive as a new version regardless of outcome,
         // so the admin can choose it during conflict resolution.
@@ -528,6 +517,105 @@ public sealed class SyncService
         {
             // The archive is published but nothing indexes it. Remove it rather than leave a file
             // no row can ever name — the inverse of the state the staged write prevents.
+            _store.TryDelete(rel);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The conflict-detection preamble shared by the single-shot and chunked upload paths: look up
+    /// the game and its current head, and decide up front whether this content is a no-op (matches
+    /// the head exactly) or diverges from the parent the uploader last knew. Split out because the
+    /// chunked path needs to run it twice — once at Begin, to skip the transfer entirely when nothing
+    /// changed, and again at Complete against whatever the head has become by the time the last byte
+    /// landed, which is the only moment that matters for what actually gets published.
+    /// </summary>
+    private async Task<(Game Game, SaveVersion? ServerHead, bool Diverged, UploadResult? NoChange)> PrepareUploadAsync(
+        Guid gameId, Guid? parentVersionId, string contentHash, bool force, CancellationToken ct)
+    {
+        var game = await _db.Games.FindAsync(new object?[] { gameId }, ct)
+                   ?? throw new InvalidOperationException("Unknown game.");
+
+        var serverHead = game.HeadVersionId is null
+            ? null
+            : await _db.SaveVersions.FindAsync(new object?[] { game.HeadVersionId }, ct);
+
+        if (serverHead is not null && serverHead.ContentHash == contentHash)
+            return (game, serverHead, false, new UploadResult(UploadStatus.NoChange, serverHead.ToDto(), null));
+
+        var diverged = !force && serverHead is not null && serverHead.Id != parentVersionId;
+        return (game, serverHead, diverged, null);
+    }
+
+    // ----- Upload (chunked) -----
+    //
+    // The single-shot UploadAsync above streams the whole archive in one request, which is exactly
+    // what fails for a large save over a slow link behind a proxy with a fixed edge timeout (measured
+    // against Cyberpunk 2077: Cloudflare kills the connection at ~100s, and a well-played save's
+    // archive can take minutes over a modest home upload — see Gotchas.md). This is the same
+    // conflict-aware ingest, just fed by bytes that arrived over several short requests instead of
+    // one long one. The old route is untouched, for agents that have not updated yet.
+
+    /// <summary>
+    /// Start a chunked upload. Short-circuits with NoChange and no session when the content already
+    /// matches the head — the one case chunking can pre-empt before a single byte moves. A conflict
+    /// still needs the full archive (an admin may choose it later), so only an exact match skips the
+    /// wire.
+    /// </summary>
+    public async Task<(Guid? SessionId, UploadResult? NoChange)> BeginChunkedUploadAsync(
+        Guid gameId, Guid machineId, Guid? parentVersionId, string contentHash, bool force,
+        CancellationToken ct = default)
+    {
+        var (_, _, _, noChange) = await PrepareUploadAsync(gameId, parentVersionId, contentHash, force, ct);
+        if (noChange is not null) return (null, noChange);
+
+        var versionId = Guid.NewGuid();
+        var sessionId = _store.BeginSession(gameId, machineId, versionId, contentHash, parentVersionId, force);
+        return (sessionId, null);
+    }
+
+    /// <summary>Append one chunk. The session's own machine id is checked against the caller's — a
+    /// key that can reach this route at all can only ever touch its own upload.</summary>
+    public async Task<long> AppendUploadChunkAsync(
+        Guid gameId, Guid machineId, Guid sessionId, long expectedOffset, Stream content,
+        CancellationToken ct = default)
+    {
+        if (!_store.TryGetSession(sessionId, out var info) || info.GameId != gameId || info.MachineId != machineId)
+            throw new UnknownUploadSessionException(sessionId);
+
+        return await _store.AppendChunkAsync(sessionId, expectedOffset, content, _maxUploadBytes, ct);
+    }
+
+    /// <summary>
+    /// Finish a chunked upload: publish the staged file and run it through the same conflict-aware
+    /// ingest a single-shot upload gets. Re-checks the head against what it has become since Begin —
+    /// a slow chunked transfer widens the window another machine could have pushed in, and this is
+    /// the last moment that can still matter before something gets published.
+    /// </summary>
+    public async Task<UploadResult> CompleteChunkedUploadAsync(
+        Guid gameId, Guid machineId, Guid sessionId, CancellationToken ct = default)
+    {
+        if (!_store.TryGetSession(sessionId, out var info) || info.GameId != gameId || info.MachineId != machineId)
+            throw new UnknownUploadSessionException(sessionId);
+
+        var (game, serverHead, diverged, noChange) =
+            await PrepareUploadAsync(gameId, info.ParentVersionId, info.ContentHash, info.Force, ct);
+        if (noChange is not null)
+        {
+            // The head caught up to this exact content while the chunks were in flight — nothing to
+            // publish.
+            _store.AbortSession(sessionId);
+            return noChange;
+        }
+
+        var (rel, size) = _store.CompleteSession(sessionId);
+        try
+        {
+            return await IngestAsync(game, info.VersionId, rel, size, machineId, info.ParentVersionId,
+                info.ContentHash, serverHead, diverged, info.Force, ct);
+        }
+        catch
+        {
             _store.TryDelete(rel);
             throw;
         }
