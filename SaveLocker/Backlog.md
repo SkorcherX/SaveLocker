@@ -133,36 +133,6 @@ verification that did not happen before the tag. Write-ups:
   gap from the agent-side discovery question above and still has no plan; noted here so the pointer
   resolves to something.
 
-- **Case-insensitive path matching inside a Wine/Proton prefix.** Scoped 2026-08-19, not built.
-  Found by reading Ludusavi's own resolver (`src/scan.rs`, `src/path.rs`) side by side with ours
-  while chasing the Borderlands 2 bug in `logs/2026-08-19_moondeck-save-detection.md`: Ludusavi
-  never does an exact-case check inside a Steam compatdata prefix — it glob-matches the filesystem
-  and forces case-insensitivity there unconditionally (`add_path_insensitive!`), and everywhere else
-  picks sensitivity from the SAVE'S declared platform (`os: windows` → insensitive), never from the
-  host OS. `PathResolver.ResolveConcrete` does the opposite: one exact-case `Directory.Exists` against
-  the fully-expanded string. That gap is exactly why Borderlands 2 needed a hand-written fix — Wine
-  created `My games`, the manifest and the working prefix both say `My Games` — and it will recur for
-  any other game a re-created prefix, a different Proton version, or a different Wine build happens to
-  case a folder differently, not just a relocated install.
-  <br>**Shape of the fix:** only `PathResolver.Proton`/`.Wine` need this — `.Windows()` never should,
-  NTFS is already case-insensitive there. Can't bolt a case-insensitive check onto the END of
-  `ResolveConcrete`: it builds one path string and checks it once, and any ONE of several segments
-  (`Documents`, `My Games`, the game's own folder) could be the mismatched one, not just the last.
-  Needs to walk segment-by-segment, resolving each one against its parent's REAL directory listing
-  case-insensitively (`Directory.GetDirectories(parent).FirstOrDefault(d =>
-  Path.GetFileName(d).Equals(segment, OrdinalIgnoreCase))`) and building the actual on-disk path as it
-  goes. Decide the tie-break up front, don't leave it implicit: if a parent genuinely has both
-  `My games` and `My Games` (a plausible OUTCOME of the exact relocation bug that motivated this),
-  prefer an exact-case match when one exists, else pick deterministically (newest mtime is probably
-  the honest answer, matching "which copy is actually being written to").
-  <br>**Where:** `src/Shared/PathResolver.cs`, shared by the shortcut and installed-game scan paths
-  both — this subsumes, not replaces, today's Borderlands-2 fix: that one fixes "resolved the wrong
-  PREFIX entirely" (a different library); this fixes "resolved the right prefix, wrong casing inside
-  it," which can happen with no relocation involved at all.
-  <br>**Tests:** a fixture Wine prefix with one wrong-cased folder resolving correctly; a fixture with
-  BOTH castings present, pinning the tie-break; a check that the Windows-host resolver's behavior is
-  provably unchanged (never even reaches the new code path).
-
 - **Native Linux save support** — sync a native-Linux-built game's save alongside its Windows/Proton
   counterpart, without letting the two formats corrupt each other. Asked for directly 2026-08-19,
   same session as the fixes above: "I want the freedom to just store it in the dashboard and try — if
@@ -217,6 +187,91 @@ verification that did not happen before the tag. Write-ups:
   manifest or the archive format gives any basis for that, and guessing at compatibility between two
   save formats is precisely the mistake `logs/2026-08-19_moondeck-save-detection.md` argues against
   throughout.
+
+- **Multiple save paths per game.** Scoped 2026-08-20 (full research write-up:
+  `logs/2026-08-20_wine-case-insensitive-and-scoping.md`), not built — this is a maintainer scope
+  decision (build the schema work, or keep today's single-path limitation), not something to just do.
+  Some manifest games list more than one `files:` template — `ManifestLoader.ResolveSaveDirectories`
+  (`src/Shared/ManifestLoader.cs:181`) already loops over every one of them and returns a full
+  `IReadOnlyList<string>` — but essentially every real caller (`LinuxGameScanner.cs:279`,
+  `AgentCli.cs:195` and `:672`, `CommandPoller.cs:237`, `GameScanner.cs:301`) immediately reduces that
+  to `.FirstOrDefault()`, because the storage model the rest of the system is built on is single-path
+  end to end, all the way down to the database's primary key.
+  <br>**The design risk that gates everything else.** `ResolveSaveDirectories`'s own doc comment
+  already carries a cautionary tale directly on point: DRAGON QUEST III has two manifest templates for
+  the same game — one resolves to the real save folder, the other to a sibling `Config` folder — and
+  this codebase was already burned once treating "multiple templates" as "resolve all of them," which
+  silently picked the wrong one via `HashSet` ordering. **The manifest format does not disambiguate
+  between "alternate locations, pick the one that resolves" and "complementary locations, sync all of
+  them that resolve."** Stopping the `.FirstOrDefault()` calls is not enough by itself; the real
+  question is a policy for that ambiguity, most plausibly by never auto-adopting more than one
+  manifest-resolved candidate without explicit user confirmation of which ones are genuinely
+  complementary.
+  <br>**Why this is the most invasive schema change in the project's history, not a resolver tweak.**
+  `MachineSavePath` (`src/Server/Data/Entities.cs:200-205`) is a plain `SavePath` string on a
+  composite-key `(MachineId, GameId)` row — "one path per machine per game" is baked into the primary
+  key itself, not just the column type, and the table has no FK constraints today (cleanup is
+  hand-written `RemoveRange` calls in `SyncService.cs`), a pre-existing gap worth fixing in the same
+  migration rather than separately. Every path-carrying wire DTO in `Contracts.cs`
+  (`MachineSavePathDto.SavePath`, `GameDto.SuggestedSaveDir`) is a single string too — mechanically
+  easy to widen (there's already a `string[]` precedent via `ExcludeGlobs` on the same DTOs), but
+  ripples into `openapi.json` and the generated `web/src/api-types.ts`. Agent-side,
+  `TrackedGame.SaveDirectory` (`src/Agent.Core/AgentConfig.cs:454`) is one non-nullable string, and
+  `SyncEngine`'s push/pull is hard-coded to one root at the type level —
+  `SaveArchive.CreateArchive`/`HashDirectory`/`RestoreArchive` all take one `sourceDir`/`targetDir`
+  string, not a list. `CommandPoller.ReconcileGamesAsync`'s reconciliation logic (~10 branches of
+  single-path comparison/reporting) would need real rework, not just a type change.
+  <br>**`SaveArchive` is the single hardest piece.** Turning "zip one directory" into "zip N
+  directories into one archive" needs a namespacing scheme so two roots' relative paths can't collide
+  (`Documents/save.dat` from root A vs `AppData/save.dat` from root B), and the restore-side safety
+  logic — the stale-file delete pass, the symlink guard, the nested-restore-depth guard — is all
+  written in terms of one root and would need re-deriving per-root rather than per-archive.
+  <br>**Proposed phased shape**, once the ambiguity policy above is settled: (1) data model — a child
+  table replacing `MachineSavePath`'s composite-key single row (or a JSON-encoded ordered list if a
+  new table is unwanted), `TrackedGame.SaveDirectory` → list, wire DTOs reusing the `ExcludeGlobs`
+  `string[]` precedent; (2) `SaveArchive` namespacing-and-restore-safety — its own design pass, not a
+  bullet, given the safety mechanisms involved; (3) scanners — stop reducing to `.FirstOrDefault()`,
+  surface every resolved candidate, require explicit confirmation per the ambiguity policy; (4) UI —
+  `GameDetail.tsx`'s per-machine path table (one text input per row) becomes a nested list editor.
+
+- **Registry-based saves.** Scoped 2026-08-20 (full research write-up:
+  `logs/2026-08-20_wine-case-insensitive-and-scoping.md`), not built. The Ludusavi manifest's
+  `registry:` section is invisible end to end today: `ManifestLoader`'s YAML DTO
+  (`src/Shared/ManifestLoader.cs:245-257`) has no `Registry` property at all — not even an unused one
+  — so `.IgnoreUnmatchedProperties()` silently drops a game's `registry:` block during parse. Even the
+  detection test harness's deliberately-richer DTO
+  (`tests/detection/SaveLocker.DetectionHarness/ManifestModel.cs`) has no registry field either, so
+  there is no partial groundwork anywhere to build on — adding the property (parsed and visible,
+  independent of whether anything acts on it yet) is step zero.
+  <br>**Two genuinely different problems hide under one line, because SaveLocker runs on two hosts.**
+  Native Windows (`src/Agent/`) is straightforward: `Microsoft.Win32.Registry` talks to the real
+  registry directly, and the existing pattern (`GameScanner.cs:82-109`'s `ReadRegistryString` —
+  try/catch narrowed to `UnauthorizedAccessException`/`IOException`/`SecurityException`, null-safe
+  `OpenSubKey`/`GetValue`, already used for finding Steam's install path) is directly reusable for a
+  manifest-declared `registry:` key. Linux/Proton (`src/Agent.Linux/`) is hard: the agent is a native
+  linux-x64 process, never running under Wine itself, and typically needs to read a game's Proton
+  prefix registry *without* launching Wine or that prefix's process, often across many different
+  prefixes. Wine transparently backs `Microsoft.Win32.Registry` calls with a prefix's own
+  `user.reg`/`system.reg` — but only from *inside* that specific prefix's own Wine process, which is
+  not the position this agent is in. The realistic path is hand-parsing Wine's plain-text
+  `user.reg`/`system.reg` format directly — `[Registry Key Path] timestamp` section headers,
+  `"Name"="value"`/`dword:`/`hex:` lines, `@=` for the default value — which **does not exist in this
+  codebase in any form today**. The closest existing pattern for "hand-write a parser for a
+  semi-documented text config format" is `SteamTextVdf.cs`'s tokenizer for Steam's KeyValues format —
+  a reasonable structural template, but the Wine `.reg` grammar itself is unrelated and would be new
+  code either way.
+  <br>**No archive story either.** `SaveArchive.cs` is zip-of-real-files throughout — `CreateArchive`,
+  `HashDirectory`, and `RestoreArchive` all walk real files under a real directory, with no
+  extensibility hook for a non-file member. Supporting registry data would need a reserved-path
+  convention (e.g. an exported `.reg`-shaped blob at a fixed relative path inside the same zip) with
+  explicit special-casing in all three of those methods to skip that path in the existing
+  file-diff/symlink-guard logic and route it through a registry writer on restore instead of
+  `File.Copy` — new logic in three places, not a drop-in extension.
+  <br>**Restore is the dangerous direction here too**, mirroring the native-Linux item's own
+  push-is-safe/pull-is-not framing: writing an untrusted registry blob back is a new kind of hostile-
+  input surface the existing zip-slip/symlink hardening in `Decisions.md` doesn't cover at all — worth
+  its own threat-modeling pass before restore is attempted, not an assumed extension of the existing
+  archive guards.
 
 - **File-level saves — the 24 games the install-root guard now refuses.** A save location is a
   DIRECTORY throughout, so a manifest entry like `<base>/Save.dat` can only resolve to the whole
@@ -346,8 +401,6 @@ verification that did not happen before the tag. Write-ups:
   per-store flag on `ScanCandidate` rather than a second bool, and a decision about whether the
   default view should hide those too (Galaxy sync is opt-in per game, unlike Steam Cloud — so
   probably not, which is why this is not high priority).
-- **Registry-based saves** — the Ludusavi manifest has a `registry:` section; only `files:` paths are handled.
-- **Multi-directory saves** — some games list multiple save paths. The sync engine tracks one `SaveDirectory` per game; multi-dir support needs a schema change.
 - **File-count / newest-mtime delta in conflict UI** — would help disambiguate conflict options. The server does not store it; needs computing at upload time or deriving from the archive on demand. Not done; everything else in conflict Tier 1 is complete.
 
 _Dropped items (won't-do) are recorded in `logs/shipped-2026-07.md`._

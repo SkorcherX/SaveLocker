@@ -123,3 +123,21 @@ Fake Phantom Installed Game:
     <winAppData>/FakePhantomInstalledGame:
       tags:
         - save
+
+# Wine wrote "My games" (lowercase g); this template says "My Games" — the real Borderlands 2 shape
+# (logs/2026-08-19_moondeck-save-detection.md). Only resolves if PathResolver walks the prefix
+# case-insensitively instead of doing one exact-case check on the fully-expanded string.
+Fake Miscased Game:
+  files:
+    <winDocuments>/My Games/FakeMiscasedGame:
+      tags:
+        - save
+
+# Two siblings on disk, "my games" and "MY GAMES", NEITHER matching this template's exact case —
+# pins the newest-mtime tie-break, since an exact match would resolve via the ordinary
+# Directory.Exists check and never reach the fallback at all.
+Fake Case Tiebreak Game:
+  files:
+    <winDocuments>/My Games/FakeTiebreakGame:
+      tags:
+        - save

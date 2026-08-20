@@ -38,8 +38,10 @@ either Steam convention:
 """
 import json
 import os
+import shlex
 import struct
 import sys
+import time
 
 PREFIX_APPID_SIGNED = -1234567890          # what shortcuts.vdf stores
 PREFIX_APPID_UNSIGNED = str(PREFIX_APPID_SIGNED & 0xFFFFFFFF)  # 3060399406 — the folder name
@@ -88,6 +90,14 @@ DUAL_SOURCE_MOONDECK_SHORTCUT_APPID_SIGNED = 1644440001
 # still reachable (its compatdata never left the main root), but the install itself cannot be read.
 PHANTOM_INSTALLED_APPID = "440906"
 PHANTOM_INSTALLED_MOONDECK_SHORTCUT_APPID_SIGNED = 1655550001
+# A Wine prefix whose "My Games" folder was created lowercase — the real Borderlands 2 bug
+# (logs/2026-08-19_moondeck-save-detection.md): a relocated/recreated prefix's own Wine session
+# writes whatever casing the game asks for, which need not match the manifest's exact-case template.
+# No shortcuts.vdf/ACF entry needed — resolve --prefix takes the prefix path directly.
+MISCASED_APPID = "440907"
+# A Wine prefix where NEITHER casing on disk matches the manifest exactly — two siblings differing
+# only by case, both wrong — pinning the newest-mtime tie-break Backlog.md settled on.
+TIEBREAK_APPID = "440908"
 
 # The Wine user for the wine-shaped prefix. Deliberately NOT "steamuser" — a plain Wine runner
 # runs the game as the Linux user, and code that assumes steamuser resolves every token to a
@@ -415,6 +425,32 @@ def main() -> int:
         "steamuser", "AppData", "Roaming", "FakePhantomInstalledGame")
     os.makedirs(phantom_installed_save, exist_ok=True)
 
+    # A prefix whose "My Games" folder Wine wrote as "My games" — the manifest and a working prefix
+    # both say "My Games". No shortcuts.vdf/ACF needed: --prefix takes this path directly, the same
+    # way the very first fixture above (FakePrefixGame) is resolved on line ~238 of the test script.
+    miscased_prefix = os.path.join(steam, "steamapps", "compatdata", MISCASED_APPID)
+    miscased_docs = os.path.join(
+        miscased_prefix, "pfx", "drive_c", "users", "steamuser", "Documents")
+    miscased_save = os.path.join(miscased_docs, "My games", "FakeMiscasedGame")  # lowercase 'g'
+    os.makedirs(miscased_save, exist_ok=True)
+
+    # A prefix with TWO "My Games"-shaped siblings, neither matching the manifest's exact case —
+    # unlike an exact match (which the ordinary Directory.Exists check already finds without any of
+    # this fixture's help), this is the only shape that actually exercises the newest-wins tie-break.
+    tiebreak_prefix = os.path.join(steam, "steamapps", "compatdata", TIEBREAK_APPID)
+    tiebreak_docs = os.path.join(
+        tiebreak_prefix, "pfx", "drive_c", "users", "steamuser", "Documents")
+    tiebreak_older_save = os.path.join(tiebreak_docs, "my games", "FakeTiebreakGame")
+    tiebreak_newer_save = os.path.join(tiebreak_docs, "MY GAMES", "FakeTiebreakGame")
+    os.makedirs(tiebreak_older_save, exist_ok=True)
+    os.makedirs(tiebreak_newer_save, exist_ok=True)
+    # Back-date the "older" sibling explicitly rather than relying on the two makedirs calls above
+    # landing in different filesystem-clock ticks, which is not guaranteed. utime() must run AFTER
+    # creating the nested game subfolder, not before: POSIX bumps a directory's own mtime again when
+    # an entry is added to it, so setting it first would just get overwritten by the makedirs call.
+    hour_ago = time.time() - 3600
+    os.utime(os.path.join(tiebreak_docs, "my games"), (hour_ago, hour_ago))
+
     # A runtime, not a game. Filtered by appid — it ships no toolmanifest.vdf, so it is the one
     # case the hardcoded list still has to carry.
     with open(os.path.join(installed_steamapps, "appmanifest_228980.acf"), "w") as f:
@@ -545,6 +581,14 @@ def main() -> int:
     print(f"UNMOUNTED_LIBRARY={unmounted_library}")
     print(f"PHANTOM_INSTALLED_APPID={PHANTOM_INSTALLED_APPID}")
     print(f"PHANTOM_INSTALLED_SAVE={phantom_installed_save}")
+    # shlex.quote, unlike every other path printed above: those are all deliberately built with no
+    # spaces so the bare KEY=value form survives eval unquoted, but "My games"/"My Games" is the
+    # exact real-world folder name under test and cannot be spelled without one.
+    print(f"MISCASED_PREFIX={shlex.quote(miscased_prefix)}")
+    print(f"MISCASED_SAVE={shlex.quote(miscased_save)}")
+    print(f"TIEBREAK_PREFIX={shlex.quote(tiebreak_prefix)}")
+    print(f"TIEBREAK_OLDER_SAVE={shlex.quote(tiebreak_older_save)}")
+    print(f"TIEBREAK_NEWER_SAVE={shlex.quote(tiebreak_newer_save)}")
     print(f"HEROIC_CONFIG={heroic['config_root']}")
     print(f"HEROIC_EPIC_PREFIX={heroic['epic_prefix']}")
     print(f"HEROIC_EPIC_SAVE={heroic['epic_save']}")

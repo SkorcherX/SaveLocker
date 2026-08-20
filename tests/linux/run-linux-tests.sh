@@ -243,6 +243,24 @@ out="$(agent resolve --config "${deck_cfg}" "Fake Prefix Game")"
 check "no prefix -> no resolution (does not guess a host path)" \
   "$(contains "${out}" "no existing save directory found")"
 
+# ── Prefix resolution: case-insensitive fallback inside a Wine/Proton prefix ─────────────────
+# The real Borderlands 2 bug: Wine wrote "My games", the manifest and a working prefix both say
+# "My Games" — Linux is case-sensitive, so one exact-case Directory.Exists check on the fully
+# expanded string finds nothing even though the real data is one case-variant away.
+out="$(agent resolve --config "${deck_cfg}" --prefix "${MISCASED_PREFIX}" "Fake Miscased Game")"
+check "mis-cased Wine folder resolves via the case-insensitive fallback" \
+  "$(contains "${out}" "${MISCASED_SAVE}")"
+
+# Two siblings on disk, "my games" and "MY GAMES", neither matching the manifest's exact case — the
+# newest one must win, on the theory that it is the copy actually being played. (An exact-case
+# sibling would resolve via the ordinary check above and never reach this fallback in the first
+# place, which is why this fixture deliberately has no exact-case option at all.)
+out="$(agent resolve --config "${deck_cfg}" --prefix "${TIEBREAK_PREFIX}" "Fake Case Tiebreak Game")"
+check "case tie-break: the newer sibling wins" \
+  "$(contains "${out}" "${TIEBREAK_NEWER_SAVE}")"
+check "case tie-break: the older sibling loses" \
+  "$([ "$(contains "${out}" "${TIEBREAK_OLDER_SAVE}")" = 1 ] && echo 0 || echo 1)"
+
 # ── Heroic Games Launcher ───────────────────────────────────────────────────────────────────
 # Heroic owns its own prefixes and obeys neither Steam convention, so nothing here is covered by
 # the shortcut checks above.

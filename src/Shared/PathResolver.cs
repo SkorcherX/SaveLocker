@@ -10,6 +10,14 @@ public sealed class PathResolver
     private readonly Dictionary<string, string> _tokens;
 
     /// <summary>
+    /// True for a resolver built over a Wine/Proton prefix — where the manifest's exact-case
+    /// template can legitimately not match what a game (or a relocated/recreated prefix) actually
+    /// wrote to a case-sensitive filesystem. False for <see cref="Windows"/>: NTFS is already
+    /// case-insensitive at the OS level, so the fallback below would never even trigger there.
+    /// </summary>
+    private readonly bool _caseInsensitiveFilesystem;
+
+    /// <summary>
     /// Tokens holding an identifier rather than a path. <see cref="Tokenize"/> must skip them: they
     /// would match anywhere the name or id happens to appear in a path and rewrite that fragment
     /// into a placeholder, producing a template that expands to nonsense on the next machine.
@@ -17,8 +25,10 @@ public sealed class PathResolver
     private static readonly HashSet<string> NonPathTokens =
         new(StringComparer.OrdinalIgnoreCase) { "<osUserName>", "<storeUserId>" };
 
-    public PathResolver(Dictionary<string, string> tokens)
+    public PathResolver(Dictionary<string, string> tokens, bool caseInsensitiveFilesystem = false)
     {
+        _caseInsensitiveFilesystem = caseInsensitiveFilesystem;
+
         // Separators are normalised ONCE, here, so every comparison downstream is separator-safe.
         //
         // ResolveToDirectory rewrites the manifest's forward slashes to the platform separator, but
@@ -88,7 +98,7 @@ public sealed class PathResolver
         };
 
         AddGameTokens(tokens, installDir, storeRoot, storeUserId);
-        return new PathResolver(tokens);
+        return new PathResolver(tokens, caseInsensitiveFilesystem: false);
     }
 
     /// <summary>
@@ -174,7 +184,7 @@ public sealed class PathResolver
         };
 
         AddGameTokens(tokens, installDir, storeRoot, storeUserId);
-        return new PathResolver(tokens);
+        return new PathResolver(tokens, caseInsensitiveFilesystem: true);
     }
 
     /// <summary>
@@ -255,6 +265,26 @@ public sealed class PathResolver
         // Manifest templates use forward slashes, and ResolveToDirectory converts back on expansion.
         return rest.Length == 0 ? best.Key : $"{best.Key}/{rest.Replace('\\', '/')}";
     }
+
+    /// <summary>
+    /// The longest token root value that is an exact-case prefix of <paramref name="path"/>, or
+    /// null if none matches. Always <c>Ordinal</c>, unlike <see cref="StartsWithKnownRoot"/> and
+    /// <see cref="Tokenize"/>: token substitution is verbatim (<see cref="ResolveToDirectory"/>
+    /// splices a token's stored value into the template byte-for-byte), so a naive joined path is
+    /// guaranteed to contain some token's exact-case value as a prefix whenever it is rooted in
+    /// anything we know at all. <see cref="ResolveCaseInsensitive"/> anchors its walk here rather
+    /// than at the filesystem root, so correction never touches the token-root portion of the path
+    /// — which is what lets <see cref="StartsWithKnownRoot"/> be checked once, on the naive path,
+    /// and never re-checked on a corrected one.
+    /// </summary>
+    private string? LongestMatchingRoot(string path) =>
+        _tokens
+            .Where(t => !NonPathTokens.Contains(t.Key) && !string.IsNullOrEmpty(t.Value))
+            .Select(t => t.Value.TrimEnd(Path.DirectorySeparatorChar))
+            .Where(root => path.Equals(root, StringComparison.Ordinal) ||
+                           path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            .OrderByDescending(root => root.Length)
+            .FirstOrDefault();
 
     /// <summary>
     /// True when an expanded path actually sits under one of this resolver's own roots. Anything
@@ -342,6 +372,82 @@ public sealed class PathResolver
     }
 
     /// <summary>
+    /// Case-insensitive fallback for a Wine/Proton prefix: walk the manifest-authored remainder of
+    /// <paramref name="kept"/> (the segments after <see cref="LongestMatchingRoot"/>'s trusted
+    /// anchor) against the REAL directory listing, one segment at a time, rather than retrying only
+    /// the last one — a relocated or recreated prefix can case any ONE segment differently than the
+    /// manifest expects, not just the deepest. Returns null (never the naive path) when nothing on
+    /// disk matches even case-insensitively, so the caller's existing "no such directory" outcome is
+    /// unchanged.
+    /// </summary>
+    private string? ResolveCaseInsensitive(IReadOnlyList<string> kept, string naivePath, bool trailingIsFile)
+    {
+        if (LongestMatchingRoot(naivePath) is not { } root) return null;
+
+        var rootSegmentCount = root.Split(Path.DirectorySeparatorChar).Length;
+        if (rootSegmentCount >= kept.Count) return null; // nothing after the root to correct
+
+        var current = root; // trusted verbatim — never re-walked or re-verified
+
+        for (var i = rootSegmentCount; i < kept.Count; i++)
+        {
+            var segment = kept[i];
+
+            // The final segment of a file-shaped template (<base>/Save.dat) is never itself
+            // checked for existence by ResolveConcrete's own trailing special case either — only
+            // its corrected PARENT matters. A bare, never-yet-written filename still yields the
+            // right directory; without this, a save that has never been written once (nothing to
+            // find, case-insensitively or otherwise) would wrongly fail the whole walk even though
+            // an earlier segment's correction was real and found.
+            if (trailingIsFile && i == kept.Count - 1)
+                return MatchChild(current, segment) ?? current;
+
+            var exact = Path.Combine(current, segment);
+            if (Directory.Exists(exact)) { current = exact; continue; } // fast path: already correct
+
+            if (MatchChild(current, segment) is not { } match) return null;
+            current = match;
+        }
+
+        return current;
+    }
+
+    /// <summary>
+    /// The single child of <paramref name="parent"/> matching <paramref name="segment"/>
+    /// case-insensitively, or the tie-break winner when more than one sibling does.
+    /// <para>
+    /// Exact-case preference (the policy <c>Backlog.md</c> settled on) falls out of the caller for
+    /// free rather than needing its own check here: <see cref="ResolveCaseInsensitive"/> always
+    /// tries <c>Directory.Exists</c> on the exact-case path FIRST and only reaches this method on a
+    /// miss for that same parent/segment pair — so an exact-case sibling can never appear among the
+    /// candidates enumerated below; if one existed, the caller would already have taken it. What's
+    /// left to break a tie between is only siblings that are ALL wrong-cased relative to the
+    /// manifest, so the newest one wins, on the theory that it is the copy actually being played —
+    /// matching the relocation scenario that motivated this fix, where a stale prefix's folder and a
+    /// fresh prefix's folder can both survive side by side.
+    /// </para>
+    /// </summary>
+    private static string? MatchChild(string parent, string segment)
+    {
+        var candidates = SafeChildDirectories(parent)
+            .Where(d => Path.GetFileName(d).Equals(segment, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        return candidates.Count switch
+        {
+            0 => null,
+            1 => candidates[0],
+            _ => candidates.OrderByDescending(SafeLastWriteTimeUtc).First()
+        };
+    }
+
+    private static DateTime SafeLastWriteTimeUtc(string path)
+    {
+        try { return Directory.GetLastWriteTimeUtc(path); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return DateTime.MinValue; }
+    }
+
+    /// <summary>
     /// Expand placeholders in a template and return the deepest directory prefix
     /// that precedes any wildcard. Returns null if a required token is unknown.
     /// </summary>
@@ -396,9 +502,20 @@ public sealed class PathResolver
         // tests/detection.
         if (!StartsWithKnownRoot(path)) return null;
 
+        var trailingIsFile = kept.Count == segments.Length && Path.HasExtension(path);
+
+        // Inside a Wine/Proton prefix, a segment the GAME created (not one of our own tokens) can
+        // be cased differently than the manifest expects — a relocated or recreated prefix is the
+        // common trigger (Borderlands 2: Wine wrote "My games", the manifest and the original
+        // prefix both say "My Games"). Windows never reaches here: _caseInsensitiveFilesystem is
+        // false there, and NTFS would have resolved a mis-cased Directory.Exists above anyway.
+        if (_caseInsensitiveFilesystem && !Directory.Exists(path) &&
+            ResolveCaseInsensitive(kept, path, trailingIsFile) is { } corrected)
+            return corrected;
+
         // If the template pointed at a specific file (last kept segment has an
         // extension and there were no wildcards after it), use its directory.
-        if (kept.Count == segments.Length && Path.HasExtension(path) && !Directory.Exists(path))
+        if (trailingIsFile && !Directory.Exists(path))
             path = Path.GetDirectoryName(path) ?? path;
 
         return path;

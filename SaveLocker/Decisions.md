@@ -342,6 +342,13 @@ session can judge an edge case, not to reopen the choice.
   current library's prefix resolves NOTHING, not only when the directory is missing outright — a
   present-but-unusable prefix looks identical to an absent one from outside, and the first cut of this
   fix (checking only `Directory.Exists`) missed exactly this shape.
+  <br>**The casing half was a hand-fix for this one game, not a general answer — generalized
+  2026-08-20.** `PathResolver.Wine()`/`.Proton()` now fall back to a case-insensitive,
+  segment-by-segment walk whenever the naive exact-case path fails to resolve, so any future prefix a
+  relocation, a different Proton build, or a different Wine version happens to case differently is
+  covered, not just this one already-diagnosed instance.
+  `logs/2026-08-20_wine-case-insensitive-and-scoping.md` has the fix; `Backlog.md` → *Multiple save
+  paths per game* and *Registry-based saves* carry the two follow-on items scoped the same session.
   <br>**A MoonDeck shortcut's real AppID is reclassified as `SteamInstalled`, not `SteamShortcut`,
   when Steam's own `libraryfolders.vdf` — specifically its per-library `apps` block — says the AppID
   is installed somewhere** (`SteamRoots.AllKnownInstalledAppIds`, same session). A resolved compatdata
