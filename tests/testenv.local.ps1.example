@@ -1,0 +1,13 @@
+# Copy this file to testenv.local.ps1 (same directory) and fill in your Deck's CURRENT details.
+# testenv.local.ps1 is gitignored — it names your LAN, not the project's — and testenv.ps1 loads it
+# automatically on every run, so this is the one place to edit when the Deck's IP changes rather
+# than a shell profile or a retyped env var. Only the Deck needs this; Windows, WSL and the console
+# all have workable defaults already.
+
+# SSH target, "user@host" — key auth must already work (ssh deck@<ip> echo ok with no prompt).
+$env:SAVELOCKER_DECK_HOST = 'deck@192.168.1.100'
+
+# This PC's LAN IP (not "localhost" — the Deck is a second machine and cannot reach that), with the
+# console's port. Find it with: Get-NetIPAddress -AddressFamily IPv4 | Where-Object { $_.IPAddress
+# -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' -and $_.InterfaceAlias -notlike 'vEthernet*' }
+$env:SAVELOCKER_DECK_SERVER_URL = 'http://192.168.1.50:5080'

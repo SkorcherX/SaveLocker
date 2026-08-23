@@ -11,6 +11,10 @@
 /.verify/
 /crossos-work/
 
+# testenv's Deck settings — names your LAN (SSH host, this PC's IP), not the project's.
+# tests/testenv.local.ps1.example is the committed template.
+tests/testenv.local.ps1
+
 # NEVER commit a real server database. A copy of production is sometimes pulled in to test a
 # migration against real data (see tasks/dotnet-10-upgrade.md Phase 4) — it holds machine API key
 # hashes, machine names, save paths and the audit log, and this repo is public.

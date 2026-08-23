@@ -128,6 +128,70 @@ These exist because the production values are far too slow to observe in a suite
 Set them per-process and clear them afterwards — leaving either set in a shell will make later runs
 behave in ways that look like bugs.
 
+## `tests/testenv.ps1` (throwaway test rig)
+- **The Steam Deck target has no default and must be opted into** — `$env:SAVELOCKER_DECK_HOST` /
+  `$env:SAVELOCKER_DECK_SERVER_URL`, unlike every other target here which has a workable Windows/WSL
+  default. Leaving `SAVELOCKER_DECK_HOST` unset is the normal state for a session not touching the
+  Deck and silently skips it under `-Only all`; only an explicit `-Only deck` with it unset is an
+  error. Don't "fix" the skip by inventing a default IP — every LAN differs and a wrong guess would
+  silently SSH nowhere useful, or somewhere unintended.
+- **The Deck is only awake when the maintainer wakes it** (CONTEXT.md). Every SSH/`scp` call the
+  rig makes carries `-o ConnectTimeout=5` and every caller wraps it in try/catch, reporting
+  "unreachable" rather than hanging on the OS default TCP timeout or aborting `up`/`down`/`status`
+  for the Windows and WSL targets too. A thrown, uncaught SSH failure here is a bug in the script,
+  not a correct response to a sleeping Deck.
+- **The Deck build must be self-contained** (`build -Only deck`) — SteamOS ships no .NET runtime,
+  so the WSL target's own framework-dependent `dotnet build` would need a `dotnet` on the Deck that
+  does not exist. It reuses `packaging/linux/build-linux.sh` (the same packer a real release uses)
+  from inside WSL — cross-publishing `-r linux-x64 --self-contained` from Windows directly also
+  works (verified 2026-08-19: restores and runs fine), but WSL is where `agent-ui/dist` is already
+  staged for the other Linux target, so there is no reason to open a second path.
+- **The Deck's install directory is never `~/.local/share/SaveLocker`.** That path is both the real
+  agent's binaries *and* its state (see *Linux agent* below), so a test build there would overwrite
+  the real install. The rig uses `~/savelocker-test` for the binary and `~/savelocker-test-state` as
+  `XDG_DATA_HOME` (so real state lands at `~/savelocker-test-state/SaveLocker`), and every remote
+  `rm -rf` in `testenv-deck.sh` first asserts its target path contains `savelocker-test` before
+  touching anything, in case a mistyped `-DeckPrefix` ever resolved to something like `$HOME`.
+- **The Deck test agent's UI is never reachable at `http://<deck-ip>:<port>` from another machine —
+  not a firewall/setup gap, a hard-coded refusal.** `AgentApiServer.Start` binds Kestrel with
+  `ListenLocalhost`, unconditionally, for every host including this test build: "binding it to a
+  LAN interface would expose [machine control] to the whole network." Decisions.md records a
+  `--lan` flag that existed once specifically to relax this and was withdrawn. The sanctioned route
+  is an SSH tunnel (`ssh -L <port>:localhost:<port> user@host`, then browse `localhost:<port>` on
+  the near end) — `Get-DeckUiHint` in testenv.ps1 prints exactly that. An earlier version of this
+  printed a bare `http://<deck-ip>:<port>` as if it would just work; it never would have.
+- **A `setsid ... & disown` daemon does NOT survive its launching SSH command returning, on a real
+  systemd Deck** — found and fixed 2026-08-19 running `up` against real hardware for the first time.
+  It answered the one check `up` makes, then was gone by the next `status`, with its own log showing
+  a clean start and a served request — killed from outside, not a startup failure. The cause:
+  `logind`'s `KillUserProcesses` tracks membership by **cgroup**, not POSIX session ID, and `setsid`
+  only changes the latter — the process stays in the SSH login session's cgroup and dies with it.
+  `nohup`/`disown` do not help either; they guard against SIGHUP from a closing terminal, a different
+  mechanism. This never showed up on the WSL target because WSL processes aren't cgroup-scoped to a
+  particular `wsl.exe` invocation the same way. The fix (`testenv-deck.sh`'s `cmd_up`):
+  `systemd-run --user --scope --unit=<name> -- <daemon command>` hands the process to the Deck's own
+  `user@<uid>.service` manager — already running from the local desktop login — instead of the SSH
+  session's transient one, and it survives that session closing. Confirmed empirically (started a
+  `sleep`, checked from a second SSH connection after the first one closed) before trusting it for
+  the real daemon. `cmd_down` stops the scope directly (`systemctl --user stop <unit>.scope`) rather
+  than relying only on `pkill` finding the process, so a leftover scope can never make the next `up`
+  fail with "Unit already exists".
+- **A background daemon's token file must be re-read on every poll iteration, not once before the
+  loop.** `cmd_up` in both `testenv.sh` and `testenv-deck.sh` backgrounds the daemon, then reads
+  `api-token` to auth the readiness check — reading it exactly once, immediately after backgrounding,
+  races the daemon still writing that file: "No such file or directory" even though the daemon comes
+  up fine a moment later. Windows's `Get-WinAgentState` already re-reads its token fresh on every
+  poll; the bash side didn't, until this was traced to ground on 2026-08-19. Re-read inside the
+  retry loop instead. **A plain `2>/dev/null` on the reading command does not suppress the error
+  either** — a failed `<` redirect is raised by the shell itself, before the redirected command ever
+  runs, so it needs the whole `{ tr ...; } 2>/dev/null` group form, confirmed by reproducing both
+  ways side by side.
+- **`grep` in a pipeline under `set -o pipefail` exits 1 on zero matches, and that becomes the whole
+  function's (and caller's) exit code if it's the pipeline's last stage.** `testenv-deck.sh`'s
+  `show_real_game_mappings` — used from `cmd_status` and `cmd_up` — reported the entirely normal "no
+  game maps a real folder" case as the SSH command having failed, because nothing matched the
+  `grep -o` feeding the warning loop. Needs `|| true` after the pipeline.
+
 ## Windows ACLs
 - **`SetAccessRuleProtection(isProtected: true, preserveInheritance: true)` does not let you then
   strip the inherited rules.** The copies are materialised only when the descriptor is persisted, so

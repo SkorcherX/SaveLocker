@@ -167,6 +167,66 @@ fixture HOME is all `run-linux-tests` needs; no Decky, no Deck. To publish a plu
 server, upload the zip in **Config → Agent updates → Decky plugin** (type the version — Decky's
 artifact is always `SaveLocker.zip`) or let the GitHub fetch read the tag.
 
+## Throwaway test rig (`testenv`)
+
+`.\tests\testenv.ps1 <command>`, run from Windows, drives a whole disposable fleet — a Windows
+agent, a headless WSL agent, a dashboard container and (optionally) a real Steam Deck — all running
+**beside**, never instead of, the installed release agent and any real save data. Commands:
+`build`, `up`, `down`, `status`, `test`, `sync`, `logs`, `clean`. `-Only windows|linux|deck|console`
+scopes `build`/`up` to one target; `down`/`status`/`logs`/`clean` always touch everything that's
+configured. Isolation is `SAVELOCKER_STATE_ROOT`/`SAVELOCKER_TRAY_PORT`/`SAVELOCKER_RUNKEY_SUBPATH`
+on Windows and `XDG_DATA_HOME` on Linux ([[Gotchas]] → *Test-only environment variables*) — never
+the flags a real user session reads.
+
+`clean` is the one command `down` is not: `down` only **stops** processes, and can leave a stale
+container, its image and its data volume, and every test agent's on-disk state, behind. `clean`
+stops everything first and then **deletes** it — Windows' whole `-StateRoot`, the WSL rig's state
+dir, the Deck's deployed build and state, and the dashboard's container/image/volume. Rebuilding
+after a `clean` is a plain `build` + `up` — nothing about the rig is meant to survive it, which is
+the point of calling it something other than `down`.
+
+**Steam Deck target.** Unlike Windows/WSL there is no "this machine" default. Either copy
+`tests/testenv.local.ps1.example` to `tests/testenv.local.ps1` (gitignored — it names your LAN, not
+the project's) and fill in the two lines by hand, or write it with the rig itself:
+
+```powershell
+.\tests\testenv.ps1 deck-config -DeckHost deck@192.168.68.67 -DeckServerUrl http://192.168.68.58:5080
+.\tests\testenv.ps1 deck-config                                  # prints what's currently saved
+.\tests\testenv.ps1 deck-config -DeckHost deck@192.168.68.99      # updates just the host, keeps the URL
+```
+
+`testenv.ps1` loads `testenv.local.ps1` automatically on every run, so a DHCP lease moving the
+Deck's IP means one `deck-config` call (or one edited line), not a shell profile or a re-typed env
+var. An explicit `-DeckHost`/`-DeckServerUrl` on the command line always wins over the saved file.
+
+**Authentication is whatever your `ssh`/`scp` already do — the script never sees or stores a
+password.** Every Deck call shells out to the Windows OpenSSH client exactly as if you'd typed it:
+with a key in `~/.ssh/authorized_keys` on the Deck it connects silently; without one, `ssh`/`scp`
+fall back to an interactive password prompt right there in the console, which works but asks again
+on every single call (`up` alone makes three). Key auth is worth setting up once:
+
+```powershell
+ssh-keygen -t ed25519                                    # skip if you already have a key
+Get-Content $env:USERPROFILE\.ssh\id_ed25519.pub | ssh deck@<deck-ip> "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys"
+ssh deck@<deck-ip> echo ok                                # should now connect with no prompt
+```
+
+The last command asks for the Deck's password once, to write `authorized_keys`; nothing after that
+does. SSH must already be enabled on the Deck (Desktop Mode → Konsole → `passwd` to set one if
+you haven't, then `sudo systemctl enable --now sshd`).
+
+`build -Only deck` cross-compiles a **self-contained** linux-x64 publish in WSL (the same packer
+`packaging/linux/build-linux.sh` uses for a real release, just stamped with the test version) —
+SteamOS ships no .NET runtime, so the WSL target's ordinary framework-dependent `dotnet build`
+cannot run there. `up -Only deck` (or plain `up`/`build` once `SAVELOCKER_DECK_HOST` is set) `scp`s
+the tarball to the Deck and installs it under `~/savelocker-test` with state in the sibling
+`~/savelocker-test-state` — never `~/.local/share/SaveLocker`, which is both the real install's
+binaries *and* its state ([[Gotchas]] → *Linux agent*). Leaving `SAVELOCKER_DECK_HOST` unset skips
+the Deck silently wherever `-Only` defaults to `all`; passing `-Only deck` explicitly without it is
+an error instead of a silent no-op. Because the Deck is only awake when woken (see the Deck
+handoff section in [[CONTEXT]]), every SSH/`scp` call has a short connect timeout and reports
+"unreachable" rather than hanging or aborting the rest of the rig.
+
 ## Tests
 
 ```sh
