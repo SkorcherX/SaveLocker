@@ -334,9 +334,16 @@ public sealed class AgentApiServer : IDisposable
             }
         });
 
+        // HasSteamCloud is decided once, at enrollment (Enroller.EnrollAsync, from the candidate's
+        // own ScanCandidate.HasSteamCloud) - not re-derived here from a name-only manifest lookup.
+        // That lookup answers "does a Steam release of this TITLE have Steam Cloud", which is true
+        // for plenty of titles this machine tracks a Heroic (Epic/GOG) install of, not "is THIS
+        // install a Steam one" - see TrackedGame.HasSteamCloud's own doc comment.
         app.MapGet("/api/games", () => _config.Games
             .Select(g => new TrackedGameDto(
-                g.GameId, g.Name, g.SaveDirectory, g.ProcessNames.ToArray()))
+                g.GameId, g.Name, g.SaveDirectory, g.ProcessNames.ToArray(), g.Alias,
+                SteamShortcuts.UnsignedAppId(g.ResolveSteamAppId()), g.PullBeforeLaunchEnabled,
+                g.HasSteamCloud))
             .ToArray()).Produces<TrackedGameDto[]>();
 
         // Editing the process names is the other half of WA-08: discovery can only know them for a
@@ -359,6 +366,29 @@ public sealed class AgentApiServer : IDisposable
 
             _config.Save();
             _onGamesChanged?.Invoke();
+            return TypedResults.Ok(new OkResponse());
+        }).Produces<OkResponse>();
+
+        // The Decky plugin's per-game alias editor: a manual override for name-based matching, for
+        // when this agent has not resolved a Steam AppID for the game (see TrackedGame.Alias). Goes
+        // through SaveGameAlias rather than a plain mutate + Save() like /processes above — unlike
+        // that route, this one can be hit by the Decky plugin's HTTP request on one thread at the
+        // same moment a folder watcher on another thread calls its own Save(), and only the re-read-
+        // under-lock, single-field write actually survives that race. Silently OK on an unknown id,
+        // same as /processes — SaveGameAlias itself no-ops when the id isn't found on disk.
+        app.MapPost("/api/games/{id:guid}/alias", (Guid id, AliasRequest body) =>
+        {
+            _config.SaveGameAlias(id, body.Alias);
+            return TypedResults.Ok(new OkResponse());
+        }).Produces<OkResponse>();
+
+        // The Decky plugin's per-game Gaming Mode pull toggle. Server-side for the same reason the
+        // alias route above is: it is the one place every machine syncing this game (and a Decky
+        // plugin reinstall on this one) can agree on the setting, rather than it living only in that
+        // plugin's own local settings file. `enabled: null` clears the override.
+        app.MapPost("/api/games/{id:guid}/pull-before-launch", (Guid id, PullBeforeLaunchRequest body) =>
+        {
+            _config.SaveGamePullBeforeLaunch(id, body.Enabled);
             return TypedResults.Ok(new OkResponse());
         }).Produces<OkResponse>();
 
@@ -751,9 +781,34 @@ public sealed record CandidateDto(
 /// cannot detect it</b> — no lease, no exit push, and no refusal to pull under a live game — so the
 /// UI must say so rather than imply automatic sync is working. WA-08.
 /// </param>
-public sealed record TrackedGameDto(Guid Id, string Name, string Path, string[] ProcessNames);
+/// <param name="Alias">
+/// The manual name-match override, or null when none is set — see <see cref="TrackedGame.Alias"/>.
+/// </param>
+/// <param name="SteamAppId">
+/// This game's resolved compatdata-prefix AppID, or null when it has none — the same resolution
+/// <see cref="TrackedGame.ResolveSteamAppId"/> and the launch-options rows use. <b>Not</b> a "is this
+/// a Steam Store game" signal: a non-Steam shortcut run under Proton gets its own compatdata prefix
+/// too, so it resolves a non-null value here despite never having Steam Cloud. Use
+/// <paramref name="HasSteamCloud"/> for that question instead.
+/// </param>
+/// <param name="PullBeforeLaunchEnabled">
+/// The Gaming Mode pull-before-launch override, or null when none is set — see
+/// <see cref="TrackedGame.PullBeforeLaunchEnabled"/>.
+/// </param>
+/// <param name="HasSteamCloud">
+/// Whether this game was enrolled as a genuinely Steam-sourced install — see
+/// <see cref="TrackedGame.HasSteamCloud"/>, decided once at enrollment, not a live lookup. A Decky
+/// plugin needs this, not <paramref name="SteamAppId"/>, to decide whether its own pre-launch pull
+/// would race Steam's own Cloud sync — an AppID alone can't tell a real Steam install apart from a
+/// non-Steam shortcut run under Proton, which gets a compatdata prefix too.
+/// </param>
+public sealed record TrackedGameDto(
+    Guid GameId, string Name, string SaveDirectory, string[] ProcessNames, string? Alias,
+    uint? SteamAppId, bool? PullBeforeLaunchEnabled, bool HasSteamCloud);
 
 public sealed record ProcessNamesRequest(string[]? ProcessNames);
+public sealed record AliasRequest(string? Alias);
+public sealed record PullBeforeLaunchRequest(bool? Enabled);
 public sealed record AgentConfigDto(
     string ServerUrl,
     string MachineName,

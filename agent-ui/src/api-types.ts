@@ -387,6 +387,88 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/games/{id}/alias": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AliasRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OkResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/pull-before-launch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PullBeforeLaunchRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OkResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/games/{id}/remove": {
         parameters: {
             query?: never;
@@ -1030,6 +1112,9 @@ export interface components {
             stagedVersion: null | string;
             stagedBlockedReason: null | string;
         };
+        AliasRequest: {
+            alias: null | string;
+        };
         BrowseEntry: {
             name: string;
             path: string;
@@ -1128,6 +1213,9 @@ export interface components {
         ProcessNamesRequest: {
             processNames: null | string[];
         };
+        PullBeforeLaunchRequest: {
+            enabled: null | boolean;
+        };
         RegisterRequest: {
             adminPassword?: null | string;
         };
@@ -1151,10 +1239,15 @@ export interface components {
         };
         TrackedGameDto: {
             /** Format: uuid */
-            id: string;
+            gameId: string;
             name: string;
-            path: string;
+            saveDirectory: string;
             processNames: string[];
+            alias: null | string;
+            /** Format: uint32 */
+            steamAppId: null | number;
+            pullBeforeLaunchEnabled: null | boolean;
+            hasSteamCloud: boolean;
         };
     };
     responses: never;

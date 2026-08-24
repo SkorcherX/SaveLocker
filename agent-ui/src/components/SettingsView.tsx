@@ -207,12 +207,12 @@ export function SettingsView({ state, onSaved }: Props) {
   // or its scan-time suggestion.
   const pickFolderFor = (game: TrackedGame) => picker.pick({
     name: game.name,
-    start: async () => game.path
-      || (await api.suggestedPath(game.id).catch(() => ({ path: null }))).path,
+    start: async () => game.saveDirectory
+      || (await api.suggestedPath(game.gameId).catch(() => ({ path: null }))).path,
     nativePick: () => api.folderPick(),
     apply: async (path) => {
       const send = async (confirm: boolean) => {
-        await api.setGameFolder(game.id, path, confirm)
+        await api.setGameFolder(game.gameId, path, confirm)
         loadGames()
         onSaved()
         setStatus(`Save folder for ${game.name} set to ${path}`)
@@ -255,7 +255,7 @@ export function SettingsView({ state, onSaved }: Props) {
     if (next === null) return
 
     try {
-      await api.setGameProcesses(game.id, next.split(',').map(s => s.trim()).filter(Boolean))
+      await api.setGameProcesses(game.gameId, next.split(',').map(s => s.trim()).filter(Boolean))
       loadGames()
       onSaved()
       setStatus(`Launch/exit sync for ${game.name} updated.`)
@@ -381,7 +381,7 @@ export function SettingsView({ state, onSaved }: Props) {
             </div>
           ) : games.map(g => (
             <div
-              key={g.id}
+              key={g.gameId}
               style={{
                 display: 'flex', alignItems: 'flex-start',
                 padding: '10px 13px',
@@ -391,40 +391,40 @@ export function SettingsView({ state, onSaved }: Props) {
             >
               <input
                 type="checkbox"
-                checked={selectedGames.has(g.id)}
-                onChange={() => toggleGame(g.id)}
+                checked={selectedGames.has(g.gameId)}
+                onChange={() => toggleGame(g.gameId)}
                 style={{ marginTop: 2 }}
               />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: '#ECEFF1', fontSize: 13, fontWeight: 500, marginBottom: 3 }}>
                   {g.name}
                 </div>
-                {g.path && (
+                {g.saveDirectory && (
                   <div style={{
                     color: '#9CA3AF', fontSize: 10, marginBottom: 5,
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                     fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace",
                   }}>
-                    {g.path}
+                    {g.saveDirectory}
                   </div>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: g.path ? 0 : 3 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: g.saveDirectory ? 0 : 3 }}>
                   {/* An unmapped game (enrolled before Add Games gated on a folder) needs a path
                       set; a mapped one only ever needs it changed. Distinct labels, and neither
                       collides with Add Games' "Set save folder". */}
-                  {!g.path && <span style={{ color: '#f4a60d', fontSize: 11 }}>No save folder set</span>}
+                  {!g.saveDirectory && <span style={{ color: '#f4a60d', fontSize: 11 }}>No save folder set</span>}
                   <button
                     onClick={() => void pickFolderFor(g)}
                     style={{
                       display: 'flex', alignItems: 'center', gap: 5,
                       padding: '5px 10px', background: 'transparent',
-                      border: `1px solid ${g.path ? '#494949' : '#129271'}`, borderRadius: 4,
-                      color: g.path ? '#9CA3AF' : '#129271', fontSize: 11, fontWeight: 600,
+                      border: `1px solid ${g.saveDirectory ? '#494949' : '#129271'}`, borderRadius: 4,
+                      color: g.saveDirectory ? '#9CA3AF' : '#129271', fontSize: 11, fontWeight: 600,
                       cursor: 'pointer', fontFamily: 'inherit',
                     }}
                   >
                     <FolderSearch size={12} strokeWidth={1.75} />
-                    <span>{g.path ? 'Change save path' : 'Set save path'}</span>
+                    <span>{g.saveDirectory ? 'Change save path' : 'Set save path'}</span>
                   </button>
                 </div>
 
