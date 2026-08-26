@@ -469,6 +469,36 @@
         }
       }
     },
+    "/api/versions/{versionId}/stats": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionStatsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/agent/games": {
       "post": {
         "tags": [
@@ -1357,6 +1387,45 @@
         "responses": {
           "200": {
             "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/games/{id}/versions/{versionId}/stats": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionStatsDto"
+                }
+              }
+            }
           }
         }
       }
@@ -3609,6 +3678,26 @@
           "NoChange",
           "Conflict"
         ]
+      },
+      "VersionStatsDto": {
+        "required": [
+          "fileCount",
+          "newestFileWriteUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "fileCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "newestFileWriteUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
       }
     }
   },

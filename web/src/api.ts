@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, InstallerHashVerification, AgentPlatform, Enrollment, CreateEnrollmentResponse, EffectiveServerUrl, AgentHealth, AdminStatus, AutoFetchSchedule } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, VersionStats, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, InstallerHashVerification, AgentPlatform, Enrollment, CreateEnrollmentResponse, EffectiveServerUrl, AgentHealth, AdminStatus, AutoFetchSchedule } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -53,6 +53,11 @@ export const api = {
   commands: () => request<Command[]>('/commands'),
   settings: () => request<Settings>('/settings'),
   versions: (gameId: string) => request<Version[]>(`/games/${gameId}/versions`),
+  /** File count / newest-mtime for one version, read from its archive on demand. Used to help tell
+   * apart the two sides of an open conflict — deliberately not part of the versions list above, so
+   * listing versions never has to open a zip for ones nobody is looking at. */
+  versionStats: (gameId: string, versionId: string) =>
+    request<VersionStats>(`/games/${gameId}/versions/${versionId}/stats`),
 
   refreshArt: (gameId: string) => request<{ message?: string }>(`/games/${gameId}/art/refresh`, { method: 'POST' }),
   setEnabled: (gameId: string, value: boolean) => request<void>(`/games/${gameId}/enabled?value=${value}`, { method: 'POST' }),

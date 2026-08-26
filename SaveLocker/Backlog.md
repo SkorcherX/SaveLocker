@@ -401,6 +401,5 @@ verification that did not happen before the tag. Write-ups:
   per-store flag on `ScanCandidate` rather than a second bool, and a decision about whether the
   default view should hide those too (Galaxy sync is opt-in per game, unlike Steam Cloud — so
   probably not, which is why this is not high priority).
-- **File-count / newest-mtime delta in conflict UI** — would help disambiguate conflict options. The server does not store it; needs computing at upload time or deriving from the archive on demand. Not done; everything else in conflict Tier 1 is complete.
 
 _Dropped items (won't-do) are recorded in `logs/shipped-2026-07.md`._

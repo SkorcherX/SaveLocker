@@ -160,6 +160,18 @@ Check "stale conflict reaches the agent notification path" (($conflictPush -join
 $adminConflict = Invoke-RestMethod "$server/api/conflicts" | Select-Object -First 1
 Check "stale conflict is escalated in the console contract" ($adminConflict.escalated -eq $true)
 
+# The conflict card's file-count / newest-mtime delta (derived from the archive on demand, not
+# stored) — pcSave has exactly one file at this point, so the count is exact, not just "present".
+$conflictStats = Invoke-RestMethod "$server/api/games/$($adminConflict.gameId)/versions/$($adminConflict.versionBId)/stats"
+Check "conflict version stats report the real file count" ($conflictStats.fileCount -eq 1)
+Check "conflict version stats report a newest mtime"       ($null -ne $conflictStats.newestFileWriteUtc)
+
+# Same stats, through the agent-scoped route (machine key, not admin auth) — built ahead of need
+# for a future agent-side auto-resolver, so it needs its own coverage, not just the admin route's.
+$pcApiKey = (Get-Content $pcCfg | ConvertFrom-Json).ApiKey
+$agentStats = Invoke-RestMethod "$server/api/versions/$($adminConflict.versionBId)/stats" -Headers @{ "X-Api-Key" = $pcApiKey }
+Check "agent-scoped version stats route reports the real file count" ($agentStats.fileCount -eq 1)
+
 # =====================================================================================
 # 3. Dedupe - a persistent fault must not manufacture a row per poll
 # =====================================================================================

@@ -367,6 +367,13 @@ agent.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, Sync
 agent.MapGet("/versions/{versionId:guid}/download", async (Guid versionId, HttpContext http, SyncService sync) =>
     StreamVersion(http, await sync.DownloadVersionAsync(versionId)));
 
+// File count / newest-mtime for one version, derived from its archive on demand. Available to the
+// agent group (not just admin) so an agent can compare a conflict's two sides itself in the future,
+// the same way it already reads everything else about a conflict through this API.
+agent.MapGet("/versions/{versionId:guid}/stats", async (Guid versionId, SyncService sync) =>
+    await sync.GetVersionStatsAsync(null, versionId) is { } stats ? Results.Ok(stats) : Results.NotFound())
+    .Produces<VersionStatsDto>();
+
 // ---- Game creation (agent enrollment) ----
 // Agents create games during enrollment using their API key.
 // The admin POST /api/games route (below) handles dashboard-side game creation.
@@ -643,6 +650,14 @@ admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/download", async (
     if (dl is null || dl.Value.version.GameId != id) return Results.NotFound();
     return StreamVersion(http, dl);
 });
+
+// A separate route rather than reusing the agent one above: admin requests authenticate via
+// AdminPasswordFilter (session/password), not a machine API key, so the console can't call the
+// agent-group route at all.
+admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/stats", async (
+    Guid id, Guid versionId, SyncService sync) =>
+    await sync.GetVersionStatsAsync(id, versionId) is { } stats ? Results.Ok(stats) : Results.NotFound())
+    .Produces<VersionStatsDto>();
 
 // Apply retention immediately, instead of only as a side effect of the next upload.
 admin.MapPost("/games/{id:guid}/prune", async (Guid id, SyncService sync) =>

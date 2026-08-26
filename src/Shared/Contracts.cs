@@ -212,6 +212,12 @@ public record SaveVersionDto(
     Guid? ParentVersionId,
     bool Protected = false);
 
+/// <summary>File count and newest per-file write time inside one version's archive — derived from
+/// the zip on demand (<see cref="SaveLocker.Shared.SaveArchive.GetArchiveStats"/>), not stored on
+/// <see cref="SaveVersionDto"/>, so fetching it costs nothing for the versions nobody is looking at.
+/// Mainly for telling apart the two sides of an open conflict.</summary>
+public record VersionStatsDto(int FileCount, DateTime? NewestFileWriteUtc);
+
 [JsonConverter(typeof(JsonStringEnumConverter<UploadStatus>))]
 public enum UploadStatus
 {

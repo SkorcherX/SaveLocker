@@ -1,4 +1,84 @@
-# Session Summary — 2026-08-26
+Running log of session summaries, newest entries appended at the bottom.
+
+---
+
+## Session Summary — 2026-08-24/25 (conflict-version-stats, PR #15)
+
+### What was asked
+
+1. **Difficulty check** on a backlog item: "File-count / newest-mtime delta in conflict UI" — the last
+   remaining piece of an otherwise-complete conflict Tier 1. Answered without implementing.
+2. **Implement it**, with a stated future constraint: the maintainer wants conflict management to
+   eventually migrate to the agent, auto-resolving conflicts the way Steam Cloud does, so the
+   implementation shouldn't box that future in.
+3. **Create a kebab-case branch, commit, and open a PR.**
+4. **xhigh-effort code review of the PR**, then apply the surviving findings with minimal edits.
+
+### What shipped
+
+A conflict card in the console currently shows size and upload time per side, but nothing indicating
+which machine actually has more progress — a smaller, newer save can still be the one worth keeping.
+This session added a derived file-count and newest-file-mtime stat to each side of a conflict.
+
+Key finding that simplified the work: `SaveArchive.CreateArchive` has always written each zip entry's
+`LastWriteTime`, so the stat didn't need a new upload-time computation or DB migration — it could be
+derived from any already-uploaded archive on demand, retroactively, for free.
+
+**New capability:** `SaveArchive.GetArchiveStats()` (Shared) → `VersionStatsDto` (Contracts) →
+`SyncService.GetVersionStatsAsync` (a nullable-`gameId` overload used by both an agent-unscoped and an
+admin-scoped route) → two new endpoints (`/api/versions/{id}/stats` agent-group,
+`/api/games/{id}/versions/{id}/stats` admin-group) → console fetches lazily per open conflict, cached
+by version id (immutable once uploaded), rendered as `"N files · newest change <time>"` on the
+conflict card.
+
+**Forward-looking design:** the agent-scoped stats route has no UI caller yet — it's there so a future
+agent-side auto-resolver can reuse the identical authenticated call path instead of requiring new
+server work when that migration happens.
+
+### Code review and fixes
+
+An xhigh-effort review (10 finder angles; 2 hit a subagent rate limit mid-run and were covered
+manually, including a standalone .NET test that empirically confirmed the top finding) surfaced 7
+findings, all fixed:
+
+- The zip's `entry.LastWriteTime.UtcDateTime` silently used the *reading* process's timezone instead
+  of the *writing* agent's — a real bug that could flip which conflict side looked newer. Fixed to be
+  deterministic regardless of server timezone.
+- A failed stats fetch permanently suppressed itself with no retry — fixed.
+- The agent-scoped route had no test coverage — added.
+- No server-side caching despite the archive-stats-never-change invariant the PR itself asserted —
+  added an in-memory cache.
+- Two competing ownership-scoping idioms and a misleading doc comment — the inaccurate claim removed.
+- An unnecessary forwarding overload — removed.
+- A comment that stated what instead of why, per this repo's CLAUDE.md — rewritten.
+
+### Verification performed
+
+- Clean `dotnet build --no-incremental` (Server + Agent), clean `npm run build` / `npm run lint` (web)
+  — both before and after the review fixes.
+- `openapi.json` regenerated from a live server and committed; `api-types.ts` regenerated from it —
+  diff limited to the two new routes and one new schema.
+- Live manual test: two throwaway machines, a forced real conflict, both stats routes confirmed
+  correct, conflict card visually confirmed in-browser. Demo data cleaned up afterward.
+- `tests/run-health-tests.ps1`: 22/22 passing (3 checks for this feature, including the new
+  agent-scoped-route check), zero regressions.
+
+### Outcome
+
+- Branch `conflict-version-stats`, PR https://github.com/Marwanello/SaveLocker/pull/15.
+- Backlog's conflict Tier 1 entry for this item removed; full technical write-up at
+  `SaveLocker/logs/2026-08-24_conflict-version-stats.md`.
+- `SaveLocker/CONTEXT.md` updated with a session narrative paragraph per the vault's session-handoff
+  convention.
+
+### Open follow-ups (not started)
+
+- Actual agent-side auto-resolution logic (the Steam-Cloud-style migration itself) — this session only
+  laid an endpoint the future work can reuse; no agent decision logic was written.
+
+---
+
+## Session Summary — 2026-08-26
 
 Code review of fork PR #12, five findings applied, shipped as fork PR #14.
 
@@ -11,7 +91,7 @@ Code review of fork PR #12, five findings applied, shipped as fork PR #14.
 
 ---
 
-## Which PR #12
+### Which PR #12
 
 There are two, and they are different changes. `origin` is the fork
 (`Marwanello/SaveLocker`); `upstream` is `SkorcherX/SaveLocker`. **The `gh` CLI's default repo here
@@ -20,7 +100,7 @@ session passed `--repo Marwanello/SaveLocker` explicitly. The reviewed target wa
 confirmed by its merge commit `01f1c56` matching local `HEAD`. A bare `gh pr create` would have opened
 a pull request against a third party's repository.
 
-## What changed
+### What changed
 
 **`HasSteamCloud` became `bool?`** (`AgentApiServer.cs`, `AgentConfig.cs`). This is the substantive
 change and the reason for the commit title. `bool` collapsed *"this game has no Steam Cloud"* and
@@ -61,7 +141,7 @@ against **both** LF and CRLF.
 **`agent-ui/src/api-types.ts` was regenerated, never hand-edited** (per `REPO_MAP.md`; CI runs
 `gen:api -- --check`, so drift fails the build).
 
-## Gotchas hit
+### Gotchas hit
 
 - **`sed -i` silently strips CRLF** from files that need it (`SettingsView.tsx`). Worse, `awk '/\r$/'`
   gives a false negative because Git Bash's awk strips CR on read — **`file -b` is the reliable
@@ -77,7 +157,7 @@ against **both** LF and CRLF.
   session's shell cwd holds open. `dotnet build-server shutdown` releases the MSBuild/Roslyn locks;
   the empty shell needs a `rmdir` after the session ends.
 
-## Not done
+### Not done
 
 - **No test suite was run.** `run-agent-tests` / `run-linux-tests` should both pass before merge —
   `HasSteamCloud` going nullable is a real behavior change, not a cosmetic one.

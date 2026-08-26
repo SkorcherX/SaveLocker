@@ -1,4 +1,5 @@
-﻿using SaveLocker.Server.Data;
+﻿using System.Collections.Concurrent;
+using SaveLocker.Server.Data;
 using SaveLocker.Shared;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,10 @@ public sealed class SyncService
     private readonly ArchiveStore _store;
     private readonly ConflictEscalationPolicy _conflictEscalation;
     private readonly TimeSpan _leaseDuration = TimeSpan.FromHours(6);
+    // A version's archive never changes once uploaded, so its stats are cached for the process
+    // lifetime the first time anyone asks — cleared only by a restart, which is fine since a
+    // pruned/deleted version's id is never reused.
+    private readonly ConcurrentDictionary<Guid, VersionStatsDto> _versionStatsCache = new();
     private readonly int _retainPerGame;
     /// <summary>
     /// How long a claimed command stays invisible to other claims. It has to outlast a real
@@ -905,6 +910,26 @@ public sealed class SyncService
             .FirstOrDefaultAsync(v => v.Id == versionId);
         if (version is null || !_store.Exists(version.ArchivePath)) return null;
         return (version, _store.OpenRead(version.ArchivePath));
+    }
+
+    /// <summary>File count / newest-mtime for one version's archive, cached per version id (an
+    /// archive's contents never change once uploaded). <paramref name="gameId"/> is null for the
+    /// agent group's flat <c>/versions/{id}/stats</c> route (a valid machine key already gates the
+    /// group, the same way it does for <see cref="DownloadVersionAsync"/>) and non-null for the
+    /// admin group's nested <c>/games/{id}/versions/{versionId}/stats</c> route, so a caller cannot
+    /// probe a version belonging to a different game through the wrong URL.</summary>
+    public async Task<VersionStatsDto?> GetVersionStatsAsync(Guid? gameId, Guid versionId)
+    {
+        var version = await _db.SaveVersions.FindAsync(versionId);
+        if (version is null || (gameId is not null && version.GameId != gameId) || !_store.Exists(version.ArchivePath))
+            return null;
+
+        if (_versionStatsCache.TryGetValue(versionId, out var cached)) return cached;
+
+        var stats = SaveArchive.GetArchiveStats(_store.FullPath(version.ArchivePath));
+        var dto = new VersionStatsDto(stats.FileCount, stats.NewestFileWriteUtc);
+        _versionStatsCache[versionId] = dto;
+        return dto;
     }
 
     // ----- Admin: conflicts & rollback -----

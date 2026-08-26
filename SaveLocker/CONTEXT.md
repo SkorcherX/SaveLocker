@@ -61,6 +61,27 @@ SaveLocker-Decky (`0b988c0`, released as **v0.2.2**):
 <br>So **the one genuine unknown named below is answered: Decky's backend does get a usable
 `systemctl --user`** — once its environment is cleaned up first.
 
+**Conflict Tier 1's last piece shipped in code (2026-08-24, branch `conflict-version-stats`, from
+[[Backlog]], PR #15).** The conflict card showed size and upload time per side but nothing
+that says which machine has "more" progress. `SaveArchive.CreateArchive` has always stamped
+`entry.LastWriteTime` per zip entry, so a new `SaveArchive.GetArchiveStats` reads file count and
+newest mtime straight from a version's archive on demand — no migration, works retroactively on every
+version ever uploaded. Two new endpoints share one `SyncService.GetVersionStatsAsync`:
+`GET /api/versions/{id}/stats` (agent group, unscoped) and
+`GET /api/games/{id}/versions/{versionId}/stats` (admin group, scoped) — the agent route has no UI
+caller yet, built ahead of need because conflict resolution is expected to move to the agent later
+(Steam-Cloud-style), and that will want this same comparison. Console fetches lazily, only for
+versions an open conflict is actually showing, cached by version id (an archive's stats never change
+once uploaded) so the 15s poll never re-fetches. A code review then found the archive's mtime was
+being read back using the reading process's own local timezone instead of the writing agent's
+(wrong by the offset difference between server and agent — fixed to be deterministic instead), a
+failed stats fetch that permanently suppressed itself with no retry (fixed), and added a server-side
+per-version cache plus test coverage for the previously-untested agent-scoped route. `dotnet build`
+(Server + Windows Agent) and `web` build/lint clean; `openapi.json`/`api-types.ts` regenerated;
+`run-health-tests.ps1` covers both stats routes (22/22 passing); verified live against a real dev
+server + console with two machines pushed into a genuine conflict. Write-up:
+`logs/2026-08-24_conflict-version-stats.md`.
+
 **Review fixes for the per-game alias / HasSteamCloud PR (2026-08-25, branch
 `steam-cloud-fallback`, no task file).** A code review of that PR (merged as
 `01f1c56`) found five issues; all five are fixed on this branch, none of it yet released.
