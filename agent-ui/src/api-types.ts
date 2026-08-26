@@ -1239,15 +1239,15 @@ export interface components {
         };
         TrackedGameDto: {
             /** Format: uuid */
-            gameId: string;
+            id: string;
             name: string;
-            saveDirectory: string;
+            path: string;
             processNames: string[];
             alias: null | string;
             /** Format: uint32 */
             steamAppId: null | number;
             pullBeforeLaunchEnabled: null | boolean;
-            hasSteamCloud: boolean;
+            hasSteamCloud: null | boolean;
         };
     };
     responses: never;

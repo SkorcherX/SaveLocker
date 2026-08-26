@@ -234,6 +234,10 @@ public static class AgentCli
 
                     var game = await Api().CreateGameAsync(new CreateGameRequest(serverName, manifestKey, null));
                     var existing = config.FindGame(name) ?? config.FindGame(serverName);
+                    // HasSteamCloud is deliberately left alone: null on a fresh entry ("nobody
+                    // established this"), and untouched on an existing one so re-adding a game does
+                    // not erase what enrollment already decided. `--appid` cannot stand in for it —
+                    // a non-Steam shortcut run under Proton has an AppID too. See TrackedGame.
                     var tracked = existing ?? new TrackedGame();
                     tracked.GameId = game.Id;
                     tracked.Name = game.Name;

@@ -441,14 +441,21 @@ public sealed class AgentConfig
     }
 
     /// <summary>
-    /// Persist one game's alias override without clobbering concurrent changes to anything else.
+    /// Persist a single-field change to one game without clobbering concurrent changes to anything
+    /// else, then mirror it onto our own in-memory copy.
     ///
     /// Same re-read-under-lock shape as <see cref="SaveGameSyncState"/>, and for the same reason:
     /// the local API handler that calls this can run concurrently with a folder watcher's own
     /// <see cref="Save"/> on another thread of the same daemon, or with the launch wrapper's separate
     /// process. A plain mutate-then-<see cref="Save"/> would risk either one losing the other's write.
+    ///
+    /// <paramref name="apply"/> runs against the entry read back from disk AND against our own, so a
+    /// later plain <see cref="Save"/> from this process cannot push the stale (pre-write) value back
+    /// over it — the same reasoning <see cref="SaveGameSyncState"/> applies to its own fields. It must
+    /// therefore be a plain single-field write that does not read the entry it is handed, since the
+    /// two entries it runs against are different objects. No-op when the game is gone or never here.
     /// </summary>
-    public void SaveGameAlias(Guid gameId, string? alias)
+    private void MutateGameUnderLock(Guid gameId, Action<TrackedGame> apply)
     {
         using var guard = AgentStateLock.Acquire("config", StateDir);
 
@@ -469,51 +476,34 @@ public sealed class AgentConfig
         var target = onDisk.Games.FirstOrDefault(g => g.GameId == gameId);
         if (target is null) return; // Nothing to update — the game is gone or was never here.
 
-        target.Alias = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        apply(target);
 
         AtomicFile.WriteAllText(ConfigPath, JsonSerializer.Serialize(onDisk, JsonOpts),
             restrictPermissions: true);
 
-        // Keep our own in-memory copy consistent with what was just written, so a later plain
-        // Save() from this process does not push a stale (pre-write) alias back over it — the same
-        // reasoning SaveGameSyncState applies to its own fields.
+        // ReferenceEquals, not an unconditional second apply: the catch above can leave onDisk as
+        // `this`, in which case target and mine are the same object and it has already been applied.
         var mine = Games.FirstOrDefault(g => g.GameId == gameId);
-        if (mine is not null) mine.Alias = target.Alias;
+        if (mine is not null && !ReferenceEquals(mine, target)) apply(mine);
+    }
+
+    /// <summary>
+    /// Persist one game's alias override without clobbering concurrent changes to anything else —
+    /// see <see cref="MutateGameUnderLock"/> for why it goes through the lock rather than a plain
+    /// mutate-then-<see cref="Save"/>.
+    /// </summary>
+    public void SaveGameAlias(Guid gameId, string? alias)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        MutateGameUnderLock(gameId, g => g.Alias = trimmed);
     }
 
     /// <summary>
     /// Persist one game's pull-before-launch override without clobbering concurrent changes to
-    /// anything else. Same re-read-under-lock shape as <see cref="SaveGameAlias"/>, and for the same
-    /// reason.
+    /// anything else — see <see cref="MutateGameUnderLock"/>.
     /// </summary>
-    public void SaveGamePullBeforeLaunch(Guid gameId, bool? enabled)
-    {
-        using var guard = AgentStateLock.Acquire("config", StateDir);
-
-        AgentConfig onDisk;
-        try
-        {
-            onDisk = File.Exists(ConfigPath)
-                ? JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(ConfigPath), JsonOpts) ?? this
-                : this;
-        }
-        catch
-        {
-            onDisk = this;
-        }
-        onDisk.ConfigPath = ConfigPath;
-
-        var target = onDisk.Games.FirstOrDefault(g => g.GameId == gameId);
-        if (target is null) return;
-
-        target.PullBeforeLaunchEnabled = enabled;
-
-        AtomicFile.WriteAllText(ConfigPath, JsonSerializer.Serialize(onDisk, JsonOpts),
-            restrictPermissions: true);
-
-        var mine = Games.FirstOrDefault(g => g.GameId == gameId);
-        if (mine is not null) mine.PullBeforeLaunchEnabled = enabled;
-    }
+    public void SaveGamePullBeforeLaunch(Guid gameId, bool? enabled) =>
+        MutateGameUnderLock(gameId, g => g.PullBeforeLaunchEnabled = enabled);
 
     public TrackedGame? FindGame(string name) =>
         Games.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -566,8 +556,19 @@ public sealed class TrackedGame
     /// wrongly called it a Steam Cloud game. Only ever set true for a genuinely Steam-sourced install.
     /// A Decky plugin reads this to default its own Gaming Mode pre-launch pull off for a Steam
     /// title (avoiding a race with Steam's own Cloud sync) and on for everything else.
+    ///
+    /// <para>
+    /// <b>Nullable, and null means "nobody has established this"</b> — not "no Steam Cloud". Only
+    /// the enrollment path has a candidate to decide from; a game the poller adopts from the server
+    /// and a <c>add-game</c> from the CLI have no such signal, and neither does any entry already in
+    /// <c>config.json</c> from before this field existed. A plain <c>bool</c> would silently read all
+    /// three as false — asserting "definitely not a Steam Cloud game" for what is very often exactly
+    /// one, on a Deck where adoption is how games usually arrive — so a consumer would default its
+    /// pre-launch pull ON and race Steam's own Cloud sync. Null instead tells that consumer to fall
+    /// back to its own heuristic rather than trust a value nothing ever set.
+    /// </para>
     /// </summary>
-    public bool HasSteamCloud { get; set; }
+    public bool? HasSteamCloud { get; set; }
     /// <summary>
     /// The game's install directory on this machine — what the Ludusavi manifest calls
     /// <c>&lt;base&gt;</c>, and the placeholder its save paths use more than any other. Recorded at

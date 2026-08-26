@@ -182,6 +182,11 @@ public sealed class CommandPoller : IDisposable
             if (dir is not null && string.IsNullOrWhiteSpace(sg.MachineSavePath))
                 ReportPathAsync(sg.Id, dir);
 
+            // No HasSteamCloud here on purpose: it stays null ("nobody established this"). Only
+            // enrollment has a ScanCandidate to decide it from, and GameDto carries no such signal —
+            // re-deriving it from the name against the manifest is the exact mistake TrackedGame
+            // .HasSteamCloud documents. Null lets the Decky plugin fall back to its own heuristic;
+            // a false here would tell it, wrongly, that a Steam Cloud game definitely is not one.
             _config.MutateGames(list => list.Add(new TrackedGame
             {
                 GameId = sg.Id,

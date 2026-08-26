@@ -796,15 +796,23 @@ public sealed record CandidateDto(
 /// <see cref="TrackedGame.PullBeforeLaunchEnabled"/>.
 /// </param>
 /// <param name="HasSteamCloud">
-/// Whether this game was enrolled as a genuinely Steam-sourced install — see
-/// <see cref="TrackedGame.HasSteamCloud"/>, decided once at enrollment, not a live lookup. A Decky
-/// plugin needs this, not <paramref name="SteamAppId"/>, to decide whether its own pre-launch pull
-/// would race Steam's own Cloud sync — an AppID alone can't tell a real Steam install apart from a
-/// non-Steam shortcut run under Proton, which gets a compatdata prefix too.
+/// Whether this game was enrolled as a genuinely Steam-sourced install, or <b>null when nothing has
+/// established that</b> — see <see cref="TrackedGame.HasSteamCloud"/>, decided once at enrollment,
+/// not a live lookup. A Decky plugin needs this, not <paramref name="SteamAppId"/>, to decide
+/// whether its own pre-launch pull would race Steam's own Cloud sync — an AppID alone can't tell a
+/// real Steam install apart from a non-Steam shortcut run under Proton, which gets a compatdata
+/// prefix too. Null means "unknown, use your own heuristic", not "no Steam Cloud".
 /// </param>
+/// <remarks>
+/// <see cref="Id"/> and <see cref="Path"/> keep those names, rather than the GameId/SaveDirectory
+/// the config-side properties use, because this record IS the <c>/api/games</c> wire contract and
+/// the Decky plugin reading it ships from its own repo on its own update channel. Renaming them
+/// would break every already-installed plugin the moment an agent updated ahead of it, for nothing
+/// — the four fields after them are additive, so an older reader keeps working untouched.
+/// </remarks>
 public sealed record TrackedGameDto(
-    Guid GameId, string Name, string SaveDirectory, string[] ProcessNames, string? Alias,
-    uint? SteamAppId, bool? PullBeforeLaunchEnabled, bool HasSteamCloud);
+    Guid Id, string Name, string Path, string[] ProcessNames, string? Alias,
+    uint? SteamAppId, bool? PullBeforeLaunchEnabled, bool? HasSteamCloud);
 
 public sealed record ProcessNamesRequest(string[]? ProcessNames);
 public sealed record AliasRequest(string? Alias);

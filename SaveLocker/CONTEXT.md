@@ -61,6 +61,38 @@ SaveLocker-Decky (`0b988c0`, released as **v0.2.2**):
 <br>So **the one genuine unknown named below is answered: Decky's backend does get a usable
 `systemctl --user`** — once its environment is cleaned up first.
 
+**Review fixes for the per-game alias / HasSteamCloud PR (2026-08-25, branch
+`steam-cloud-fallback`, no task file).** A code review of that PR (merged as
+`01f1c56`) found five issues; all five are fixed on this branch, none of it yet released.
+- **`TrackedGame.HasSteamCloud` is now `bool?`, and `null` means "nobody established this"** — not
+  "no Steam Cloud". Only enrollment has a `ScanCandidate` to decide it from; the poller's adopt path
+  and `add-game` have no such signal, and neither does any entry written before the field existed. As
+  a plain `bool` all three read as **false**, which tells a Decky plugin to default its pre-launch
+  pull ON and race Steam's own Cloud sync — on a Deck, where adoption is how games usually arrive,
+  that was most of them. Re-deriving it from a name-only manifest lookup is *not* the fix and stays
+  refused (it is what wrongly called Heroic's Fez a Steam Cloud game). The plugin side still needs
+  updating to read `null` as "use your own heuristic".
+- **`/api/games` keeps its `id` / `path` field names.** The PR had renamed them to
+  `gameId` / `saveDirectory`; that record *is* the wire contract for a consumer shipping from its own
+  repo on its own update channel, so an agent updating ahead of the plugin broke every installed one
+  for no gain. The four new fields are additive — confirmed by diffing the regenerated
+  `agent-ui/src/api-types.ts` against the pre-PR base: **zero deleted lines**.
+- `SaveGameAlias` / `SaveGamePullBeforeLaunch` collapse onto one `MutateGameUnderLock` helper (the
+  re-read-under-lock reasoning had been copy-pasted a third time). Note the `catch` fallback sets
+  `onDisk = this`, so the in-memory mirror is guarded with `ReferenceEquals`, not applied twice.
+- `testenv.ps1`'s Decky staging normalises `main.py` to **LF** before matching. SaveLocker-Decky is a
+  separate repo, so a `*.py text eol=lf` there checks the file out LF and the old CRLF-only needles
+  matched nothing — silently, until the `throw` killed the whole test-plugin build. Verified both
+  ways: the old needles miss on LF input, the new code applies all four substitutions on LF *and*
+  CRLF.
+<br>Full solution builds, `agent-ui` `tsc -b && vite build` passes, `testenv.ps1` parses under
+Windows PowerShell 5.1. **No test suite was run** — worth doing before this merges.
+<br>Two process notes: `api-types.ts` was **regenerated, not hand-edited** (per [[REPO_MAP]]) by
+running a dev daemon on port 5190 against a scratch config, never touching the installed agent on
+:5178; and this worktree's `agent-ui` had never had `npm install` run — the fresh-worktree trap
+already recorded above, which also blocks the Windows agent build since it shells out to
+`npm run build`.
+
 ---
 
 ## Where things stand
