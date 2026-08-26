@@ -4,7 +4,7 @@ The agent is the piece that runs on each gaming machine: it watches your save fo
 changes, and pulls the latest save before you play. The server (this console) is the hub; every PC,
 laptop and Steam Deck runs an agent.
 
-Downloads are on the [GitHub Releases page](https://github.com/SkorcherX/SaveLocker/releases):
+Downloads are on the [GitHub Releases page](https://github.com/Marwanello/SaveLocker/releases):
 
 | Machine | Download |
 |---|---|

@@ -176,11 +176,19 @@ export function AddGamesView({ onEnrolled }: Props) {
   // told it was filtered and by which control — silently showing a shorter list reads as "the scan
   // didn't find it".
   const hiddenCount = candidates.length - visible.length
+  // Which control to name depends on which one is actually hiding things — there are two axes now,
+  // and telling someone to choose “All” while “All” is already selected is worse than saying
+  // nothing. Path is named first: it is the row that can hide everything while the source row
+  // looks wide open.
+  const undoHint =
+    pathMode !== 'all' ? ' Set Path to “All” to see every one.'
+      : filter !== 'all' ? ' Choose “All” to see every one.'
+      : ''
   const footerStatus = status || (
     enrollBlocked
       ? `Set a save folder for: ${missing.map(c => c.name).join(', ')}`
       : `Showing ${visible.length} of ${candidates.length} game(s) found.` +
-        (hiddenCount > 0 ? ' Choose “All” to see every one.' : '')
+        (hiddenCount > 0 ? undoHint : '')
   )
 
   return (

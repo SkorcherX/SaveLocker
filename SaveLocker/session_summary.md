@@ -80,88 +80,114 @@ findings, all fixed:
 
 ## Session Summary — 2026-08-26
 
-Code review of fork PR #12, five findings applied, shipped as fork PR #14.
+Code review of merged fork PRs #1-10, fifteen findings applied, shipped as fork PR #16.
 
-- **Branch:** `steam-cloud-fallback`
-- **Commit:** `1ae1538` — *Fix: null-safe HasSteamCloud and keep /api/games' field names*
-- **PR:** https://github.com/Marwanello/SaveLocker/pull/14 (`steam-cloud-fallback` -> `main`, 8 files,
-  +135/-76, MERGEABLE)
-- **Reviewed:** `01f1c56` — *Agent: per-game alias, HasSteamCloud and pull-before-launch for the Decky
-  plugin, plus testenv plugin builds (#12)*
+- **Branch:** `chunked-upload-integrity-and-review-fixes`
+- **Commits:** `9d08e65` — *Make a chunked upload all-or-nothing, and the rest of the PR #1-10 review*
+  · `6d7c7f3` — *Docs: record the PR #1-10 review and what its fixes cover*
+- **PR:** https://github.com/Marwanello/SaveLocker/pull/16 (-> `main`, 16 files, +570/-55, MERGEABLE)
+- **Base:** `e83da90` — *Fix: null-safe HasSteamCloud and keep /api/games' field names (#14)*
 
 ---
 
-### Which PR #12
+## The headline bug: a chunked upload could publish a truncated save
 
-There are two, and they are different changes. `origin` is the fork
-(`Marwanello/SaveLocker`); `upstream` is `SkorcherX/SaveLocker`. **The `gh` CLI's default repo here
-resolves to `SkorcherX/SaveLocker`** — the upstream maintainer's repo — so every `gh` call in this
-session passed `--repo Marwanello/SaveLocker` explicitly. The reviewed target was the *fork's* PR #12,
-confirmed by its merge commit `01f1c56` matching local `HEAD`. A bare `gh pr create` would have opened
-a pull request against a third party's repository.
+Introduced by PR #3, which added the chunked upload protocol so large saves survive Cloudflare's
+fixed ~100s proxied-edge timeout: `begin` -> N x `chunk?offset=` -> `complete`.
 
-### What changed
+The failure chain:
 
-**`HasSteamCloud` became `bool?`** (`AgentApiServer.cs`, `AgentConfig.cs`). This is the substantive
-change and the reason for the commit title. `bool` collapsed *"this game has no Steam Cloud"* and
-*"nobody has determined whether this game has Steam Cloud"* into the same `false`. Two call sites
-never assign the field at all, so `false` was being published as a determination that had never been
-made. `null` now means unknown.
+1. A chunk faults part-way through its body. The bytes already written stay on disk, **and are
+   counted** — `BytesReceived` had advanced as the write progressed.
+2. The client retries that chunk at its original offset. The server compares that offset against the
+   inflated `BytesReceived`, sees it as *behind*, and treats it as a harmless duplicate replay.
+3. The remainder of that chunk is therefore never written. The gap is silent.
+4. If it was the final chunk, `complete` publishes the short file **under the content hash of the
+   complete archive**. Every other machine then pulls it believing it is intact.
 
-The two non-assigning sites were left non-assigning, with a comment each explaining why:
+Two properties of this codebase shaped the fix, and both are worth remembering:
 
-- `CommandPoller.cs:185` — `GameDto` (`src/Shared/Contracts.cs:20`) carries no Steam Cloud signal at
-  all, so there is nothing to assign. `null` is the honest value.
-- `AgentCli.cs:237` — **assigning here would be a regression.** `var tracked = existing ?? new
-  TrackedGame();` reuses an existing entry, so writing the field on re-add would erase whatever
-  enrollment had determined.
+- **`ContentHash` hashes the save *folder*, not the zip** — it comes from
+  `SaveArchive.HashDirectory`. The obvious fix ("re-hash the assembled file and compare against
+  `ContentHash`") is therefore impossible without the server extracting the archive first.
+- **A zip's central directory lives at the *end* of the file.** That is what makes "did every byte
+  arrive" answerable server-side without re-hashing anything: a short assembly cannot produce a
+  readable archive.
 
-**The `/api/games` wire contract was reverted to its published field names.** The PR had renamed
-`TrackedGameDto.Id` -> `GameId` and `Path` -> `SaveDirectory` to match the config-side property names.
-That record *is* the wire contract, and the Decky plugin that reads it ships from its own repo
-(`SkorcherX/SaveLocker-Decky`) on its own update channel — an agent update would have broken every
-plugin in the field. The names are back; the new fields stay, purely additive. A `<remarks>` block on
-the record now records why the two sides are allowed to disagree.
+So `CompleteSession` now opens the staged file as a zip and reads its entry count before publishing.
+Failure deletes the staging file and throws `CorruptUploadException`, which `Program.cs` maps to
+**422** — deliberately not the 500 an unhandled throw would give, because the agent has to be able to
+distinguish *"those bytes did not arrive intact, resend"* from *"the server is broken"*.
 
-Objective check that the contract is additive-only:
-`git diff 01f1c56^ -- agent-ui/src/api-types.ts` shows **0 deleted lines**.
+And `AppendChunkAsync` is now all-or-nothing: any fault mid-chunk rolls the file back to the offset
+that chunk started at, and `BytesReceived` advances **only after the write is durable** — the count
+is what a retry is judged against, so it must never describe bytes still in flight. Oversize is the
+one case that aborts the whole session instead of rolling back, since retrying cannot help.
 
-**`AgentConfig.SaveGameAlias` / `SaveGamePullBeforeLaunch`** were two near-identical
-read-modify-write-under-lock bodies; both now call one `MutateGameUnderLock(Guid, Action<TrackedGame>)`
-helper. One subtlety is load-bearing and commented in place: the `catch` fallback can leave `onDisk`
-aliased to `this`, so the in-memory copy is re-applied only under `!ReferenceEquals(mine, target)` —
-an unconditional second `apply` would double-apply in that path.
+## Proving the tests catch it
 
-**`tests/testenv.ps1`** matched Decky plugin source with CRLF-only needles. PowerShell's `.Contains`
-and `.Replace` are literal, so the patches silently no-op'd against LF checkouts — the harness would
-report success having modified nothing. Inputs and needles are now normalized to LF. Verified both
-ways: the old needles return `False` against LF input; the new code applies all four substitutions
-against **both** LF and CRLF.
+30 new `CS-12` checks in `tests/run-server-bugbounty-tests.ps1`: byte-identical happy path,
+`begin` no-change short circuit, whole-chunk replay, gap-ahead 409, cross-machine and unknown-session
+404, truncation 422, a **mid-chunk fault driven through a raw `TcpClient`** that declares a
+`Content-Length` it never delivers and then disconnects, and cumulative over-cap.
 
-**`agent-ui/src/api-types.ts` was regenerated, never hand-edited** (per `REPO_MAP.md`; CI runs
-`gen:api -- --check`, so drift fails the build).
+The suite was then run against a **reverted** `ArchiveStore.cs` + `Program.cs`: **8 checks fail**,
+including *"the truncated session published no version"*. That is the part that matters — it shows
+the pre-fix server genuinely did publish corrupt archives, so the suite is a regression test rather
+than a tautology. Restored: **30/30**.
 
-### Gotchas hit
+## The other fourteen findings
 
-- **`sed -i` silently strips CRLF** from files that need it (`SettingsView.tsx`). Worse, `awk '/\r$/'`
-  gives a false negative because Git Bash's awk strips CR on read — **`file -b` is the reliable
-  check.**
-- **Fresh worktrees need `npm install` in `agent-ui/`** before the Windows Agent build, or MSBuild
-  fails with `MSB3073: The command "npm run build" exited with code 1`. Already documented in
-  `CONTEXT.md`; hit anyway.
-- **The Linux agent's DLL is `savelocker.dll`**, not `SaveLocker.Agent.Linux.dll` — the csproj sets
-  `<AssemblyName>savelocker</AssemblyName>`. Daemon smoke test:
-  `dotnet src/Agent.Linux/bin/Debug/net10.0/savelocker.dll daemon --port 5190 --config <dir>/config.json`
-- **`git worktree remove` can fail with "Permission denied" (exit 255) yet partially succeed** — the
-  worktree de-registers and its contents delete, leaving an empty directory that the still-running
-  session's shell cwd holds open. `dotnet build-server shutdown` releases the MSBuild/Roslyn locks;
-  the empty shell needs a `rmdir` after the session ends.
+Chunk-retry logic in `ApiClient.cs` only caught `HttpRequestException`, but **`HttpClient.Timeout`
+surfaces as `TaskCanceledException`/`OperationCanceledException`** — and `ServerHttp.Create` sets no
+explicit timeout, so the 100s default applied. Retry now covers transport faults and 5xx/408, with a
+real cancellation still passing straight through.
 
-### Not done
+`SyncActivity.Persist` read shared state outside the lock and could write snapshots out of order;
+it now snapshots under the lock and serialises writes behind a sequence number, with a timer to flush
+throttled updates rather than dropping them. `POST /api/sync` gained a single-flight gate. The Linux
+UI's sync call had the default 100s timeout on an operation that can legitimately exceed it.
+`PathResolver.SafeChildDirectories` was re-enumerating directories per lookup and is now memoised.
+Plus small UI fixes, two `testenv` safety guards (refuse to operate on a state dir that isn't
+obviously a test dir), and repointing three `SkorcherX/SaveLocker` URLs to the fork.
 
-- **No test suite was run.** `run-agent-tests` / `run-linux-tests` should both pass before merge —
-  `HasSteamCloud` going nullable is a real behavior change, not a cosmetic one.
-- **`SkorcherX/SaveLocker-Decky` needs a matching change** to read `hasSteamCloud: null` as *unknown,
-  use your own heuristic*. The agent can now legitimately send it. Separate repo, separate release.
+## Gotchas hit
+
+- **PowerShell 5.1 unrolls a `byte[]` returned from a function** into the pipeline, so it arrives as
+  `Object[]` and `Invoke-WebRequest -Body` serialises it as a *string* — a 125-byte slice went out as
+  a 377-byte body. Fix is the load-bearing leading comma: `return ,$s`.
+- **Test fixtures must be incompressible.** The first fixture zip was ~376 bytes because repetitive
+  text compresses away, which is far too small to exercise chunk boundaries. Now 300KB of seeded
+  random bytes.
+- **Kestrel's per-request `MaxRequestBodySize` and `ArchiveStore`'s cumulative `maxBytes` are
+  different limits with different errors.** A single 3MB body against `MaxUploadMb=2` gets a 413 from
+  Kestrel and never reaches `ArchiveTooLargeException`. Exercising the archive cap needs *two* chunks
+  that are each under the request cap but together over the archive cap.
+- **`PathResolver`'s case-insensitive fallback cannot be tested on Windows** — NTFS resolves the
+  mis-cased path directly, so `Directory.Exists(exact)` succeeds and the fallback never runs. Those
+  two "failures" are by design; verification moved to WSL.
+- **`wsl -d Ubuntu -- bash -lc '...$VAR...'`** has `$VAR` eaten by the *outer* Git Bash shell before
+  WSL ever sees it. Use literal paths.
+- Line-ending drift again: a Python write left `ActivityCard.tsx` LF in a CRLF tree. Confirmed fixed
+  by the diff shrinking to +1/-3 (whole-file churn would have shown as a full rewrite).
+
+## Not done, deliberately
+
+- **Retry on `/upload/{sessionId}/complete`.** The endpoint is not idempotent server-side — a second
+  call hits `TryRemove` and 404s — so adding retry today would turn a lost-response *success* into a
+  spurious hard failure. Needs the server to remember completed sessions first.
+- **Repointing the Decky plugin URL** (`web/src/help/decky-plugin.md:28`,
+  `src/Agent.Linux/DeckyPlugin.cs:66`). `Marwanello/SaveLocker-Decky` exists but has **no releases**,
+  so the documented *Install Plugin from URL* flow would 404. The stale-looking URL is the working
+  one; change it when the fork's plugin repo cuts a release.
 
 Both are called out in the PR body.
+
+## Note on the rebase
+
+`origin/main` advanced mid-session (PR #14), touching `AgentApiServer.cs` and `testenv.ps1` — two
+files this work also changed. Rebased rather than opening against a stale base. It applied without
+conflict, but a clean auto-merge can still be semantically wrong, so it was checked rather than
+trusted: both changesets confirmed present by inspection, PR #14's `HasSteamCloud` still appearing
+10x in `AgentApiServer.cs`, the diff vs `origin/main` unchanged at 15 code files / +526/-55, all five
+C# projects and `agent-ui` rebuilt, and `CS-12` re-run at 30/30.

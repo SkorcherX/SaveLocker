@@ -361,6 +361,12 @@ agent.MapPost("/games/{id:guid}/upload/{sessionId:guid}/complete", async (
         return Results.Ok(await sync.CompleteChunkedUploadAsync(id, machine.Id, sessionId, ct));
     }
     catch (UnknownUploadSessionException ex) { return Results.NotFound(ex.Message); }
+    catch (CorruptUploadException ex)
+    {
+        // 422, not the 500 an unhandled throw would produce: the agent has to be able to tell
+        // "those bytes did not arrive intact, send them again" from "the server is broken".
+        return Results.Problem(ex.Message, statusCode: StatusCodes.Status422UnprocessableEntity);
+    }
 }).Produces<UploadResult>();
 
 agent.MapGet("/games/{id:guid}/download", async (Guid id, HttpContext http, SyncService sync) =>

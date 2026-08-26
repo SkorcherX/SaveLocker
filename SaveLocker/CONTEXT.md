@@ -115,6 +115,50 @@ already recorded above, which also blocks the Windows agent build since it shell
 `npm run build`.
 
 ---
+**A recall review of the ten merged fork PRs (#1-10), and its fifteen findings applied (2026-08-26,
+branch `chunked-upload-integrity-and-review-fixes`).** The one that matters: **the chunked upload
+protocol (PR #3) had quietly dropped the all-or-nothing guarantee the single-shot route it replaced
+still has.** `ArchiveStore.SaveAsync` deletes its staging file on any failure, so a body that stopped
+early was never published. The chunked path kept a faulted chunk's partial bytes *and counted them*,
+so the client's retry of that same chunk arrived BEHIND the session, took the "harmless replay"
+branch, and the rest of it was silently dropped. On the final chunk that published a **truncated zip
+under the content hash of a complete one** - which every other machine then pulled believing it was
+intact. Nothing verified the assembled bytes, and the whole protocol shipped with **zero tests**.
+<br>Fixed: a faulted chunk rolls back to the offset it started at (so a retry is a real write, not a
+mis-read replay) and the byte count only advances once the chunk is durable; `CompleteSession`
+refuses to publish bytes that are not a readable archive (422). Note *why* it reads the zip's central
+directory rather than re-hashing: the session's `ContentHash` is `SaveArchive.HashDirectory`'s hash
+of the save **folder**, not of the zip carrying it, so the server cannot recompute it without
+extracting - but a zip's index lives at its END, which makes "did every byte arrive" answerable at
+that boundary and nowhere else. Crossing the size cap mid-chunk now drops the session instead of
+leaving a stale one that answered the retry 200 and failed the NEXT chunk on an offset mismatch,
+hiding why the upload died.
+<br>The other twelve, briefly: the agent's chunk retry never caught a **stalled** request (`ServerHttp`
+sets no `Timeout`, so HttpClient's own 100s default surfaces as a *cancellation*, not an
+`HttpRequestException` - the exact transient this layer exists for fell straight through it, while a
+409/413 was slept on three times for nothing); Game Mode's "Sync now" reported failure over a sync
+that was still running and about to succeed, and `/api/sync` is now single-flight; `SyncActivityTracker`
+snapshots under its lock and orders its writes, so a slow persist cannot strand the Deck's progress
+bar on a finished push, and log lines are throttled instead of fsyncing the 50-entry feed per line;
+`PathResolver` memoises directory listings per resolver; Add Games names the control actually hiding
+rows; the in-app help still sent users to the **upstream** repo's releases; and `testenv`'s WSL and
+Windows halves got the same refuse-to-operate guard the Deck half already had before its `rm -rf`,
+plus `sync` no longer CR-strips binaries into the clone.
+<br>**New: `CS-12` in `run-server-bugbounty-tests.ps1` - 30 checks over the protocol** (byte-identical
+round trip, replay, gap-ahead, cross-machine ownership, truncation, mid-chunk fault recovery, the
+cumulative cap). **30/30 against the fix; 8 fail against the pre-fix code**, including "the truncated
+session published no version" - i.e. the old server really did publish a corrupt archive.
+`run-linux-tests` **235/237**, the recorded baseline (the 2 are the pre-existing Decky messaging
+failures). Full solution builds; `agent-ui` `tsc -b && vite build` passes.
+<br>**Two things deliberately NOT done**, both recorded so they are not re-derived: `complete` still
+has no retry - it is not idempotent server-side (a second call hits `TryRemove` and 404s), so
+retrying a lost response would turn a success into a spurious hard failure; making it safe needs the
+server to remember completed sessions. And `web/src/help/decky-plugin.md` + `DeckyPlugin.cs` still
+name `SkorcherX/SaveLocker-Decky`: the fork's own `Marwanello/SaveLocker-Decky` **exists but has no
+releases**, so repointing the documented `Install Plugin from URL` would break it today. Revisit once
+a plugin release is cut there.
+
+---
 
 ## Where things stand
 

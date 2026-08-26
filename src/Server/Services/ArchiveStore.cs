@@ -29,6 +29,18 @@ public sealed class UploadOffsetMismatchException(Guid sessionId, long expected,
     : Exception($"Upload session '{sessionId}' has {actual} byte(s); a chunk arrived expecting {expected}.");
 
 /// <summary>
+/// The bytes a chunked upload assembled are not a readable archive. The single-shot route never
+/// needed this check — <see cref="ArchiveStore.SaveAsync"/> is all-or-nothing, so a body that
+/// stopped early was simply never published — whereas a chunked upload is assembled across many
+/// requests and only the last one says it is finished. Publishing an unreadable archive under the
+/// content hash of a complete one is the worst outcome available here: every other machine then
+/// pulls it believing it is intact.
+/// </summary>
+public sealed class CorruptUploadException(Guid sessionId, string detail)
+    : Exception($"Upload session '{sessionId}' did not assemble a readable archive ({detail}). " +
+                "Nothing was published; the agent's next attempt starts a fresh session.");
+
+/// <summary>
 /// Stores save-game archive files on disk (an unRAID share volume in production).
 /// Layout: {root}/{gameId}/{versionId}.zip
 /// <para>
@@ -183,11 +195,20 @@ public sealed class ArchiveStore
     /// <summary>
     /// Append one chunk at the offset the caller believes the session is at.
     /// <para>
+    /// <b>All-or-nothing, like <see cref="SaveAsync"/>.</b> A chunk whose body faults part-way
+    /// through — a connection reset, which is the exact failure this protocol exists to survive —
+    /// is rolled back: the staged file is truncated to where it was before the chunk started and
+    /// the session's byte count goes back with it. Without that, the partial bytes counted as
+    /// received, so the retry of that same chunk arrived BEHIND the session and took the replay
+    /// branch below, silently dropping the rest of it and desynchronising both sides from there on.
+    /// </para>
+    /// <para>
     /// Idempotent against a retry: if <paramref name="expectedOffset"/> is behind what has already
-    /// landed, the request is assumed to be a replay of one that actually succeeded even though its
-    /// response was lost — exactly the failure this protocol exists to survive — and this is a no-op
-    /// that reports the current total. An offset AHEAD of what has landed is rejected: chunks are
-    /// sent strictly in order, so a gap can only mean an earlier one never arrived.
+    /// landed, the request is a replay of one that actually succeeded even though its response was
+    /// lost, and this is a no-op that reports the current total. Because a failed chunk now rolls
+    /// back, "behind" can only mean a whole chunk landed — never a fragment of one. An offset AHEAD
+    /// of what has landed is rejected: chunks are sent strictly in order, so a gap can only mean an
+    /// earlier one never arrived.
     /// </para>
     /// </summary>
     public async Task<long> AppendChunkAsync(
@@ -196,6 +217,12 @@ public sealed class ArchiveStore
         if (!_sessions.TryGetValue(sessionId, out var s))
             throw new UnknownUploadSessionException(sessionId);
 
+        // Over the cap is not retryable — the archive itself is too big, so no later chunk can
+        // rescue this session. Dropping it (outside the lock, below) is what keeps the 413 the
+        // single-shot route returns meaningful: left alive, the session answered the agent's retry
+        // with a replay 200 and then failed the NEXT chunk on an offset mismatch, so the reason
+        // the upload died stopped being visible anywhere.
+        var abortOversize = false;
         await s.WriteLock.WaitAsync(ct);
         try
         {
@@ -205,35 +232,93 @@ public sealed class ArchiveStore
                 throw new UploadOffsetMismatchException(sessionId, expectedOffset, s.BytesReceived);
             }
 
-            await using (var fs = new FileStream(
-                s.StagedPath, FileMode.Append, FileAccess.Write, FileShare.None,
-                bufferSize: 81920, useAsync: true))
+            var startOffset = s.BytesReceived;
+            try
             {
-                var buffer = new byte[81920];
-                int read;
-                while ((read = await content.ReadAsync(buffer, ct)) > 0)
+                long written = 0;
+                await using (var fs = new FileStream(
+                    s.StagedPath, FileMode.Append, FileAccess.Write, FileShare.None,
+                    bufferSize: 81920, useAsync: true))
                 {
-                    if (maxBytes > 0 && s.BytesReceived + read > maxBytes)
-                        throw new ArchiveTooLargeException(maxBytes);
-                    await fs.WriteAsync(buffer.AsMemory(0, read), ct);
-                    s.BytesReceived += read;
+                    var buffer = new byte[81920];
+                    int read;
+                    while ((read = await content.ReadAsync(buffer, ct)) > 0)
+                    {
+                        if (maxBytes > 0 && startOffset + written + read > maxBytes)
+                            throw new ArchiveTooLargeException(maxBytes);
+                        await fs.WriteAsync(buffer.AsMemory(0, read), ct);
+                        written += read;
+                    }
+                    await fs.FlushAsync(ct);
+                    fs.Flush(flushToDisk: true);
                 }
-                await fs.FlushAsync(ct);
-                fs.Flush(flushToDisk: true);
+                // Only once the whole chunk is durable: the count is what a retry is judged against,
+                // so it must never describe bytes that are still in flight.
+                Interlocked.Exchange(ref s.BytesReceived, startOffset + written);
             }
+            catch (ArchiveTooLargeException) { abortOversize = true; throw; }
+            catch
+            {
+                RollbackTo(s, startOffset);
+                throw;
+            }
+
             s.LastActivityUtc = DateTime.UtcNow;
             return s.BytesReceived;
         }
-        finally { s.WriteLock.Release(); }
+        finally
+        {
+            s.WriteLock.Release();
+            if (abortOversize) AbortSession(sessionId);
+        }
     }
 
-    /// <summary>Finish a session: publish its staged file to the archive's final path (same atomic
-    /// rename the single-shot path uses) and forget the session. The database work this enables is
-    /// the caller's — ArchiveStore only ever knows about bytes.</summary>
+    /// <summary>Undo a partly-written chunk: truncate the staged file back to where the session was
+    /// before it started. Best-effort — if the truncate itself fails the session is poisoned rather
+    /// than silently short, so its byte count is left describing the file as it actually is and the
+    /// next chunk's offset check refuses to build on it.</summary>
+    private static void RollbackTo(UploadSession s, long offset)
+    {
+        try
+        {
+            using var fs = new FileStream(s.StagedPath, FileMode.Open, FileAccess.Write, FileShare.None);
+            fs.SetLength(offset);
+            fs.Flush(flushToDisk: true);
+            Interlocked.Exchange(ref s.BytesReceived, offset);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Finish a session: verify the assembled bytes are a readable archive, then publish
+    /// them to the archive's final path (same atomic rename the single-shot path uses) and forget
+    /// the session. The database work this enables is the caller's — ArchiveStore only ever knows
+    /// about bytes.
+    /// <para>
+    /// The session's <c>ContentHash</c> cannot be the check here: it is
+    /// <c>SaveArchive.HashDirectory</c>'s hash of the save FOLDER, not of the zip carrying it, so
+    /// the server would have to extract the archive to recompute it. Reading the archive's
+    /// central directory proves the one property that actually matters at this boundary — that
+    /// every byte the agent sent arrived — because a zip's index lives at its END, so a short or
+    /// torn assembly cannot produce a readable one.
+    /// </para>
+    /// </summary>
     public (string relativePath, long size) CompleteSession(Guid sessionId)
     {
         if (!_sessions.TryRemove(sessionId, out var s))
             throw new UnknownUploadSessionException(sessionId);
+
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(s.StagedPath);
+            _ = zip.Entries.Count;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            // Refuse rather than publish. The staged bytes go now instead of waiting for the idle
+            // sweep — nothing can ever be made of them.
+            TryDeleteFile(s.StagedPath);
+            throw new CorruptUploadException(sessionId, $"{s.BytesReceived} byte(s) received");
+        }
 
         var rel = RelativePath(s.GameId, s.VersionId);
         var full = FullPath(rel);

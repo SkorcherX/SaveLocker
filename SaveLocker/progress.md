@@ -147,3 +147,50 @@ legitimately send it. Both are called out in the PR body.
 
 The empty worktree directory at `.claude\worktrees\review-pr-12-b073b2` could not be deleted from
 that session (the shell's cwd sat in it); `rmdir /s /q` clears it once the session ends.
+
+---
+
+## 2026-08-26 — PR #1-10 review, 15 fixes, and PR #16
+
+[PR #16](https://github.com/Marwanello/SaveLocker/pull/16) is open and mergeable —
+`chunked-upload-integrity-and-review-fixes` -> `main`, 16 files, +570/-55.
+
+An `xhigh` recall-oriented review of merged PRs #1-10 produced 15 findings; all 15 were triaged and
+applied as minimal edits across two commits:
+
+- `9d08e65` — the fifteen fixes (15 files, +526/-55)
+- `6d7c7f3` — `Docs:` vault entry in `CONTEXT.md`, per the session-handoff convention
+
+**The headline finding is a save-data-loss bug in the chunked upload protocol** (added in PR #3).
+A chunk that faulted mid-body left its partial bytes on disk *and counted them*, so the client's
+retry at the original offset read as "behind" and was dismissed as a harmless replay — the rest of
+that chunk was never written. On the final chunk this published a truncated zip under the *full*
+archive's content hash, which every other machine then pulled believing it was intact.
+`AppendChunkAsync` is now all-or-nothing (rollback to the chunk's start offset on any fault, byte
+count advanced only once the write is durable), and `CompleteSession` refuses to publish an archive
+whose central directory will not open, returning 422 rather than an unhandled 500.
+
+Three things worth knowing about how this was done:
+
+- **`origin/main` moved mid-task.** PR #14 landed and touched two files this work also changed
+  (`AgentApiServer.cs`, `testenv.ps1`). The branch was rebased onto it rather than opening against a
+  stale base. Git merged cleanly, but a clean auto-merge can still be semantically wrong, so
+  everything was re-verified afterwards rather than trusted — see the verification numbers below.
+- **The tests were proven to catch the bug, not just to pass.** With `ArchiveStore.cs` and
+  `Program.cs` reverted to HEAD, the new `CS-12` suite fails 8 checks — including *"the truncated
+  session published no version"*, which demonstrates the pre-fix server really did publish corrupt
+  archives. Restored, it is 30/30.
+- **Two findings were deliberately left undone,** both recorded in the PR body and `CONTEXT.md`.
+
+**Verification:** `CS-12` 30/30 (8 failures pre-fix); `run-linux-tests` 235/237 baseline; all five C#
+projects and `agent-ui` build green, re-run after the rebase.
+
+Still outstanding, by choice:
+
+- **Retry on `/upload/{sessionId}/complete`** — the endpoint is not idempotent server-side (a second
+  call hits `TryRemove` and 404s), so adding retry today would convert a lost-response *success* into
+  a spurious hard failure. Needs the server to remember completed sessions first.
+- **Repointing the Decky plugin URL** (`web/src/help/decky-plugin.md:28`,
+  `src/Agent.Linux/DeckyPlugin.cs:66`) from `SkorcherX/SaveLocker-Decky` to
+  `Marwanello/SaveLocker-Decky` — the fork's plugin repo exists but has **no releases**, so the
+  documented *Install Plugin from URL* flow would 404. The stale-looking URL is the working one.

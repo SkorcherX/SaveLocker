@@ -99,7 +99,7 @@ sha256sum -c SHA256SUMS-linux.txt
 The Linux tarball additionally carries a build attestation tying it to the workflow run that produced it, which — unlike a checksum — does not depend on trusting the page you read the checksum from:
 
 ```sh
-gh attestation verify savelocker-<version>-linux-x64.tar.gz --repo SkorcherX/SaveLocker
+gh attestation verify savelocker-<version>-linux-x64.tar.gz --repo Marwanello/SaveLocker
 ```
 
 ## Installing a Deck by hand

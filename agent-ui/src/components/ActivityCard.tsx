@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Activity as ActivityIcon, RefreshCw } from 'lucide-react'
 import { api } from '../api'
 import type { Activity, SyncActivitySnapshot } from '../types'
@@ -14,7 +14,6 @@ export function ActivityCard() {
   const [activity, setActivity] = useState<Activity | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [syncMessage, setSyncMessage] = useState<string | null>(null)
-  const logRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -73,7 +72,6 @@ export function ActivityCard() {
       <div style={{ borderTop: '1px solid #33393f' }} />
 
       <div
-        ref={logRef}
         style={{
           display: 'flex', flexDirection: 'column', gap: 4,
           maxHeight: 150, overflowY: 'auto',

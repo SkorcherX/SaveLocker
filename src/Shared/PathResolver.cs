@@ -17,6 +17,11 @@ public sealed class PathResolver
     /// </summary>
     private readonly bool _caseInsensitiveFilesystem;
 
+    /// <summary>Directory listings already taken during this resolver's lifetime — see
+    /// <see cref="SafeChildDirectories"/>. Not static: a resolver is per game per scan, and a cache
+    /// outliving that would start answering for a filesystem it no longer describes.</summary>
+    private readonly Dictionary<string, List<string>> _childDirCache = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Tokens holding an identifier rather than a path. <see cref="Tokenize"/> must skip them: they
     /// would match anywhere the name or id happens to appear in a path and rewrite that fragment
@@ -365,10 +370,30 @@ public sealed class PathResolver
         return results;
     }
 
-    private static IEnumerable<string> SafeChildDirectories(string parent)
+    /// <summary>
+    /// The child directories of <paramref name="parent"/>, memoised for this resolver's lifetime.
+    /// <para>
+    /// A resolver is built per game per scan, and a game's manifest entry routinely carries several
+    /// templates rooted at the SAME few directories. Both callers walk those roots: the
+    /// <c>&lt;storeUserId&gt;</c> fan-out enumerates a parent per template, and
+    /// <see cref="ResolveCaseInsensitive"/> enumerates once per segment of every path that does not
+    /// resolve exactly — which, since the Steam scan now attempts resolution even for a game with
+    /// no Wine prefix at all, is most of them. Un-memoised that re-listed the same directories over
+    /// and over, on removable media, for every template of every installed title.
+    /// </para>
+    /// The cache cannot go stale in any way that matters: it lives only as long as one game's
+    /// resolution, and a save folder appearing mid-scan is already outside what a scan can promise.
+    /// </summary>
+    private IEnumerable<string> SafeChildDirectories(string parent)
     {
-        try { return Directory.EnumerateDirectories(parent).ToList(); }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return []; }
+        if (_childDirCache.TryGetValue(parent, out var cached)) return cached;
+
+        List<string> children;
+        try { children = Directory.EnumerateDirectories(parent).ToList(); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { children = []; }
+
+        _childDirCache[parent] = children;
+        return children;
     }
 
     /// <summary>
@@ -427,7 +452,7 @@ public sealed class PathResolver
     /// fresh prefix's folder can both survive side by side.
     /// </para>
     /// </summary>
-    private static string? MatchChild(string parent, string segment)
+    private string? MatchChild(string parent, string segment)
     {
         var candidates = SafeChildDirectories(parent)
             .Where(d => Path.GetFileName(d).Equals(segment, StringComparison.OrdinalIgnoreCase))

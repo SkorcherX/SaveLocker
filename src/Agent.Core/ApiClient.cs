@@ -323,21 +323,49 @@ public sealed class ApiClient
     {
         for (var attempt = 1; ; attempt++)
         {
+            var last = attempt >= UploadChunkMaxAttempts;
+            HttpResponseMessage resp;
             try
             {
                 using var content = new ByteArrayContent(buffer, 0, count);
                 content.Headers.ContentType = new("application/octet-stream");
-                var resp = await _http.PutAsync(
+                resp = await _http.PutAsync(
                     $"/api/games/{gameId}/upload/{sessionId}/chunk?offset={offset}", content, ct);
-                resp.EnsureSuccessStatusCode();
-                return;
             }
-            catch (HttpRequestException) when (attempt < UploadChunkMaxAttempts && !ct.IsCancellationRequested)
+            // OperationCanceledException as well as HttpRequestException: ServerHttp sets no
+            // Timeout, so a chunk that stalls mid-body trips HttpClient's own 100s default and
+            // surfaces as a CANCELLATION, not as a request exception — which is precisely the
+            // transient stall this retry layer exists for, and it used to fall straight through
+            // it. A cancellation the caller actually asked for is still fatal: the filter checks.
+            catch (Exception ex) when (!last && IsTransientTransportFailure(ex, ct))
             {
                 await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct);
+                continue;
             }
+
+            // The status is judged here rather than by EnsureSuccessStatusCode inside the try, so
+            // that a refusal the server will repeat verbatim is not slept on three times first and
+            // cannot be mistaken for a transport hiccup by the filter above. A 409 (offset
+            // mismatch) or 413 (over the cap) is the server's settled answer about this session.
+            using (resp)
+            {
+                if (resp.IsSuccessStatusCode) return;
+                if (last || !IsRetryableStatus(resp.StatusCode)) resp.EnsureSuccessStatusCode();
+            }
+            await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct);
         }
     }
+
+    /// <summary>A failure to get any answer at all, worth another attempt. A cancellation the
+    /// CALLER requested is excluded — that is a shutdown, not a hiccup.</summary>
+    private static bool IsTransientTransportFailure(Exception ex, CancellationToken ct) =>
+        !ct.IsCancellationRequested &&
+        (ex is HttpRequestException || ex is OperationCanceledException || ex is IOException);
+
+    /// <summary>Worth another attempt with the same bytes at the same offset. Everything else the
+    /// server answers about a chunk is a decision, not a hiccup.</summary>
+    private static bool IsRetryableStatus(HttpStatusCode status) =>
+        (int)status >= 500 || status == HttpStatusCode.RequestTimeout;
 
     /// <summary>
     /// Fill <paramref name="buffer"/> as full as the stream allows before returning. A single

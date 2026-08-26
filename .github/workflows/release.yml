@@ -126,7 +126,7 @@ jobs:
           cat SHA256SUMS-linux.txt
 
       # Ties this exact tarball to this exact workflow run, verifiable with
-      # `gh attestation verify <file> --repo SkorcherX/SaveLocker`. Unlike the checksum, this does
+      # `gh attestation verify <file> --repo Marwanello/SaveLocker`. Unlike the checksum, this does
       # not depend on trusting the page the checksum was read from.
       - name: Attest the tarball
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2

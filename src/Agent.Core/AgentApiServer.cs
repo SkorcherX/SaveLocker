@@ -40,6 +40,8 @@ public sealed class AgentApiServer : IDisposable
     // "Sync all" for the Overview page's button — same operation the tray menu offers, resolved
     // against whichever engine and game list are current at the moment it is clicked.
     private readonly Func<Task<string>> _syncAll;
+    // One sync at a time, however many surfaces are offering the button — see /api/sync.
+    private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly string _uiRoot;
     private readonly LocalAuth _auth;
     // Lease warnings are persisted, not held in memory: the Linux launch wrapper is a separate
@@ -591,8 +593,18 @@ public sealed class AgentApiServer : IDisposable
         // The Overview page's "Sync now" button: pull then push every tracked game, same as the tray
         // menu's "Sync All". Fire-and-poll from the UI's side — the response is a summary line, and
         // progress for whichever game is mid-sync shows up on the next /api/activity poll regardless.
-        app.MapPost("/api/sync", async () => new SyncNowResponse(await _syncAll()))
-            .Produces<SyncNowResponse>();
+        //
+        // Single-flight: this route holds its request open for the whole sync, and there are now
+        // three buttons wired to it (the browser card, Game Mode, and whatever else asks). Two
+        // presses used to start two overlapping SyncAllAsync runs racing each other's leases; the
+        // second caller is now told what is already happening instead.
+        app.MapPost("/api/sync", async () =>
+        {
+            if (!await _syncGate.WaitAsync(0))
+                return new SyncNowResponse("A sync is already running — watch the activity feed.");
+            try { return new SyncNowResponse(await _syncAll()); }
+            finally { _syncGate.Release(); }
+        }).Produces<SyncNowResponse>();
 
         app.MapGet("/api/agent-version", () =>
         {
