@@ -1,5 +1,22 @@
 # Task — Upload only changed files, not the whole save folder
 
+**Shipped:** 2026-08-22, commit `f7d2a58`. Decision 1 (storage): copy-forward, as recommended below —
+content-addressable storage was rejected because it doesn't improve identical-push detection at all
+(pure hash/manifest comparison, unaffected by storage layout) and trades the actual problem (upload
+bandwidth) for a different one (disk space, via a GC subsystem nobody asked for). Decision 4 (floor):
+5 files or 2 MB total, a starting number. Execution order 1–5 all landed as described, plus one thing
+this doc didn't anticipate: the agent's Begin request sends its FULL current manifest (not just the
+changed paths) either way, so it doubles as decision 6's "deletions are an explicit declared list"
+for free — no separate removed-paths field was needed. New `UploadStatus.RetryFull` handles the one
+case the doc's decision 3 didn't spell out in wire terms: a delta negotiated against a head that
+moved on before Complete, retried transparently inside `ApiClient` as a full archive. Measured per
+the verification plan: an 8-slot 3.2 MB fixture with one file changed sent ~400 KB, not ~3.2 MB.
+`tests/run-delta-upload-tests.ps1` (17/17) covers every item in *Verification* below except a
+byte-level network capture (the audit trail's "N of M files needed fresh bytes" was used instead,
+which is what the diagnostic note under Motivation about the maintainer's own "barely opened the
+game" report also turned out to need). Full write-up: `CONTEXT.md` (2026-08-22 entry) and
+`Decisions.md`.
+
 **Created:** 2026-08-19
 
 **Target:** `src/Shared/SaveArchive.cs`, `src/Shared/Contracts.cs`, `src/Server/Program.cs`,

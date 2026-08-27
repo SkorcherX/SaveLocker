@@ -11,7 +11,8 @@ SaveLocker/
 │   ├── Shared/                          # SaveLocker.Shared.csproj
 │   │   ├── Contracts.cs                 # Wire DTOs — shared by server + agent
 │   │   ├── AgentEventCodes.cs           # The fixed vocabulary of agent event codes (dedupe keys)
-│   │   ├── SaveArchive.cs               # Content hashing + atomic zip restore
+│   │   ├── SaveArchive.cs               # Content hashing + atomic zip restore + per-file manifest
+│   │   │                               #   (`ComputeManifest`) for delta uploads
 │   │   ├── ManifestLoader.cs            # Ludusavi manifest downloader + cloud/tag parsing
 │   │   ├── PathResolver.cs              # Expands manifest placeholders (<winAppData>, <base>) to real
 │   │   │                               #   dirs, trimmed at the first wildcard so there is a dir to watch
@@ -22,7 +23,8 @@ SaveLocker/
 │   │   ├── Program.cs                   # ALL minimal-API endpoints + DI wiring
 │   │   ├── Data/
 │   │   │   ├── AppDbContext.cs          # EF Core context
-│   │   │   └── Entities.cs             # Machine, Game, SaveVersion, Lease, ConflictFlag,
+│   │   │   └── Entities.cs             # Machine, Game, SaveVersion, SaveVersionFile (per-version
+│   │   │                               #   per-file delta-upload baseline), Lease, ConflictFlag,
 │   │   │                               #   AuditLog, AgentCommand, AppSetting, MachineSavePath
 │   │   ├── Migrations/                  # EF migrations (InitialSchema + incremental)
 │   │   ├── Services/
@@ -228,6 +230,10 @@ SaveLocker/
 │   │                                   #   and `.verify-winagent`. Drives two REAL tray processes,
 │   │                                   #   so it needs an interactive desktop or it silently skips.
 │   ├── run-server-bugbounty-tests.ps1  # Server-side bug bounty — auth, enrollment, update routes.
+│   ├── run-delta-upload-tests.ps1      # Per-file delta upload: self-healing baseline, byte-exact
+│   │                                   #   reconstruction across a full+full+delta chain, deletion,
+│   │                                   #   the size/count floor, a diverged push staying full, and a
+│   │                                   #   hostile delta payload refused. Own server on :5185.
 │   ├── run-hardening-tests.ps1         # SECURITY. A symlink must not leak its target into the
 │   │                                   #   archive, and the restore's delete pass must not reach
 │   │                                   #   THROUGH one and delete files OUTSIDE the save folder.

@@ -224,30 +224,68 @@ public sealed class ApiClient
         Guid gameId, string contentHash, Guid? parent, bool force, string archivePath,
         Action<long, long>? onProgress = null, CancellationToken ct = default)
     {
-        var beginResp = await _http.PostAsJsonAsync(
-            $"/api/games/{gameId}/upload/begin", new BeginUploadRequest(contentHash, parent, force), ct);
-        if (beginResp.StatusCode == HttpStatusCode.NotFound)
+        var begin = await BeginUploadAsync(gameId, contentHash, parent, force, files: null, ct);
+        if (begin is null)
             return await UploadSingleShotAsync(gameId, contentHash, parent, force, archivePath, onProgress, ct);
-        beginResp.EnsureSuccessStatusCode();
-        var begin = (await beginResp.Content.ReadFromJsonAsync<BeginUploadResponse>(cancellationToken: ct))!;
         if (begin.NoChange is { } noChange) return noChange;
-        var sessionId = begin.SessionId!.Value;
 
+        return await UploadSessionPayloadAsync(gameId, begin.SessionId!.Value, archivePath, onProgress, ct);
+    }
+
+    /// <summary>
+    /// Open an upload session, optionally declaring the agent's full per-file manifest so the server
+    /// can answer with the subset it actually needs fresh bytes for.
+    /// <para>
+    /// Returns <c>null</c> — rather than throwing — when the server has no chunked routes at all, so
+    /// the caller can fall back to <see cref="UploadAsync"/>'s single-shot path. This is deliberately
+    /// only the Begin half: what to build and send afterwards is a sync-policy decision, and it lives
+    /// with the rest of that policy in <c>SyncEngine</c>, not in the HTTP client.
+    /// </para>
+    /// </summary>
+    public async Task<BeginUploadResponse?> BeginUploadAsync(
+        Guid gameId, string contentHash, Guid? parent, bool force, FileManifestEntry[]? files,
+        CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync(
+            $"/api/games/{gameId}/upload/begin",
+            new BeginUploadRequest(contentHash, parent, force, files), ct);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<BeginUploadResponse>(cancellationToken: ct))!;
+    }
+
+    /// <summary>Send one already-built payload against an already-Begun session and finish it.
+    /// Whether that payload is a full archive or a per-file delta is the caller's business.</summary>
+    public async Task<UploadResult> UploadSessionPayloadAsync(
+        Guid gameId, Guid sessionId, string payloadPath,
+        Action<long, long>? onProgress = null, CancellationToken ct = default)
+    {
+        await StreamChunksAsync(gameId, sessionId, payloadPath, onProgress, ct);
+        return await CompleteChunkedUploadAsync(gameId, sessionId, ct);
+    }
+
+    /// <summary>Stream one archive's bytes through the chunk protocol against an already-Begun
+    /// session — shared by the full-archive and delta-payload upload paths, which differ only in
+    /// which zip they hand this.</summary>
+    private async Task StreamChunksAsync(
+        Guid gameId, Guid sessionId, string archivePath, Action<long, long>? onProgress, CancellationToken ct)
+    {
         var totalBytes = new FileInfo(archivePath).Length;
         onProgress?.Invoke(0, totalBytes);
-        await using (var fs = File.OpenRead(archivePath))
+        await using var fs = File.OpenRead(archivePath);
+        var buffer = new byte[UploadChunkBytes];
+        long offset = 0;
+        int read;
+        while ((read = await ReadFullyAsync(fs, buffer, ct)) > 0)
         {
-            var buffer = new byte[UploadChunkBytes];
-            long offset = 0;
-            int read;
-            while ((read = await ReadFullyAsync(fs, buffer, ct)) > 0)
-            {
-                await PutChunkWithRetryAsync(gameId, sessionId, offset, buffer, read, ct);
-                offset += read;
-                onProgress?.Invoke(offset, totalBytes);
-            }
+            await PutChunkWithRetryAsync(gameId, sessionId, offset, buffer, read, ct);
+            offset += read;
+            onProgress?.Invoke(offset, totalBytes);
         }
+    }
 
+    private async Task<UploadResult> CompleteChunkedUploadAsync(Guid gameId, Guid sessionId, CancellationToken ct)
+    {
         var completeResp = await _http.PostAsync($"/api/games/{gameId}/upload/{sessionId}/complete", null, ct);
         completeResp.EnsureSuccessStatusCode();
         return (await completeResp.Content.ReadFromJsonAsync<UploadResult>(cancellationToken: ct))!;

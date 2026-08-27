@@ -226,7 +226,14 @@ public enum UploadStatus
     /// <summary>Incoming content matches the current head; nothing changed.</summary>
     NoChange,
     /// <summary>Incoming version diverged from the head; a conflict was recorded.</summary>
-    Conflict
+    Conflict,
+    /// <summary>
+    /// A delta upload was negotiated against a head that moved before it completed (another
+    /// machine pushed in between) — the partial payload can no longer be safely reconstructed
+    /// against the base it was diffed from. Never surfaced to <c>SyncEngine</c>: <c>ApiClient</c>
+    /// retries transparently with a full archive, the same one a diverged push always sends.
+    /// </summary>
+    RetryFull
 }
 
 public record UploadResult(
@@ -236,11 +243,33 @@ public record UploadResult(
 
 // ----- Upload (chunked) -----
 
-public record BeginUploadRequest(string ContentHash, Guid? ParentVersionId, bool Force);
+/// <summary>One file's identity within a save folder, as the agent currently sees it on disk.
+/// Enough to tell the server which paths it can copy forward from the current head unchanged and
+/// which need fresh bytes, without re-transmitting or re-hashing content that did not change.</summary>
+public record FileManifestEntry(string Path, string Sha256, long Size);
+
+/// <param name="Files">
+/// The agent's COMPLETE current file manifest for this game (every file, not just changed ones) —
+/// optional so an older agent, a forced/first-ever push, or a save below the delta-worthwhile size
+/// floor can omit it and get exactly today's whole-archive behavior. When present it doubles as the
+/// full declared truth of "what should exist" (mirrors how <c>RestoreArchive</c> already treats
+/// "absent from the archive" as a deletion) — no separate removed-paths list is needed.
+/// </param>
+public record BeginUploadRequest(
+    string ContentHash, Guid? ParentVersionId, bool Force, FileManifestEntry[]? Files = null);
 
 /// <summary>Either <see cref="SessionId"/> is set and the caller uploads chunks against it, or
-/// <see cref="NoChange"/> is set and there is nothing to send — the server already has this content.</summary>
-public record BeginUploadResponse(Guid? SessionId, UploadResult? NoChange);
+/// <see cref="NoChange"/> is set and there is nothing to send — the server already has this content.
+/// <para>
+/// <paramref name="UseDeltaPath"/> is only meaningful when a <see cref="SessionId"/> came back and
+/// <see cref="BeginUploadRequest.Files"/> was sent: true means the server has a stored per-file
+/// manifest for its current head and the agent should zip and send only <paramref name="NeedPaths"/>;
+/// false means send the whole archive exactly as before (a diverged/forced/first-ever push, or a
+/// head with no stored manifest yet — self-healing once one push completes with a manifest).
+/// </para>
+/// </summary>
+public record BeginUploadResponse(
+    Guid? SessionId, UploadResult? NoChange, bool UseDeltaPath = false, string[]? NeedPaths = null);
 
 public record ChunkAppendResponse(long BytesReceived);
 

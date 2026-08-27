@@ -317,11 +317,13 @@ agent.MapPost("/games/{id:guid}/upload/begin", async (
 {
     if (string.IsNullOrWhiteSpace(req.ContentHash))
         return Results.BadRequest("Missing content hash.");
+    if (SyncService.ValidateManifest(req.Files) is { } manifestError)
+        return Results.BadRequest(manifestError);
 
     var machine = http.CurrentMachine();
-    var (sessionId, noChange) = await sync.BeginChunkedUploadAsync(
-        id, machine.Id, req.ParentVersionId, req.ContentHash, req.Force, ct);
-    return Results.Ok(new BeginUploadResponse(sessionId, noChange));
+    var (sessionId, noChange, useDeltaPath, needPaths) = await sync.BeginChunkedUploadAsync(
+        id, machine.Id, req.ParentVersionId, req.ContentHash, req.Force, req.Files, ct);
+    return Results.Ok(new BeginUploadResponse(sessionId, noChange, useDeltaPath, needPaths));
 }).Produces<BeginUploadResponse>();
 
 agent.MapPut("/games/{id:guid}/upload/{sessionId:guid}/chunk", async (

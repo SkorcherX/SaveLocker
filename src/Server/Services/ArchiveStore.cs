@@ -1,3 +1,5 @@
+using SaveLocker.Shared;
+
 namespace SaveLocker.Server.Services;
 
 /// <summary>
@@ -83,6 +85,26 @@ public sealed class ArchiveStore
         /// session in flight at a time, but a retried chunk racing a slow-to-fail original must not
         /// interleave with it.</summary>
         public readonly SemaphoreSlim WriteLock = new(1, 1);
+
+        // ----- Per-file delta negotiation (set only when the agent sent a manifest at Begin) -----
+
+        /// <summary>The agent's complete current file manifest, as declared at Begin — also the full
+        /// target file set a delta reconstruction copies forward or takes fresh bytes for. Null when
+        /// no manifest was sent (an old agent, or a push below the delta-worthwhile floor).</summary>
+        public FileManifestEntry[]? Files;
+        /// <summary>Paths (subset of <see cref="Files"/>) the server asked for fresh bytes on. Only
+        /// meaningful when <see cref="BaseVersionId"/> is set.</summary>
+        public string[]? NeedPaths;
+        /// <summary>The server head this session's delta was diffed against at Begin. Null means
+        /// either no manifest was sent, or one was sent but the server declined the delta path (no
+        /// stored baseline for the head, or the push cannot fast-forward) — either way the staged
+        /// bytes are a full archive, exactly like a pre-delta session. Re-checked at Complete: if the
+        /// head has moved on since, the negotiated diff is stale and must not be trusted.</summary>
+        public Guid? BaseVersionId;
+        /// <summary>Path → SHA-256 of the base version, as the diff at Begin already read it. Carried
+        /// on the session so Complete can verify every carried-forward entry without re-querying the
+        /// same rows a second time. Set together with <see cref="BaseVersionId"/>.</summary>
+        public IReadOnlyDictionary<string, string>? BaseManifest;
     }
 
     /// <summary>Read-only view of a session handed back across the ArchiveStore/SyncService boundary
@@ -90,7 +112,9 @@ public sealed class ArchiveStore
     /// carries, ArchiveStore owns only the bytes.</summary>
     public sealed record ChunkedUploadInfo(
         Guid GameId, Guid MachineId, Guid VersionId, long BytesReceived,
-        string ContentHash, Guid? ParentVersionId, bool Force);
+        string ContentHash, Guid? ParentVersionId, bool Force,
+        FileManifestEntry[]? Files, string[]? NeedPaths, Guid? BaseVersionId,
+        IReadOnlyDictionary<string, string>? BaseManifest);
 
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, UploadSession> _sessions = new();
 
@@ -131,11 +155,29 @@ public sealed class ArchiveStore
         {
             info = new ChunkedUploadInfo(
                 s.GameId, s.MachineId, s.VersionId, Interlocked.Read(ref s.BytesReceived),
-                s.ContentHash, s.ParentVersionId, s.Force);
+                s.ContentHash, s.ParentVersionId, s.Force, s.Files, s.NeedPaths, s.BaseVersionId,
+                s.BaseManifest);
             return true;
         }
         info = default!;
         return false;
+    }
+
+    /// <summary>
+    /// Record the outcome of the per-file diff negotiation on an existing session — called once,
+    /// right after <see cref="BeginSession"/>, so <see cref="BeginSession"/> itself stays about
+    /// staging bytes and nothing else. <paramref name="baseVersionId"/> null means the agent sent no
+    /// manifest, or the server declined the delta path; either way the session expects a full archive.
+    /// </summary>
+    public void SetDeltaInfo(
+        Guid sessionId, FileManifestEntry[]? files, string[]? needPaths, Guid? baseVersionId,
+        IReadOnlyDictionary<string, string>? baseManifest = null)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var s)) throw new UnknownUploadSessionException(sessionId);
+        s.Files = files;
+        s.NeedPaths = needPaths;
+        s.BaseVersionId = baseVersionId;
+        s.BaseManifest = baseManifest;
     }
 
     /// <summary>
@@ -198,6 +240,18 @@ public sealed class ArchiveStore
         Directory.CreateDirectory(Path.GetDirectoryName(full)!);
         File.Move(s.StagedPath, full, overwrite: true);
         return (rel, s.BytesReceived);
+    }
+
+    /// <summary>
+    /// Remove a session and return the path to its staged bytes — the small delta payload — WITHOUT
+    /// publishing them as a version's archive. Used only by the delta reconstruction path, which
+    /// builds a different file (copy-forward + these bytes) to publish instead. The caller owns
+    /// deleting the returned path once it has read what it needs from it.
+    /// </summary>
+    public string TakeSessionStagedPath(Guid sessionId)
+    {
+        if (!_sessions.TryRemove(sessionId, out var s)) throw new UnknownUploadSessionException(sessionId);
+        return s.StagedPath;
     }
 
     /// <summary>Abandon a session without publishing. Used when the content turned out to already be
@@ -286,6 +340,41 @@ public sealed class ArchiveStore
             throw;
         }
     }
+
+    /// <summary>
+    /// A fresh path on the SAME volume as the archive root, for a caller that needs to build a file
+    /// before publishing it (delta reconstruction: copy-forward + new entries into a brand-new zip).
+    /// Matches every other publish path's same-volume-rename requirement — a cross-volume move would
+    /// not be atomic. The caller publishes it with <see cref="PublishFile"/> or cleans it up with
+    /// <see cref="TryDeleteStaged"/> on failure.
+    /// <para>
+    /// Carries the same <c>.part</c> extension as a staged upload so <see cref="SweepIncoming"/>
+    /// reclaims it. A build is short-lived within one request only when that request finishes: a
+    /// container restart or an OOM kill mid-reconstruction runs neither the catch nor the finally,
+    /// and an unswept build can be as large as the whole save.
+    /// </para>
+    /// </summary>
+    public string NewStagingPath(Guid versionId)
+    {
+        Directory.CreateDirectory(IncomingDir);
+        return Path.Combine(IncomingDir, $"{versionId:N}-{Guid.NewGuid():N}.part");
+    }
+
+    /// <summary>Publish an already-built file (e.g. a delta-reconstructed archive) as a version's
+    /// final archive, via the same atomic same-volume rename every other publish path uses.</summary>
+    public (string relativePath, long size) PublishFile(Guid gameId, Guid versionId, string sourceFullPath)
+    {
+        var rel = RelativePath(gameId, versionId);
+        var full = FullPath(rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        var size = new FileInfo(sourceFullPath).Length;
+        File.Move(sourceFullPath, full, overwrite: true);
+        return (rel, size);
+    }
+
+    /// <summary>Remove a staging file this caller created (e.g. an abandoned delta build) — same
+    /// best-effort semantics as every other cleanup path here.</summary>
+    public void TryDeleteStaged(string fullPath) => TryDeleteFile(fullPath);
 
     public Stream OpenRead(string relativePath) => File.OpenRead(FullPath(relativePath));
 

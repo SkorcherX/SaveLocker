@@ -484,6 +484,36 @@ session can judge an edge case, not to reopen the choice.
   "Keep both" doesn't create two heads — the chosen snapshot becomes Latest, both conflicting
   snapshots get `Protected` (exempt from retention) until explicitly unprotected. Resolution
   refuses to promote something older than the current head.
+- **Per-file delta upload reconstructs by copy-forward, not content-addressable storage**
+  (2026-08-22, `tasks/PerFileDeltaUpload.md`). On a clean fast-forward push, the server opens the
+  previous head's own archive and copies forward every entry the agent's manifest didn't declare
+  changed, adding only the freshly uploaded entries — one complete zip per version, same on-disk
+  layout as before (`{gameId}/{versionId}.zip`), zero change to restore/download/pruning. Rejected:
+  a content-addressable blob store, deduping identical files by hash across versions — it would not
+  improve *detecting* an unchanged push at all (that's pure hash/manifest comparison, already
+  content-only and unaffected by storage layout) and it trades a real problem (upload bandwidth on a
+  constrained uplink — the thing that was actually reported) for a different one (a
+  reference-counted GC subsystem, solving disk space, which nobody had complained about). Deferred,
+  not rejected, if storage cost ever becomes the complaint.
+- **Delta floor: below 5 files or 2 MB total, skip the manifest round trip entirely** and push the
+  whole archive in one request, exactly as before — a starting number, not a tuned one. Below it the
+  manifest exchange is pure overhead: one extra request for a save that was already cheap.
+- **A delta is only ever attempted on a clean fast-forward** — `force`, a diverged push, and a
+  first-ever push (no known parent) always get today's full-archive behavior unconditionally, and so
+  does a fast-forward whose head has no *stored* per-file manifest yet (an old agent's push, or one
+  below the floor). Those are exactly the cases where the server cannot safely assume what "the old
+  content" was to copy forward from. A head with no manifest self-heals the moment one push completes
+  with one — the first two pushes to a fresh game always take the full-archive path for this reason,
+  proven by `tests/run-delta-upload-tests.ps1` section 1, not just asserted.
+- **Content-hash-based version dedup was already correct before this work — confirmed, not fixed.**
+  Raised because a new version appeared after "barely" opening a game. `SaveArchive.HashDirectory`
+  folds relative path + file *bytes* into its SHA-256, explicitly excluding mtimes and zip metadata
+  by design, and both the agent (`SyncEngine.PushCoreAsync`) and the server
+  (`SyncService.PrepareUploadAsync`) already skip creating a version when content genuinely matches.
+  The reported symptom is almost certainly a real content change some games make on load (an
+  autosave slot, a last-played stat) — the per-file manifest this work adds now makes that
+  concretely diagnosable per push, via the `upload.delta` audit entry's "N of M files needed fresh
+  bytes", rather than needing to guess.
 
 ## Environment facts (user-provided)
 - Games are standalone builds, not bought on Steam/Epic → manifest-based detection + manual
