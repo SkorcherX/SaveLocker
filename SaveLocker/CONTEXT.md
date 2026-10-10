@@ -148,11 +148,15 @@ baseline drift — is prioritised in [[Backlog]].
 Read `logs/2026-08-15_decky-plugin.md` and [[Gotchas]] → *Decky plugin* first. Both carry
 things that were measured on hardware and cannot be re-derived by reading code.
 
-**The Deck.** `deck@192.168.68.76`, key auth is set up (see the maintainer — the key is deliberately
-not named here). **The address is DHCP and moved twice in one day** (.67 → .73 → .76 on 2026-08-16),
+**The Deck.** `deck@192.168.68.73`, key auth is set up (see the maintainer — the key is deliberately
+not named here). **The address is DHCP and moves often** (.67 → .73 → .76 on 2026-08-16, back to .73
+by 2026-10-10 — try each before concluding it is asleep),
 so a refused connection may be that rather than a sleeping Deck — and a *new* address with the same
 host key is the same machine, not a warning worth acting on. It is awake only when the maintainer
 wakes it. Useful state on it:
+- **Decky Loader v3.2.10** (updated from v3.2.8 on 2026-10-10; plugin v0.2.2 loaded cleanly on it,
+  no changes needed — the `_clean_env()` restore degrades safely if Decky ever stops polluting
+  `LD_LIBRARY_PATH`);
 - agent **v0.5.9**, service `savelocker.service` active and enabled, 4 tracked games, all with
   launch options confirmed;
 - plugin **v0.2.2** at `~/homebrew/plugins/SaveLocker`, installed by the agent itself, and a config
