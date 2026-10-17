@@ -234,8 +234,8 @@ session can judge an edge case, not to reopen the choice.
   branch can be tested with a real Deny ACE. Applying one to the real
   `…\CurrentVersion\Run` of a working machine to prove a point is not an acceptable test.
 - **Test-only environment variables stay, and stay unadvertised** (2026-07-28, maintainer decision).
-  `SAVELOCKER_LEASE_RENEW_SECONDS`, `SAVELOCKER_SYNC_LOCK_SECONDS`, `SAVELOCKER_TRAY_PORT` and
-  `SAVELOCKER_RUNKEY_SUBPATH` are kept — they are the only
+  `SAVELOCKER_LEASE_RENEW_SECONDS`, `SAVELOCKER_SYNC_LOCK_SECONDS`, `SAVELOCKER_TRAY_PORT`,
+  `SAVELOCKER_RUNKEY_SUBPATH` and `SAVELOCKER_STATE_ROOT` are kept — they are the only
   way to observe a 3-hour renewal interval or a ~13-minute lock wait inside a test — but they are
   **not** promoted to `AgentConfig` settings and are **not** documented anywhere a user reads. They
   live in `Gotchas.md` (this vault) only; `web/src/help/cli-reference.md` and the release notes must

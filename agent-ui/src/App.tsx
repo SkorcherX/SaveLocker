@@ -45,7 +45,10 @@ export default function App() {
             <img src={logoUrl} alt="SaveLocker" style={{ width: 34, height: 34, objectFit: 'contain', borderRadius: 5, flexShrink: 0 }} />
             <div>
               <div style={{ color: '#ECEFF1', fontSize: 13, fontWeight: 700, letterSpacing: '-0.015em', lineHeight: 1.2 }}>SaveLocker</div>
-              <div style={{ color: '#9CA3AF', fontSize: 10, letterSpacing: '0.07em', textTransform: 'uppercase', lineHeight: 1.5 }}>Agent v{state?.currentVersion ?? '…'}</div>
+              {/* buildLabel, not currentVersion: several builds share one version number, and on a
+                  machine running a test build beside the installed one that is the whole question.
+                  Case is left alone here — a commit hash in caps reads as a different string. */}
+              <div style={{ color: '#9CA3AF', fontSize: 10, letterSpacing: '0.07em', lineHeight: 1.5 }}>AGENT v{state?.buildLabel ?? state?.currentVersion ?? '…'}</div>
             </div>
           </div>
           <StatusHeader connected={state?.connected ?? false} serverUrl={state?.serverUrl ?? ''} />

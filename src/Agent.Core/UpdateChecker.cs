@@ -51,9 +51,43 @@ public sealed class UpdateChecker : IDisposable
     /// </summary>
     public static readonly string CurrentVersionText = Format(CurrentVersion);
 
+    /// <summary>
+    /// What a human should be shown this build as. Identical to <see cref="CurrentVersionText"/> for
+    /// a release; a build carrying a prerelease suffix adds it and the commit — "0.5.10-test (55ddde9)".
+    /// <para>
+    /// It is a <b>second</b> string on purpose. <see cref="CurrentVersionText"/> is what the heartbeat
+    /// sends and what the console compares literally, so a suffix there reads as fleet version skew —
+    /// see the note on it. This one is never compared with anything; it only answers "which build is
+    /// actually running", which a numeric version cannot when several builds share one.
+    /// </para>
+    /// </summary>
+    public static readonly string BuildLabel = ResolveBuildLabel();
+
     /// <summary>Major.Minor.Patch, tolerating a Version with fewer components than that.</summary>
     private static string Format(Version v) =>
         $"{v.Major}.{Math.Max(v.Minor, 0)}.{Math.Max(v.Build, 0)}";
+
+    private static string ResolveBuildLabel()
+    {
+        // MinVer writes "0.5.10-test+<full sha>" here; the Dockerfile and build-linux.sh pass the same
+        // shape explicitly. Absent (Agent.Linux carries no MinVer reference), fall back to the number.
+        var informational = Assembly.GetEntryAssembly()
+            ?.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+        if (string.IsNullOrWhiteSpace(informational)) return CurrentVersionText;
+
+        var plus = informational.IndexOf('+');
+        var version = plus < 0 ? informational : informational[..plus];
+        // The SDK appends the source revision itself, and joins it with a DOT rather than a second
+        // '+' when the version it was handed already carries build metadata — so the raw field can
+        // read "0.5.10-test+.55ddde9…". Trimming the separator is what keeps the hash a hash.
+        var sha = (plus < 0 ? "" : informational[(plus + 1)..]).TrimStart('.');
+
+        // A release has no prerelease suffix, and decorating it would change every screen that has
+        // ever shown a version. Only a build that already announces itself as not-a-release gets more.
+        if (!version.Contains('-')) return CurrentVersionText;
+
+        return sha.Length == 0 ? version : $"{version} ({sha[..Math.Min(7, sha.Length)]})";
+    }
 
     private static Version ResolveVersion()
     {

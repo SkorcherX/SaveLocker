@@ -78,6 +78,16 @@ public sealed class AgentConfig
 
     private static string StateRoot()
     {
+        // Test-only, deliberately unadvertised (Decisions.md — "kept for testing, never documented
+        // for users"). Linux already has XDG_DATA_HOME for this; Windows had nothing, so a test
+        // agent's --config moved config.json and left agent.log, the WebView2 profile and the
+        // manifest cache in the installed agent's directory. Must be a rooted path — a relative one
+        // would resolve against whatever directory the process happened to start in, which for a
+        // tray launched from Explorer is not knowable.
+        var overridden = Environment.GetEnvironmentVariable("SAVELOCKER_STATE_ROOT");
+        if (!string.IsNullOrWhiteSpace(overridden) && Path.IsPathRooted(overridden))
+            return overridden;
+
         if (OperatingSystem.IsWindows())
             return Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
 

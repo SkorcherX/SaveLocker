@@ -34,6 +34,30 @@ here.
   numeric part cannot collide with a real release, and `versionSkew.ts` reads a newer-than-console
   version as a TEST BUILD. Use a 9.9.9 variant for any hand-built package.
 
+- **A dev build's version number is not the code's version, and the two hosts lie differently.**
+  With no git tag reachable, MinVer falls back to `MinVerMinimumMajorMinor` and the Windows agent
+  stamps **0.1.0**; `Agent.Linux.csproj` carries **no MinVer reference at all**, so it stamps .NET's
+  default **1.0.0**. Neither number says anything about the code, and both are older than any real
+  release, so an agent pointed at a populated update channel would be offered an "update" that
+  reinstalls over it. **A fork is the way into this state**: tags do not follow a fork on GitHub, so
+  `git tag -l` reads empty until `git fetch upstream --tags` is run once. Check that before believing
+  a version number a local build reports.
+  <br>**`-p:Version=` does not fix the Windows one** — MinVer assigns Version/FileVersion/
+  AssemblyVersion in a target that runs later and overwrites it. Use MinVer's own escape hatch,
+  `MinVerVersionOverride` (an env var), exactly as `installer/build-installer.ps1` does. On Linux
+  there is no MinVer to overwrite anything, so `-p:Version=` is the right lever there.
+  <br>**Do not pass an `InformationalVersion` ending in `+`.** The SDK appends the source revision
+  itself, and joins with a **dot** rather than a second `+` when the value already carries build
+  metadata — `0.5.10-test+.55ddde9…`, which renders the commit as `.55ddde`. Pass `Version` alone and
+  let the SDK add the hash (`UpdateChecker.ResolveBuildLabel` trims the separator anyway).
+- **`UpdateChecker` publishes two version strings and they are not interchangeable.**
+  `CurrentVersionText` is Major.Minor.Patch, is what the heartbeat sends, and is what the console
+  compares **literally** — a suffix there reads as fleet version skew. `BuildLabel` is display-only
+  (`0.5.10-test (55ddde9)`, from `AssemblyInformationalVersion`) and is what the agent UI header
+  shows, because several builds share one version number and on a machine running a test build beside
+  the installed one that is the whole question. A release has no prerelease suffix and falls back to
+  the plain number, so nothing about a shipped build's screens changes. Never compare `BuildLabel`.
+
 ## Paths
 - **Dev storage is `localstate/`, never `data/`** — Windows is case-insensitive, so
   `src/Server/Data/` (source) and a runtime `data/` collide. `Remove-Item data -Recurse` once
@@ -85,6 +109,16 @@ These exist because the production values are far too slow to observe in a suite
   the only one that drives a **real tray**, and it must not collide with the installed agent. It
   scopes the single-instance mutex to match (`SaveLocker.Agent.<port>`), so the harness tray and a
   running installed tray coexist; unset, both the port and the mutex name are exactly as shipped.
+- **`SAVELOCKER_STATE_ROOT`** — moves the whole agent state root, i.e. what `AgentConfig.DefaultDir`
+  is built from. **`--config` alone is not enough to run a second agent on Windows**: it moves
+  `config.json` and everything derived from `StateDir`, but `agent.log`, the WebView2 profile
+  directory and a fresh config's default `ManifestCachePath` are all built from `DefaultDir` and stay
+  in the installed agent's folder — so a test tray's log interleaves with the real one's, and the
+  1 MB rotation is a `File.Move` under a process-local lock that the other process cannot see (its
+  writes are swallowed, silently). Linux already had this in `XDG_DATA_HOME`; Windows had nothing.
+  Must be a **rooted** path or it is ignored — a relative one would resolve against whatever
+  directory the process started in, which for a tray launched from Explorer is not knowable. Setting
+  it makes `--config` optional: `DefaultConfigPath` moves with it.
 - **`SAVELOCKER_RUNKEY_SUBPATH`** — moves the HKCU "Start with Windows" subkey (Windows only).
   WA-10's access-denied case needs a **Deny ACE**, and putting one on the real
   `Software\Microsoft\Windows\CurrentVersion\Run` would break auto-start for everything on the box if

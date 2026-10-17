@@ -164,6 +164,7 @@ public sealed class AgentApiServer : IDisposable
             return new AgentStateDto(
                 !string.IsNullOrEmpty(_config.ApiKey),
                 UpdateChecker.CurrentVersionText,
+                UpdateChecker.BuildLabel,
                 _config.MachineName,
                 _config.ServerUrl,
                 _autoStart.IsEnabled(),
@@ -669,6 +670,8 @@ public sealed record LeaseWarningDto(string GameName, string HolderMachine);
 public sealed record AgentStateDto(
     bool Connected,
     string CurrentVersion,
+    /// <summary>Display-only; <see cref="UpdateChecker.BuildLabel"/>. Never compare it.</summary>
+    string BuildLabel,
     string MachineName,
     string ServerUrl,
     bool StartWithWindows,

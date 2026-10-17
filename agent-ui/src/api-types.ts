@@ -920,6 +920,7 @@ export interface components {
         AgentStateDto: {
             connected: boolean;
             currentVersion: string;
+            buildLabel: string;
             machineName: string;
             serverUrl: string;
             startWithWindows: boolean;
