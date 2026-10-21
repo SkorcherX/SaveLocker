@@ -1,5 +1,6 @@
 # Stage 1: build the React dashboard
-FROM node:22-alpine AS web-build
+# 22.23.4+: carries the eMudhra compromised-intermediate denylist (CVE-2026-111943 class, Oct 2026).
+FROM node:22.23.4-alpine AS web-build
 WORKDIR /web
 # .npmrc (legacy-peer-deps) must land before `npm ci` for it to take effect.
 COPY web/package.json web/package-lock.json web/.npmrc ./
@@ -45,7 +46,8 @@ WORKDIR /app
 COPY --from=build /app ./
 
 # curl is needed for the HEALTHCHECK below; keep the layer small.
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# ca-certificates is upgraded explicitly so a rebuild picks up distrusted roots (eMudhra, Oct 2026).
+RUN apt-get update && apt-get install -y --no-install-recommends curl && apt-get install -y --only-upgrade ca-certificates && rm -rf /var/lib/apt/lists/*
 
 # Persisted state (DB + archives) lives on a mounted unRAID share.
 VOLUME ["/data"]
