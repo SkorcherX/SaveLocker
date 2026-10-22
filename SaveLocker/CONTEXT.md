@@ -25,6 +25,19 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
+**Fork port, item 10 — emulator saves, RetroArch group (2026-10-22, branch `port/emulator-retroarch`, off
+`main`, awaiting review).** Marwanello #60 (`f2b0e4b`): RetroArch `.srm` saves found in EmuDeck's
+`Emulation/saves/retroarch` or a standalone `retroarch.cfg`, one game per ROM scoped to its files, plus a
+`states` folder for its save states. The server decides an emulator game's name (`Enroller.ServerNameFor`),
+and an unscoped game is refused when joining a scoped one would back up nothing (shown as "Not added: …").
+Each machine records how it found a game: migration `AddMachineGameSources`, `PUT /api/agent/source/{gameId}`,
+`GET /api/games/{id}/sources`; shown as a plain line in the console's per-machine table and the agent's
+tracked-games list. Emulators filter (+ emulator row) in Add games and Game Mode. Not ported: the fork's
+redesign UI, enroll progress, Playnite/MoonDeck tags, `testenv emu-fixture`. Verified: Core.Tests 110 (35
+new), backups 86, multipath 39, bug bounty 194, delta 29, health 38, hardening 41, local-api 36, concurrency
+23, agent 47, enrollment 18, Linux 239. **Not done:** a real EmuDeck/RetroArch run (Deck), the UI checked by
+eye. Next groups (fork plan): B ROM-named saves, C memory cards, D PARAM.SFO, E title-ID folders, F Switch.
+
 **Fork port, item 9 — multiple save folders (2026-10-21, merged to `main` at `d2a8410`).** Marwanello
 #56–#58: a game can sync several folders (extra ones under `.savelocker/paths/<key>/` in the archive; the
 primary stays at the root, so old versions and hashes are unchanged). Unmapped folders sync through shadow

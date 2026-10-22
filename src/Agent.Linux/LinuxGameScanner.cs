@@ -126,6 +126,14 @@ public sealed class LinuxGameScanner : IGameScanner
 
         results.AddRange((await ScanHeroicAsync(ct)).Select(c => (c, false)));
 
+        // Its own failure domain: a broken emulator folder must not cost the rest of the scan.
+        try
+        {
+            results.AddRange((await Task.Run(RetroArchSaves.Scan, ct)).Select(c => (c, false)));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) { AgentLogger.LogException("Scan source 'RetroArch saves'", ex); }
+
         // Normalised, for the same reason as the Windows scanner: one game, one row, however the
         // shortcut happens to be spelled.
         //
@@ -134,7 +142,7 @@ public sealed class LinuxGameScanner : IGameScanner
         // picks the Heroic one — the shortcut's copy cannot resolve, because Steam never made a
         // compatdata prefix for a game it does not launch.
         return results
-            .GroupBy(r => ManifestLoader.NormalizeName(r.Candidate.Name), StringComparer.Ordinal)
+            .GroupBy(r => ScanCandidate.DedupeKey(r.Candidate), StringComparer.Ordinal)
             .Select(g => g
                 .OrderByDescending(r => r.Candidate.SuggestedSaveDir is not null)
                 // A MoonDeck shortcut only ever resolves by pointing at ANOTHER install's real

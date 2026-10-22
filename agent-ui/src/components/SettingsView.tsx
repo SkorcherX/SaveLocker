@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { FolderSearch, Trash2 } from 'lucide-react'
 import type { AgentState, AgentVersion, TrackedGame } from '../types'
+
+// The first level of a game's source as people read it (GameSources.KindLabel); an unknown kind shows as itself.
+const SOURCE_KINDS: Record<string, string> = {
+  emulator: 'Emulator', steam: 'Steam', heroic: 'Heroic', 'save-folder': 'Save-folder scan', manual: 'Added by hand',
+}
 import { api } from '../api'
 import { useFolderPicker } from '../useFolderPicker'
 import { PathBrowserModal } from './PathBrowserModal'
@@ -398,6 +403,11 @@ export function SettingsView({ state, onSaved }: Props) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ color: '#ECEFF1', fontSize: 13, fontWeight: 500, marginBottom: 3 }}>
                   {g.name}
+                  {g.source && (
+                    <span style={{ color: '#9CA3AF', fontSize: 10.5, fontWeight: 400, marginLeft: 8 }} title="How this machine found the game">
+                      {[SOURCE_KINDS[g.source.kind] ?? g.source.kind, g.source.detail, ...(g.source.tags ?? [])].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
                 </div>
                 {g.path && (
                   <div style={{

@@ -199,7 +199,7 @@ public static class Doctor
                 // link they placed here is not being synced.
                 var links = new List<string>();
                 SaveArchive.OnSymlinkSkipped = p => links.Add(p);
-                var (bytes, files) = SaveDirSanity.Measure(g.SaveDirectory, g.ExcludeGlobs);
+                var (bytes, files) = SaveDirSanity.Measure(g.SaveDirectory, g.ExcludeGlobs, g.IncludeGlobs);
                 SaveArchive.OnSymlinkSkipped = null;
 
                 Info("    files", $"{files} ({bytes / 1024.0 / 1024.0:0.#} MB)");
@@ -211,7 +211,7 @@ public static class Doctor
                 // A save path that is really the Wine prefix archives gigabytes and is rejected by the
                 // upload cap — with an error about the SAVE being too big, which sends the user hunting
                 // in the wrong place. Name the actual mistake.
-                foreach (var problem in SaveDirSanity.Inspect(g.SaveDirectory, g.ExcludeGlobs))
+                foreach (var problem in SaveDirSanity.Inspect(g.SaveDirectory, g.ExcludeGlobs, g.IncludeGlobs))
                     Problem($"'{g.Name}': {problem}");
             }
 
@@ -231,7 +231,7 @@ public static class Doctor
                 else
                 {
                     Info($"    {p.Key}", p.Directory!);
-                    foreach (var problem in SaveDirSanity.Inspect(p.Directory, g.ExcludeGlobs))
+                    foreach (var problem in SaveDirSanity.Inspect(p.Directory, g.ExcludeGlobs, p.IncludeGlobs))
                         Problem($"'{g.Name}' save folder '{p.Key}': {problem}");
                 }
             }

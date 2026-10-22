@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, VersionStats, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, InstallerHashVerification, AgentPlatform, Enrollment, CreateEnrollmentResponse, EffectiveServerUrl, AgentHealth, AdminStatus, AutoFetchSchedule, BackupStatus, BackupResult, BackupRestoreResult, BackupDownloadTicket } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, VersionStats, MachineSavePath, MachineGameSource, MachineScanCandidate, AuditEntry, AgentInstallerStatus, InstallerHashVerification, AgentPlatform, Enrollment, CreateEnrollmentResponse, EffectiveServerUrl, AgentHealth, AdminStatus, AutoFetchSchedule, BackupStatus, BackupResult, BackupRestoreResult, BackupDownloadTicket } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -143,6 +143,8 @@ export const api = {
   /** Stop syncing one extra folder on every machine; the key is retired, never reused. */
   removeSavePath: (gameId: string, key: string) =>
     request<void>(`/games/${gameId}/save-paths/${encodeURIComponent(key)}`, { method: 'DELETE' }),
+  getGameSources: (gameId: string) =>
+    request<MachineGameSource[]>(`/games/${gameId}/sources`),
   getGamePathCandidates: (gameId: string) =>
     request<MachineScanCandidate[]>(`/games/${gameId}/path-candidates`),
   setMachinePath: (gameId: string, machineId: string, path: string) =>

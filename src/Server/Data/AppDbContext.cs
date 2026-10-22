@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<MachineSavePath> MachineSavePaths => Set<MachineSavePath>();
     public DbSet<GameSavePath> GameSavePaths => Set<GameSavePath>();
     public DbSet<MachineScanCandidate> MachineScanCandidates => Set<MachineScanCandidate>();
+    public DbSet<MachineGameSource> MachineGameSources => Set<MachineGameSource>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<AgentHealth> AgentHealth => Set<AgentHealth>();
     public DbSet<AgentEvent> AgentEvents => Set<AgentEvent>();
@@ -84,6 +85,16 @@ public class AppDbContext : DbContext
         b.Entity<MachineScanCandidate>()
             .HasOne<Game>().WithMany()
             .HasForeignKey(c => c.GameId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        b.Entity<MachineGameSource>().HasKey(s => new { s.MachineId, s.GameId });
+        b.Entity<MachineGameSource>()
+            .HasOne<Machine>().WithMany()
+            .HasForeignKey(s => s.MachineId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.Entity<MachineGameSource>()
+            .HasOne<Game>().WithMany()
+            .HasForeignKey(s => s.GameId)
             .OnDelete(DeleteBehavior.Cascade);
 
         // Redeem looks a token up by hash; unique so a hash can never map to two rows.

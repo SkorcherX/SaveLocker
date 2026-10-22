@@ -271,6 +271,23 @@ public class MachineScanCandidate
 }
 
 /// <summary>
+/// How one machine found a game: the scanner source that enrolled it there ("Emulator › RetroArch",
+/// "Steam › Installed game", …). Per machine, because two machines rarely find the same game the same
+/// way. Display only: nothing syncs differently because of it.
+/// </summary>
+public class MachineGameSource
+{
+    public Guid MachineId { get; set; }
+    public Guid GameId { get; set; }
+    /// <summary>One of <see cref="GameSourceKinds"/>.</summary>
+    public string Kind { get; set; } = "";
+    public string Detail { get; set; } = "";
+    /// <summary>Newline-separated extra facts ("SNES", "Flatpak", "AppID 1245620"), or null.</summary>
+    public string? Tags { get; set; }
+    public DateTime UpdatedAt { get; set; }
+}
+
+/// <summary>
 /// A single-use, short-lived token the console mints so a new agent can trade it for a real
 /// machine API key (Decisions.md §4). Only the hash is stored — the raw token exists solely in
 /// the policy file the admin downloads.

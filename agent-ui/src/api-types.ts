@@ -1461,6 +1461,9 @@ export interface components {
             alsoFound?: null | components["schemas"]["SaveFolderDto"][];
             /** @default false */
             enrolled: boolean;
+            emulatorName?: null | string;
+            emulatorSystem?: null | string;
+            emulatorRom?: null | string;
         };
         ConfigChangeResponse: {
             identityCleared: boolean;
@@ -1515,6 +1518,7 @@ export interface components {
             enrolled: number;
             /** Format: int32 */
             skipped: number;
+            notes?: null | string[];
         };
         ErrorResponse: {
             error: string;
@@ -1547,6 +1551,11 @@ export interface components {
             key: string;
             path: string;
             deferred: boolean;
+        };
+        GameSourceDto: {
+            kind: string;
+            detail: string;
+            tags?: null | string[];
         };
         LaunchCommandDto: {
             command: null | string;
@@ -1628,6 +1637,7 @@ export interface components {
             pullBeforeLaunchEnabled: null | boolean;
             hasSteamCloud: null | boolean;
             paths?: null | components["schemas"]["SaveFolderDto"][];
+            source?: null | components["schemas"]["GameSourceDto"];
         };
     };
     responses: never;

@@ -35,7 +35,7 @@ export const api = {
   rescan: () => post<Candidate[]>('/api/candidates/rescan'),
   // alsoSync: per candidate, which of its "Also found" folders to add with it.
   enroll: (ids: number[], alsoSync?: { id: number; paths: string[] }[]) =>
-    post<{ enrolled: number; skipped: number }>('/api/enroll', { ids, alsoSync }),
+    post<{ enrolled: number; skipped: number; notes?: string[] | null }>('/api/enroll', { ids, alsoSync }),
   // identityCleared is true when the server URL moved to a different origin: the machine key, id
   // and TLS pin were issued by the old server and have been dropped, so this agent must register
   // or enroll again before it can sync.

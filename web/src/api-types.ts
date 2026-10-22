@@ -889,6 +889,61 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/source/{gameId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    gameId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GameSourceDto"];
+                };
+            };
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/games/{id}/state": {
         parameters: {
             query?: never;
@@ -1526,6 +1581,43 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["MachineSavePathDto"][];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MachineGameSourceDto"][];
                     };
                 };
             };
@@ -3435,6 +3527,12 @@ export interface components {
             preferredMachineId?: null | string;
             includeGlobs?: null | string[];
             extraPaths?: null | components["schemas"]["SavePathDto"][];
+            machineSource?: null | components["schemas"]["GameSourceDto"];
+        };
+        GameSourceDto: {
+            kind: string;
+            detail: string;
+            tags?: null | string[];
         };
         GameStateDto: {
             game: components["schemas"]["GameDto"];
@@ -3477,6 +3575,14 @@ export interface components {
             createdAt: string;
             /** Format: date-time */
             lastSeen: string;
+        };
+        MachineGameSourceDto: {
+            /** Format: uuid */
+            machineId: string;
+            machineName: string;
+            source: components["schemas"]["GameSourceDto"];
+            /** Format: date-time */
+            updatedAt: string;
         };
         MachineRegisterRequest: {
             name: string;
