@@ -1,3 +1,5 @@
+using SaveLocker.Shared;
+
 namespace SaveLocker.Agent;
 
 /// <summary>
@@ -31,6 +33,30 @@ public static class FileLockProbe
         OperatingSystem.IsWindows()
             ? WindowsProbe(directory, relativeFiles)
             : ProcFsProbe(directory);
+
+    /// <summary>
+    /// <see cref="FirstWriter(string, IEnumerable{string})"/> across every folder of a game, each
+    /// probed for its own files. Unavailable if any folder's probe cannot answer: one folder's
+    /// all-clear says nothing about the others.
+    /// </summary>
+    public static LockProbeResult FirstWriter(IReadOnlyList<SaveRoot> roots, IReadOnlyList<SaveArchive.SaveFile> files)
+    {
+        var supported = true;
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        foreach (var dir in roots.Select(r => r.Directory).Where(Directory.Exists)
+                     .Select(d => Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar))
+                     .Distinct(StringComparer.FromComparison(comparison)))
+        {
+            var prefix = dir + Path.DirectorySeparatorChar;
+            var rels = files
+                .Where(f => f.FullPath.StartsWith(prefix, comparison))
+                .Select(f => f.FullPath[prefix.Length..].Replace('\\', '/'));
+            var probe = FirstWriter(dir, rels);
+            if (probe.LockedFile is not null) return probe;
+            supported &= probe.Supported;
+        }
+        return supported ? LockProbeResult.Quiet : LockProbeResult.Unavailable;
+    }
 
     // ─── Windows: FileShare.Read denies writers, so a failed open means someone holds one ───
 

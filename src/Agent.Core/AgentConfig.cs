@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using SaveLocker.Shared;
 using System.Text.Json.Serialization;
 
 namespace SaveLocker.Agent;
@@ -179,6 +180,7 @@ public sealed class AgentConfig
                 game.LastKnownVersionId = stored.LastKnownVersionId;
                 game.LastSyncedHash = stored.LastSyncedHash;
                 game.ConsecutiveConflicts = stored.ConsecutiveConflicts;
+                game.KeepMappedFolders(stored);
             }
             TotalSavesPushed = onDisk.TotalSavesPushed;
             LastSyncTime = onDisk.LastSyncTime;
@@ -382,6 +384,7 @@ public sealed class AgentConfig
         game.LastKnownVersionId = stored.LastKnownVersionId;
         game.LastSyncedHash = stored.LastSyncedHash;
         game.ConsecutiveConflicts = stored.ConsecutiveConflicts;
+        game.KeepMappedFolders(stored);
     }
 
     /// <summary>
@@ -422,10 +425,16 @@ public sealed class AgentConfig
         var target = onDisk.Games.FirstOrDefault(g => g.GameId == game.GameId);
         if (target is not null)
         {
+            game.KeepMappedFolders(target);
             target.LastKnownVersionId = game.LastKnownVersionId;
             target.LastSyncedHash = game.LastSyncedHash;
             target.ConsecutiveConflicts = game.ConsecutiveConflicts;
             target.SaveDirectory = game.SaveDirectory;
+            // With the primary folder, and for the same reason: which folders this game has is what
+            // the hash just written covers, so the two must never be stored out of step.
+            target.IncludeGlobs = game.IncludeGlobs.ToList();
+            target.ExtraPaths = game.ExtraPaths.Select(p => p.Clone()).ToList();
+            target.RemovedPathKeys = game.RemovedPathKeys.ToList();
         }
 
         if (countPush) onDisk.TotalSavesPushed++;
@@ -455,7 +464,7 @@ public sealed class AgentConfig
     /// therefore be a plain single-field write that does not read the entry it is handed, since the
     /// two entries it runs against are different objects. No-op when the game is gone or never here.
     /// </summary>
-    private void MutateGameUnderLock(Guid gameId, Action<TrackedGame> apply)
+    private void MutateGameUnderLock(Guid gameId, Action<TrackedGame> apply, TrackedGame? source = null)
     {
         using var guard = AgentStateLock.Acquire("config", StateDir);
 
@@ -483,8 +492,10 @@ public sealed class AgentConfig
 
         // ReferenceEquals, not an unconditional second apply: the catch above can leave onDisk as
         // `this`, in which case target and mine are the same object and it has already been applied.
+        // `source` already holds the values: re-applying them to it would only swap its lists for copies
+        // under a caller still holding entries of the old ones.
         var mine = Games.FirstOrDefault(g => g.GameId == gameId);
-        if (mine is not null && !ReferenceEquals(mine, target)) apply(mine);
+        if (mine is not null && !ReferenceEquals(mine, target) && !ReferenceEquals(mine, source)) apply(mine);
     }
 
     /// <summary>
@@ -504,6 +515,25 @@ public sealed class AgentConfig
     /// </summary>
     public void SaveGamePullBeforeLaunch(Guid gameId, bool? enabled) =>
         MutateGameUnderLock(gameId, g => g.PullBeforeLaunchEnabled = enabled);
+
+    /// <summary>
+    /// Persist which folders <paramref name="game"/> has here — primary folder, its scope and the
+    /// extra folders — without clobbering anything else, for the paths that change them mid-sync (a
+    /// pull meeting a folder key it did not know, a mapping moving a shadow in). See
+    /// <see cref="MutateGameUnderLock"/>.
+    /// </summary>
+    public void SaveGameFolders(TrackedGame game) =>
+        MutateGameUnderLock(game.GameId, g =>
+        {
+            if (ReferenceEquals(g, game)) return;
+            // As in SaveGameSyncState: a folder another process mapped (the launch wrapper) wins over
+            // this copy's "not mapped", or writing it back would drop that folder from the next push.
+            game.KeepMappedFolders(g);
+            g.SaveDirectory = game.SaveDirectory;
+            g.IncludeGlobs = game.IncludeGlobs.ToList();
+            g.ExtraPaths = game.ExtraPaths.Select(p => p.Clone()).ToList();
+            g.RemovedPathKeys = game.RemovedPathKeys.ToList();
+        }, source: game);
 
     public TrackedGame? FindGame(string name) =>
         Games.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -588,6 +618,102 @@ public sealed class TrackedGame
     /// <summary>Effective exclude globs (global defaults ∪ per-game) from the server;
     /// files matching these are skipped when hashing and archiving.</summary>
     public List<string> ExcludeGlobs { get; set; } = new();
+    /// <summary>The primary save folder's include scope, from the server (identical on every machine).
+    /// Empty: the whole folder is the game's.</summary>
+    public List<string> IncludeGlobs { get; set; } = new();
+    /// <summary>
+    /// The game's extra save folders (tasks/multiple-save-paths), reconciled from the server. One
+    /// with no <see cref="TrackedSavePath.Directory"/> is not mapped here, and syncs through its
+    /// shadow copy instead (<see cref="Roots"/>) so that every push still carries it.
+    /// </summary>
+    public List<TrackedSavePath> ExtraPaths { get; set; } = new();
+
+    /// <summary>
+    /// The game has a save folder on this machine. Only games with a folder here can be synced, watched
+    /// or shown as this machine's own; an extra folder without one syncs through its shadow.
+    /// </summary>
+    [JsonIgnore] public bool IsEnrolledHere => !string.IsNullOrWhiteSpace(SaveDirectory);
+    /// <summary>Extra folder keys the server removed from this game. Versions stored before the
+    /// removal still carry them, and a pull must not take one back in as a new folder.</summary>
+    public List<string> RemovedPathKeys { get; set; } = new();
+
+    /// <summary>
+    /// Every save folder of this game as the archive sees it: the primary folder, then each extra
+    /// one — its mapped folder here, or its shadow when it has none. Everything that hashes,
+    /// archives or restores a game goes through this, so no caller can hash the primary folder alone
+    /// and disagree with what a push sends.
+    /// </summary>
+    public IReadOnlyList<SaveRoot> Roots(string stateDir)
+    {
+        var roots = new List<SaveRoot> { SaveRoot.Primary(SaveDirectory, IncludeGlobs) };
+        foreach (var p in ExtraPaths)
+            roots.Add(new SaveRoot(p.Key, p.Directory ?? ShadowDir(stateDir, GameId, p.Key), p.IncludeGlobs));
+        return roots;
+    }
+
+    /// <summary>The roots that are real folders on this machine (no shadows) — what is watched,
+    /// settled, guarded and checked for running writers.</summary>
+    public IReadOnlyList<SaveRoot> RealRoots(string stateDir) =>
+        Roots(stateDir).Where(r => r.IsPrimary || ExtraPaths.Any(p => p.Key == r.Key && p.IsMapped)).ToList();
+
+    /// <summary>The content hash of every save folder at once — the value a push compares and sends.</summary>
+    public string LocalHash(string stateDir) => SaveArchive.HashDirectory(Roots(stateDir), ExcludeGlobs);
+
+    /// <summary>
+    /// Where an unmapped extra folder's files live on this machine: inside the agent's own state, so
+    /// a pull has somewhere to put that slice and the next push carries it back unchanged. Without it,
+    /// a machine that cannot map a folder drops it from every push, and two machines then hand it
+    /// back and forth forever (plan §3).
+    /// </summary>
+    public static string ShadowDir(string stateDir, Guid gameId, string key) =>
+        Path.Combine(stateDir, "shadow", gameId.ToString("N"), key);
+
+    /// <summary>
+    /// Keep a folder mapping <paramref name="stored"/> (what is on disk) has and this copy lacks.
+    /// Mapping a folder moves its shadow in and deletes it, and the launch wrapper does that in its own
+    /// process: a long-lived host still holding "not mapped" would otherwise write that back, and then
+    /// sync an empty shadow — dropping the folder from its next push. Nothing un-maps a folder, so a
+    /// mapping on disk is never stale relative to "none".
+    /// </summary>
+    public void KeepMappedFolders(TrackedGame stored)
+    {
+        foreach (var p in ExtraPaths)
+            if (!p.IsMapped && stored.ExtraPaths.FirstOrDefault(s => s.Key == p.Key) is { IsMapped: true } s)
+            {
+                p.Directory = s.Directory;
+                p.PathUnreported = s.PathUnreported;
+            }
+    }
+
+    /// <summary>
+    /// Drop an extra folder the server no longer has: the next push leaves it out, and older versions
+    /// keep it. Its shadow goes with it; a mapped folder stays on disk — those are the user's files,
+    /// they just stop syncing. In memory only; the caller persists.
+    /// </summary>
+    public bool ForgetExtraPath(string key, string stateDir)
+    {
+        if (ExtraPaths.All(p => p.Key != key)) return false;
+        // New lists, never in-place edits: a push or the local API may be enumerating these right now.
+        ExtraPaths = ExtraPaths.Where(p => p.Key != key).ToList();
+        if (!RemovedPathKeys.Contains(key)) RemovedPathKeys = [.. RemovedPathKeys, key];
+        DeleteShadow(stateDir, key);
+        return true;
+    }
+
+    /// <summary>Best-effort: a shadow left behind costs disk, never correctness.</summary>
+    public void DeleteShadow(string stateDir, string key)
+    {
+        try
+        {
+            var dir = ShadowDir(stateDir, GameId, key);
+            if (System.IO.Directory.Exists(dir)) System.IO.Directory.Delete(dir, recursive: true);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            AgentLogger.Log($"Could not delete the shadow of '{Name}' folder '{key}': {ex.Message}");
+        }
+    }
+
     /// <summary>
     /// When something last confirmed this game's Steam launch options carry the wrapper, and what
     /// went wrong if it could not.
@@ -620,4 +746,32 @@ public sealed class TrackedGame
         string.IsNullOrWhiteSpace(SteamAppId)
             ? SteamLayout.CompatDataIdIn(SaveDirectory)
             : SteamAppId;
+}
+
+/// <summary>
+/// One extra save folder of a tracked game (tasks/multiple-save-paths). <see cref="Key"/>, the
+/// scope, label and template come from the server and are the same on every machine;
+/// <see cref="Directory"/> is this machine's own folder for it, or null while it has none.
+/// </summary>
+public sealed class TrackedSavePath
+{
+    public string Key { get; set; } = "";
+    public string? Label { get; set; }
+    /// <summary>The fleet-wide description of the folder (<c>&lt;winAppData&gt;/Game/States</c>), which
+    /// each machine expands for itself; null when it was only ever set as one machine's literal path.</summary>
+    public string? Template { get; set; }
+    /// <summary>This machine's folder, or null: not mapped here, synced through its shadow.</summary>
+    public string? Directory { get; set; }
+    public List<string> IncludeGlobs { get; set; } = new();
+    /// <summary>This machine mapped <see cref="Directory"/> and the server may not know yet: until it
+    /// does, its stored folder for this machine is stale and must not be applied back over this one.</summary>
+    public bool PathUnreported { get; set; }
+
+    [JsonIgnore] public bool IsMapped => !string.IsNullOrWhiteSpace(Directory);
+
+    public TrackedSavePath Clone() => new()
+    {
+        Key = Key, Label = Label, Template = Template, Directory = Directory,
+        IncludeGlobs = IncludeGlobs.ToList(), PathUnreported = PathUnreported,
+    };
 }

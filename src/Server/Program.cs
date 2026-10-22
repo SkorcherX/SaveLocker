@@ -406,6 +406,15 @@ agent.MapPost("/agent/games/{id:guid}/save-paths", async (Guid id, HttpContext h
     SavePathResult(await sync.AddSavePathAsync(id, req, http.CurrentMachine().Id)))
     .Produces<SavePathDto>();
 
+// And removing one, for every machine — the CLI's `remove-path`, mirroring `add-path` above. The key
+// is retired, never reused, exactly as when the console removes it.
+agent.MapDelete("/agent/games/{id:guid}/save-paths/{key}", async (Guid id, string key, HttpContext http, SyncService sync) =>
+{
+    var (ok, error) = await sync.RemoveSavePathAsync(id, key, http.CurrentMachine().Id);
+    return ok ? Results.NoContent() : error == "not_found" ? Results.NotFound() : Results.BadRequest(error);
+}).Produces(StatusCodes.Status204NoContent).Produces<string>(StatusCodes.Status400BadRequest)
+  .Produces(StatusCodes.Status404NotFound);
+
 // ---- Agent command channel ----
 agent.MapGet("/agent/commands", async (HttpContext http, SyncService sync) =>
     Results.Ok((await sync.DequeueCommandsAsync(http.CurrentMachine().Id)).Select(c => c.ToDto())))

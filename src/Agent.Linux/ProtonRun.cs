@@ -52,6 +52,7 @@ public static class ProtonRun
         // The game must be found before launch, but a failure here must never stop it starting:
         // a save-sync tool that prevents you playing is worse than one that misses a sync.
         var game = await ResolveGameAsync(config, appId, prefix, Log);
+        if (game is not null && prefix is not null) await MapExtraFoldersAsync(config, api, engine, game, prefix, Log);
 
         if (game is not null)
         {
@@ -112,6 +113,41 @@ public static class ProtonRun
         await child.WaitForExitAsync();
         log($"game exited with code {child.ExitCode}.");
         return child.ExitCode;
+    }
+
+    /// <summary>
+    /// The game's extra save folders not mapped here yet, expanded inside the prefix Steam just gave
+    /// us — the one place the prefix is certain (tasks/multiple-save-paths plan §7). Mapping goes
+    /// through the engine so a shadow's files move in; a folder that already holds different files is
+    /// left for the user to decide, and keeps syncing through its shadow meanwhile. Never fatal: the
+    /// game launches whatever happens here.
+    /// </summary>
+    private static async Task MapExtraFoldersAsync(AgentConfig config, ApiClient api, SyncEngine engine,
+        TrackedGame game, string prefix, Action<string> log)
+    {
+        var resolver = PathResolver.Proton(prefix, game.InstallDir, SteamLayout.RootFromCompatData(prefix));
+        foreach (var p in game.ExtraPaths.Where(p => !p.IsMapped && PathResolver.IsTemplate(p.Template)).ToList())
+        {
+            try
+            {
+                if (resolver.ResolveToDirectory(p.Template!) is not { } dir || !Directory.Exists(dir)) continue;
+                var result = await engine.MapSavePathAsync(game, p.Key, dir);
+                if (!result.Ok)
+                {
+                    log($"'{game.Name}' save folder '{p.Key}' not mapped to {dir}: {result.Error}");
+                    continue;
+                }
+                log($"mapped '{game.Name}' save folder '{p.Key}' to {result.Directory} (resolved inside the prefix).");
+                try
+                {
+                    await api.SetMachinePathAsync(game.GameId, result.Directory!, p.Key);
+                    p.PathUnreported = false;
+                    config.SaveGameFolders(game);
+                }
+                catch (Exception ex) { log($"could not report the folder to the server: {ex.Message}"); }
+            }
+            catch (Exception ex) { log($"mapping '{game.Name}' save folder '{p.Key}' failed: {ex.Message}"); }
+        }
     }
 
     /// <summary>

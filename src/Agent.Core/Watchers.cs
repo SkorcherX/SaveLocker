@@ -8,27 +8,40 @@ namespace SaveLocker.Agent;
 /// </summary>
 public sealed class FolderWatcher : IDisposable
 {
-    private readonly FileSystemWatcher _fsw;
+    private readonly List<FileSystemWatcher> _fsws = new();
     private readonly System.Timers.Timer _debounce;
     private readonly Action _onSettled;
 
     public FolderWatcher(string directory, Action onSettled, double debounceMs = 5000)
+        : this(new[] { directory }, onSettled, debounceMs) { }
+
+    /// <summary>
+    /// Watch every folder of one game behind ONE delay, so a save that writes two folders (an
+    /// emulator's save and its save state) settles into a single push rather than two. Folders that
+    /// do not exist are skipped — nothing can watch them until something creates them, which is why
+    /// the hosts rebuild their watchers after a pull does.
+    /// </summary>
+    public FolderWatcher(IEnumerable<string> directories, Action onSettled, double debounceMs = 5000)
     {
         _onSettled = onSettled;
         _debounce = new System.Timers.Timer(debounceMs) { AutoReset = false };
         _debounce.Elapsed += (_, _) => _onSettled();
 
-        _fsw = new FileSystemWatcher(directory)
+        foreach (var directory in directories.Where(Directory.Exists))
         {
-            IncludeSubdirectories = true,
-            NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
-                           | NotifyFilters.DirectoryName | NotifyFilters.Size,
-            EnableRaisingEvents = true
-        };
-        _fsw.Changed += Bump;
-        _fsw.Created += Bump;
-        _fsw.Deleted += Bump;
-        _fsw.Renamed += Bump;
+            var fsw = new FileSystemWatcher(directory)
+            {
+                IncludeSubdirectories = true,
+                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName
+                               | NotifyFilters.DirectoryName | NotifyFilters.Size,
+                EnableRaisingEvents = true
+            };
+            fsw.Changed += Bump;
+            fsw.Created += Bump;
+            fsw.Deleted += Bump;
+            fsw.Renamed += Bump;
+            _fsws.Add(fsw);
+        }
     }
 
     private void Bump(object sender, FileSystemEventArgs e)
@@ -39,7 +52,7 @@ public sealed class FolderWatcher : IDisposable
 
     public void Dispose()
     {
-        _fsw.Dispose();
+        foreach (var fsw in _fsws) fsw.Dispose();
         _debounce.Dispose();
     }
 }

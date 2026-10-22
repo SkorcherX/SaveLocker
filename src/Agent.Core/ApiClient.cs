@@ -112,18 +112,58 @@ public sealed class ApiClient
     /// Offer a generic template for a game the server has no save location for. Best-effort: the
     /// server declines (204) when one already exists, so losing this race is normal and harmless.
     /// </summary>
-    public async Task<bool> TrySetSaveTemplateAsync(Guid gameId, string template)
+    public async Task<bool> TrySetSaveTemplateAsync(Guid gameId, string template, string key = SaveRoot.PrimaryKey)
     {
         var resp = await _http.PostAsync(
-            $"/api/agent/games/{gameId}/template?value={Uri.EscapeDataString(template)}", null);
+            $"/api/agent/games/{gameId}/template?value={Uri.EscapeDataString(template)}{PathQuery(key)}", null);
         return resp.StatusCode == HttpStatusCode.OK;
     }
 
-    /// <summary>Report this machine's resolved save path for a game back to the server.</summary>
-    public async Task SetMachinePathAsync(Guid gameId, string path)
+    /// <summary>Report this machine's resolved save path for one of a game's folders back to the server.</summary>
+    public async Task SetMachinePathAsync(Guid gameId, string path, string key = SaveRoot.PrimaryKey)
     {
-        var resp = await _http.PostAsync($"/api/agent/path/{gameId}?value={Uri.EscapeDataString(path)}", null);
+        var resp = await _http.PostAsync(
+            $"/api/agent/path/{gameId}?value={Uri.EscapeDataString(path)}{PathQuery(key)}", null);
         resp.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>The primary folder is the absent key, which is what an older server understands.</summary>
+    private static string PathQuery(string key) =>
+        key == SaveRoot.PrimaryKey ? "" : $"&path={Uri.EscapeDataString(key)}";
+
+    /// <summary>
+    /// Give a game a new extra save folder, for every machine that tracks it. Returns the stored
+    /// folder, or the server's reason for refusing it (a taken or retired key, a literal template).
+    /// </summary>
+    public async Task<(SavePathDto? Path, string? Error)> AddSavePathAsync(Guid gameId, AddSavePathRequest req)
+    {
+        var resp = await _http.PostAsJsonAsync($"/api/agent/games/{gameId}/save-paths", req);
+        if (resp.IsSuccessStatusCode) return (await resp.Content.ReadFromJsonAsync<SavePathDto>(), null);
+        if (resp.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound)
+            return (null, await ErrorText(resp, "The server refused the save folder."));
+        resp.EnsureSuccessStatusCode();
+        return (null, null);
+    }
+
+    /// <summary>Remove an extra save folder from a game, for every machine. Its key is retired.</summary>
+    public async Task<string?> RemoveSavePathAsync(Guid gameId, string key)
+    {
+        var resp = await _http.DeleteAsync($"/api/agent/games/{gameId}/save-paths/{Uri.EscapeDataString(key)}");
+        if (resp.IsSuccessStatusCode) return null;
+        if (resp.StatusCode == HttpStatusCode.NotFound) return $"The server has no save folder '{key}' for this game.";
+        if (resp.StatusCode == HttpStatusCode.BadRequest)
+            return await ErrorText(resp, "The server refused to remove the save folder.");
+        resp.EnsureSuccessStatusCode();
+        return null;
+    }
+
+    /// <summary>A minimal-API 400 carries its message as a JSON string; anything else, as raw text.</summary>
+    private static async Task<string> ErrorText(HttpResponseMessage resp, string fallback)
+    {
+        var body = await resp.Content.ReadAsStringAsync();
+        if (string.IsNullOrWhiteSpace(body)) return fallback;
+        try { return JsonSerializer.Deserialize<string>(body) ?? fallback; }
+        catch (JsonException) { return body; }
     }
 
     /// <summary>

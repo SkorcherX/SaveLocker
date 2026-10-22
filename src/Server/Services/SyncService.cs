@@ -225,7 +225,7 @@ public sealed class SyncService
     /// same key would receive the old folder's files from any stored version rolled back to.
     /// </para>
     /// </summary>
-    public async Task<(bool Ok, string? Error)> RemoveSavePathAsync(Guid gameId, string key)
+    public async Task<(bool Ok, string? Error)> RemoveSavePathAsync(Guid gameId, string key, Guid? machineId = null)
     {
         if (key == SaveRoot.PrimaryKey) return (false, "The primary save folder cannot be removed.");
         var path = await FindSavePathAsync(gameId, key);
@@ -234,7 +234,7 @@ public sealed class SyncService
         _db.MachineSavePaths.RemoveRange(
             await _db.MachineSavePaths.Where(p => p.GameId == gameId && p.PathKey == key).ToListAsync());
         path.RetiredAt = DateTime.UtcNow;
-        await Audit(null, gameId, "game.save_path.remove", key);
+        await Audit(machineId, gameId, "game.save_path.remove", key);
         await _db.SaveChangesAsync();
         return (true, null);
     }

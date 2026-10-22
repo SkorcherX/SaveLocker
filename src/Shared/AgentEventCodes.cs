@@ -37,6 +37,14 @@ public static class AgentEventCodes
     /// or pulled for it here until someone chooses Delete everywhere or Restore here.</summary>
     public const string SaveFolderEmptied = "savedir.emptied";
 
+    /// <summary>
+    /// One of a game's extra save folders resolved to a folder on this machine that already holds
+    /// different files from the copy the fleet syncs, so it was NOT mapped: which side to keep is the
+    /// user's call (<c>add-path --keep local|cloud</c>). Until then the folder keeps syncing through
+    /// its shadow, so nothing is lost — but nothing in that folder is synced either.
+    /// </summary>
+    public const string SaveFolderNeedsChoice = "savedir.needs_choice";
+
     /// <summary>The server could not be reached; the push is queued for retry. Reported when contact
     /// is regained — by definition it cannot be reported while it is happening.</summary>
     public const string ServerUnreachable = "server.unreachable";

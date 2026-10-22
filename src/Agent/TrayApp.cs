@@ -106,7 +106,8 @@ internal sealed class TrayContext : ApplicationContext
             onGamesChanged: () => _ui.Post(() => { RebuildMenu(); StartFolderWatchers(); }),
             activity: _activity,
             syncAll: () => _engine.SyncAllAsync(_config.Games),
-            answerEmptied: (game, deleteEverywhere, ct) => _engine.AnswerEmptiedAsync(game, deleteEverywhere, ct));
+            answerEmptied: (game, deleteEverywhere, ct) => _engine.AnswerEmptiedAsync(game, deleteEverywhere, ct),
+            mapFolder: (game, key, dir, keep) => _engine.MapSavePathAsync(game, key, dir, keep));
         _apiServer.Start();
 
         _commandPoller = new CommandPoller(
@@ -175,7 +176,8 @@ internal sealed class TrayContext : ApplicationContext
         // the console. One dashboard then shows the whole fleet, Deck and PC alike.
         var replaced = _engine;
         _engine = new SyncEngine(_config, api, log: Log, notify: Notify,
-            offlineQueue: _offlineQueue, health: _health, activity: _activity);
+            offlineQueue: _offlineQueue, health: _health, activity: _activity,
+            onFoldersChanged: () => _ui.Post(StartFolderWatchers));
 
         // Retire the engine we just replaced, or its lease timers keep renewing against the old
         // server forever while exit releases against the new one. Off the calling thread because
@@ -252,7 +254,7 @@ internal sealed class TrayContext : ApplicationContext
         foreach (var g in _config.Games.Where(g => Directory.Exists(g.SaveDirectory)))
         {
             var game = g;
-            _folderWatchers.Add(new FolderWatcher(game.SaveDirectory, () =>
+            _folderWatchers.Add(new FolderWatcher(game.RealRoots(_config.StateDir).Select(r => r.Directory), () =>
             {
                 if (!IsRunning(game)) FireAndForget(() => _engine.PushAsync(game, settle: true));
             }));

@@ -24,15 +24,29 @@ public static class SaveSettler
     /// false if <paramref name="maxWait"/> elapsed first — the caller still pushes in that
     /// case, because a stale-but-complete version beats no version at all.
     /// </summary>
-    public static async Task<bool> WaitForQuietAsync(
+    public static Task<bool> WaitForQuietAsync(
         string directory,
+        IEnumerable<string>? excludeGlobs,
+        TimeSpan quietPeriod,
+        TimeSpan maxWait,
+        Action<string>? log = null,
+        CancellationToken ct = default) =>
+        WaitForQuietAsync(new[] { SaveRoot.Primary(directory) }, excludeGlobs, quietPeriod, maxWait, log, ct);
+
+    /// <summary>
+    /// <see cref="WaitForQuietAsync(string, IEnumerable{string}?, TimeSpan, TimeSpan, Action{string}?, CancellationToken)"/>
+    /// over every real folder of a game at once: a save that writes two folders is quiet only when
+    /// both are. Pass real folders only — a shadow is the agent's own copy and nothing else writes it.
+    /// </summary>
+    public static async Task<bool> WaitForQuietAsync(
+        IReadOnlyList<SaveRoot> roots,
         IEnumerable<string>? excludeGlobs,
         TimeSpan quietPeriod,
         TimeSpan maxWait,
         Action<string>? log = null,
         CancellationToken ct = default)
     {
-        if (quietPeriod <= TimeSpan.Zero || !Directory.Exists(directory))
+        if (quietPeriod <= TimeSpan.Zero || !roots.Any(r => Directory.Exists(r.Directory)))
             return true;
 
         var globs = excludeGlobs?.ToList();
@@ -57,8 +71,9 @@ public static class SaveSettler
         {
             ct.ThrowIfCancellationRequested();
 
-            var print = Fingerprint(directory, globs);
-            var probe = FileLockProbe.FirstWriter(directory, SaveArchive.ListFiles(directory, globs));
+            var files = SaveArchive.ListSaveFiles(roots, globs);
+            var print = Fingerprint(files);
+            var probe = FileLockProbe.FirstWriter(roots, files);
             var locked = probe.LockedFile;
 
             // A probe that cannot answer must not read as "quiet" — say so once, then lean on the
@@ -97,24 +112,23 @@ public static class SaveSettler
         }
     }
 
-    /// <summary>Cheap snapshot of the directory's observable state — no file contents read.</summary>
-    private static string Fingerprint(string directory, IEnumerable<string>? excludeGlobs)
+    /// <summary>Cheap snapshot of the folders' observable state — no file contents read.</summary>
+    private static string Fingerprint(IReadOnlyList<SaveArchive.SaveFile> files)
     {
         var sb = new StringBuilder();
-        foreach (var rel in SaveArchive.ListFiles(directory, excludeGlobs))
+        foreach (var file in files)
         {
-            var full = Path.Combine(directory, rel.Replace('/', Path.DirectorySeparatorChar));
             try
             {
-                var info = new FileInfo(full);
-                sb.Append(rel).Append('|')
+                var info = new FileInfo(file.FullPath);
+                sb.Append(file.ArchiveName).Append('|')
                   .Append(info.Length).Append('|')
                   .Append(info.LastWriteTimeUtc.Ticks).Append('\n');
             }
             catch (IOException)
             {
                 // Vanished mid-scan — a change in itself, so let the next poll see a new print.
-                sb.Append(rel).Append("|?\n");
+                sb.Append(file.ArchiveName).Append("|?\n");
             }
         }
         return sb.ToString();
