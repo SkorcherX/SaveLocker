@@ -25,6 +25,15 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
+**Fork port, round 2 (2026-10-21, branch `port/save-safety`, awaiting review).** Item 11 of the fork
+review, hand-ported from Marwanello `3f28f71`: a pull keeps this machine's excluded files, and a save
+folder emptied all at once is held (no push/pull) until *Delete everywhere* or *Restore here*; the
+server 409s an unforced empty upload over a head with files. Verified: hardening 41/41, health 38/38,
+delta 29/29, server bug bounty 194/194, Linux 237/237. Not done: the console bell/notification surface
+(the fork's was redesign UI — the event still shows as an agent Warning), the Decky plugin, a Deck run.
+Remaining fork items, one branch each: 19 duplicate-shortcut warnings, 12 backups + encryption at rest,
+9 multiple save folders, 10 emulator saves.
+
 **Fork port (2026-10-21, merged to `main` at `0552155`, not yet released).** Cherry-picked
 from Marwanello/SaveLocker (`-x` keeps the source SHAs): chunked upload that is all-or-nothing, Linux/Deck
 save detection plus case-insensitive Wine/Proton paths, per-file delta upload (new `SaveVersionFile`
