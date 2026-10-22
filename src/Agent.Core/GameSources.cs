@@ -94,6 +94,7 @@ public static class GameSources
         ["ngpc"] = "Neo Geo Pocket Color", ["wonderswan"] = "WonderSwan", ["wonderswancolor"] = "WonderSwan Color",
         ["atari2600"] = "Atari 2600", ["atari7800"] = "Atari 7800", ["lynx"] = "Lynx",
         ["arcade"] = "Arcade", ["mame"] = "Arcade", ["fbneo"] = "Arcade",
+        ["model2"] = "Model 2", ["model3"] = "Model 3", ["scummvm"] = "ScummVM",
     };
 
     /// <summary>

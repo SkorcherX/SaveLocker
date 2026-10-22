@@ -19,7 +19,7 @@ public sealed class AgentApiServer : IDisposable
 {
     private readonly AgentConfig _config;
     private readonly Func<Task<IReadOnlyList<ScanCandidate>>> _doScan;
-    private readonly Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>> _enroll;
+    private readonly Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, IReadOnlyDictionary<int, LinkChoice>?, Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>> _enroll;
     private readonly IAutoStart _autoStart;
     private readonly Func<Task<string?>> _pickFolder;
     private readonly Func<LaunchCommandDto> _launchInfo;
@@ -73,7 +73,7 @@ public sealed class AgentApiServer : IDisposable
         int port,
         AgentConfig config,
         Func<Task<IReadOnlyList<ScanCandidate>>> doScan,
-        Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>> enroll,
+        Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, IReadOnlyDictionary<int, LinkChoice>?, Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>> enroll,
         IAutoStart autoStart,
         Func<Task<string?>>? pickFolder = null,
         Action? onConnectionChanged = null,
@@ -251,9 +251,35 @@ public sealed class AgentApiServer : IDisposable
             var alsoSync = body.AlsoSync?
                 .GroupBy(c => c.Id)
                 .ToDictionary(g => g.Key, g => g.SelectMany(c => c.Paths ?? Array.Empty<string>()).ToArray());
-            var (enrolled, skipped, notes) = await _enroll(candidates, body.Ids, alsoSync);
+            var links = body.Links?
+                .Where(l => l.Choice is EnrollLinks.Separate or EnrollLinks.Game)
+                .GroupBy(l => l.Id)
+                .ToDictionary(g => g.Key, g => new LinkChoice(g.Last().Choice, g.Last().GameId));
+            var (enrolled, skipped, notes) = await _enroll(candidates, body.Ids, alsoSync, links);
             return TypedResults.Ok(new EnrollResponse(enrolled, skipped, notes.Count > 0 ? notes.ToArray() : null));
         });
+
+        // Which server game each emulator save on Add games would join, and what else it could (EnrollLinks).
+        // One read of the server's games per call, so the page asks once per list, not per row. Never fails
+        // the page: an unreachable server answers with no links, and every row is linked automatically.
+        app.MapGet("/api/candidates/links", async () =>
+        {
+            var candidates = _candidateCache ?? await RescanAsync();
+            if (!candidates.Any(c => c.Source == ScanSource.Emulator) || string.IsNullOrEmpty(_config.ApiKey))
+                return new CandidateLinksResponse(true, []);
+            List<GameDto> server;
+            try { server = await ApiClient.For(_config).ListGamesAsync(); }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                return new CandidateLinksResponse(false, []);
+            }
+            return new CandidateLinksResponse(true, candidates
+                .Select((c, id) => (c, id))
+                .Where(x => x.c.Source == ScanSource.Emulator && Enroller.TrackedFor(_config, x.c) is not { IsEnrolledHere: true })
+                .Select(x => new CandidateLinksDto(x.id, EnrollLinks.For(server, x.c).ToArray()))
+                .Where(l => l.Options.Length > 0)
+                .ToArray());
+        }).Produces<CandidateLinksResponse>();
 
         app.MapGet("/api/config", () => new AgentConfigDto(
             _config.ServerUrl,
@@ -941,7 +967,8 @@ public sealed class AgentApiServer : IDisposable
             Enroller.TrackedFor(_config, candidate) is { IsEnrolledHere: true },
             candidate.EmulatorName,
             candidate.EmulatorSystem,
-            candidate.EmulatorRom)).ToArray();
+            candidate.EmulatorRom,
+            candidate.UntouchedSeed)).ToArray();
 
     private static string FormatAgo(TimeSpan ago)
     {
@@ -1031,7 +1058,10 @@ public sealed record CandidateDto(
     // Which emulator and console, for an emulator save (null otherwise) — the Add games filter's keys.
     string? EmulatorName = null, string? EmulatorSystem = null,
     // The save file's own name ("Chrono Trigger (Japan)"): two ROMs can share a title.
-    string? EmulatorRom = null);
+    string? EmulatorRom = null,
+    /// <summary>EmuDeck's preinstalled save, never played here (<see cref="ScanCandidate.UntouchedSeed"/>): list it
+    /// only when <c>GET /api/candidates/links</c> says it joins a server game.</summary>
+    bool UntouchedSeed = false);
 /// <param name="ProcessNames">
 /// Process names (no extension) that mean this game is running. <b>Empty means the Windows agent
 /// cannot detect it</b> — no lease, no exit push, and no refusal to pull under a live game — so the
@@ -1178,7 +1208,14 @@ public sealed record LaunchOptionsAppliedRequest(uint SteamAppId, bool Applied, 
 
 /// <param name="AlsoSync">Which "Also found" folders (<see cref="CandidateDto.AlsoFound"/>) to add with each
 /// candidate. A candidate missing here adds none.</param>
-public sealed record EnrollRequest(int[]? Ids, EnrollFolderChoice[]? AlsoSync = null);
+/// <param name="Links">Emulator saves the user linked by hand (Add games' Change). Any other is linked automatically.</param>
+public sealed record EnrollRequest(int[]? Ids, EnrollFolderChoice[]? AlsoSync = null, EnrollLinkChoice[]? Links = null);
+/// <param name="Choice"><c>auto</c>, <c>separate</c> (keep it as its own game) or <c>game</c> (join <paramref name="GameId"/>).</param>
+public sealed record EnrollLinkChoice(int Id, string Choice, Guid? GameId = null);
+/// <param name="Reachable">False when the server could not be asked: the page says the link is decided when the game is added.</param>
+public sealed record CandidateLinksResponse(bool Reachable, CandidateLinksDto[] Links);
+/// <param name="Options">The automatic choice first, then the others (<see cref="EnrollLinks.For"/>).</param>
+public sealed record CandidateLinksDto(int Id, LinkOption[] Options);
 public sealed record EnrollFolderChoice(int Id, string[]? Paths);
 
 /// <summary>A folder a tracked game could also sync ("Also found"), from the manifest.</summary>

@@ -96,7 +96,7 @@ public sealed class CommandPoller : IDisposable
 
     // ----- game-list reconciliation (server → agent propagation) -----
 
-    private async Task ReconcileGamesAsync()
+    internal async Task ReconcileGamesAsync()
     {
         var serverGames = await _api().ListGamesAsync();
         var serverById = serverGames.ToDictionary(g => g.Id);
@@ -143,7 +143,7 @@ public sealed class CommandPoller : IDisposable
                             sg.Id);
                         AgentLogger.Log($"Refused server save path for '{sg.Name}': {check.Reason}");
                     }
-                    else if (check.Canonical != local.SaveDirectory)
+                    else if (check.Canonical != local.SaveDirectory && Claimed(sg, check.Canonical!, sg.IncludeGlobs) is null)
                     {
                         local.SaveDirectory = check.Canonical!;
                         changed = true;
@@ -296,6 +296,7 @@ public sealed class CommandPoller : IDisposable
             var want = fromServer
                 ? (SavePathGuard.Canonicalize(sp.MachinePath) == SavePathGuard.Canonicalize(lp.Directory) ? null : sp.MachinePath)
                 : lp.IsMapped ? null : ResolveExtraDir(sg, sp);
+            if (want is not null && Claimed(sg, want, sp.IncludeGlobs) is not null) want = null;
             if (want is not null && await TryMapFolderAsync(local, sg, lp.Key, want, fromServer))
                 changed = true;
 
@@ -457,7 +458,7 @@ public sealed class CommandPoller : IDisposable
     private string? Safe(GameDto sg, string path)
     {
         var check = SavePathGuard.Check(path, _config.StateDir);
-        if (check.Ok) return check.Canonical;
+        if (check.Ok) return Claimed(sg, check.Canonical!, sg.IncludeGlobs) is null ? check.Canonical : null;
 
         _health?.Report(AgentEventCodes.UnsafeSavePath, AgentEventSeverity.Error,
             $"Refused a save folder for '{sg.Name}': {check.Reason} (was '{path}'). " +
@@ -465,6 +466,26 @@ public sealed class CommandPoller : IDisposable
         AgentLogger.Log($"Refused save path for '{sg.Name}': {check.Reason} (was '{path}')");
         return null;
     }
+
+    /// <summary>
+    /// The other game here that already syncs these files in <paramref name="dir"/> (<see cref="SaveFolderClaims"/>),
+    /// reported once per game and folder; null when the folder is free to map. The game stays unmapped: the
+    /// usual way here is a save kept as its own game by hand, and mapping the fleet's game too would make two
+    /// games push and pull one save.
+    /// </summary>
+    private TrackedGame? Claimed(GameDto sg, string dir, IReadOnlyList<string>? scope)
+    {
+        if (SaveFolderClaims.ClaimedBy(_config, sg.Id, dir, scope) is not { } other) return null;
+        if (_claimReported.Add($"{sg.Id:N}|{dir}"))
+        {
+            var why = $"Left '{sg.Name}' unmapped: '{other.Name}' already syncs the same files in {dir} on this machine.";
+            _health?.Report(AgentEventCodes.UnsafeSavePath, AgentEventSeverity.Warning, why, sg.Id);
+            AgentLogger.Log(why);
+        }
+        return other;
+    }
+
+    private readonly HashSet<string> _claimReported = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Tell the console what this machine's scan <b>guesses</b> the save folder is, for every game
@@ -509,7 +530,7 @@ public sealed class CommandPoller : IDisposable
         foreach (var game in unmapped)
         {
             var match = found.FirstOrDefault(c =>
-                string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
+                !c.UntouchedSeed && string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
                 !string.IsNullOrWhiteSpace(c.SuggestedSaveDir));
 
             // Offering a path that is not there wastes the one click this exists to save.

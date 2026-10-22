@@ -15,6 +15,8 @@ public static class Enroller
     /// <param name="alsoSync">Per candidate id, which of its "Also found" folders
     /// (<see cref="ScanCandidate.AlternateSaveDirs"/>) the user ticked. Only those are added; a candidate
     /// missing from it adds none.</param>
+    /// <param name="links">Per candidate id, which server game an emulator save joins when the user chose by
+    /// hand (<see cref="EnrollLinks"/>). A candidate missing from it is linked automatically.</param>
     /// <param name="notes">Receives why each refused game was not added, one line each — a bare "skipped"
     /// count reads as "already tracked".</param>
     public static async Task<(int enrolled, int skipped)> EnrollAsync(
@@ -23,6 +25,7 @@ public static class Enroller
         int[] ids,
         CancellationToken ct = default,
         IReadOnlyDictionary<int, string[]>? alsoSync = null,
+        IReadOnlyDictionary<int, LinkChoice>? links = null,
         ICollection<string>? notes = null)
     {
         if (string.IsNullOrEmpty(config.ApiKey))
@@ -79,12 +82,14 @@ public static class Enroller
                 continue;
             }
 
+            var link = links is not null && links.TryGetValue(id, out var picked) ? picked : null;
             if (c.Source == ScanSource.Emulator)
             {
                 serverGames ??= await api.ListGamesAsync();
-                if (ServerNameFor(serverGames, c, extras) is not { } named)
+                var (named, refusal) = EnrollLinks.Resolve(serverGames, c, extras, link);
+                if (named is null)
                 {
-                    Refuse(c.Name, "every name it could take on the server is already another game's.");
+                    Refuse(c.Name, refusal!);
                     continue;
                 }
                 serverName = named;
@@ -99,13 +104,20 @@ public static class Enroller
             // The folders and scopes are applied only when this request CREATED the game. One that
             // already existed keeps its own, and a game whose saves are defined differently than
             // this scanner knows them would sync the wrong files — or another game's, in a shared
-            // emulator folder. Left for a human; the game stays on the server as it was.
+            // emulator folder. Left for a human; the game stays on the server as it was. A folder
+            // only one side has is not a difference in files: the server's other folders are the
+            // poller's to map, and one this scan declares that the game lacks (a folder an older
+            // agent did not know, or one removed on another machine) is added to it.
             if (serverGames is not null && serverGames.All(g => g.Id != game.Id)) serverGames.Add(game);
-            if ((c.IncludeGlobs is { Count: > 0 } || extras.Count > 0) && !SameFolders(game, c, extras))
+            if ((c.IncludeGlobs is { Count: > 0 } || extras.Count > 0) && FolderMismatch(game, c, extras) is { } mismatch)
             {
-                Refuse(c.Name, $"the server already has '{game.Name}' with different save folders or " +
-                               "include patterns than this scan found.");
+                Refuse(c.Name, mismatch);
                 continue;
+            }
+            if (extras.Any(e => (game.ExtraPaths ?? []).All(p => p.Key != e.Key)))
+            {
+                (game, extras) = await AddDeclaredAsync(api, c, game, extras);
+                if (serverGames?.FindIndex(g => g.Id == game.Id) is { } at and >= 0) serverGames[at] = game;
             }
             // The other direction: a candidate with no scope of its own joining a game that has one. The
             // game's patterns would apply here too, and when none of this folder's files match them —
@@ -124,7 +136,7 @@ public static class Enroller
             // The "Also found" folders the user ticked. Unlike the declared ones they never decide
             // whether the game is joined: one the fleet's game lacks is added to it, one it has
             // (FleetHasFolder) is the poller's to map, like any other folder of a game this machine joins.
-            var chosen = alsoSync is not null && alsoSync.TryGetValue(id, out var picked) ? picked : null;
+            var chosen = alsoSync is not null && alsoSync.TryGetValue(id, out var ticked) ? ticked : null;
             if (chosen is { Length: > 0 })
                 extras = [.. extras, .. await AddAlsoFoundAsync(api, config, c, game, check.Canonical!, extras, chosen)];
 
@@ -132,7 +144,7 @@ public static class Enroller
             // window closed mid-batch — must not lose the games already created on the server, along
             // with their Steam AppIDs. SetTracked also clears any per-machine opt-out, so re-adding
             // a game removed here earlier actually re-adds it.
-            config.SetTracked(game.Id, tracked: true, entry: new TrackedGame
+            var entry = new TrackedGame
             {
                 GameId = game.Id,
                 Name = game.Name,
@@ -153,7 +165,17 @@ public static class Enroller
                     Key = e.Key, Template = e.Template, Directory = e.Dir,
                     IncludeGlobs = (e.IncludeGlobs ?? Array.Empty<string>()).ToList(),
                 }).ToList(),
-            });
+            };
+            // EmuDeck's untouched preinstalled file only ever joins a game (EnrollLinks.Resolve). It is
+            // recorded as in step, so the first pull replaces it with the fleet's save instead of
+            // refusing to overwrite "unpushed changes" nobody made.
+            if (c.UntouchedSeed)
+            {
+                entry.ExcludeGlobs = (game.ExcludeGlobs ?? Array.Empty<string>()).ToList();
+                entry.LastSyncedHash = entry.LocalHash(config.StateDir);
+            }
+            config.SetTracked(game.Id, tracked: true, entry: entry);
+            if (link?.Choice == EnrollLinks.Separate) KeepApart(config, c, game.Id, serverGames);
 
             // Report the chosen path to the server now, so it is authoritative from the start. The
             // Windows tray gets away without this because its in-process CommandPoller reports the
@@ -173,6 +195,67 @@ public static class Enroller
         }
 
         return (enrolled, skipped);
+    }
+
+    /// <summary>
+    /// A save kept as its own game by hand must never meet the fleet's game of the same files here, so this
+    /// machine opts out of every other game keeping them that it has not set up itself. Otherwise the poller
+    /// adopts that game and, once a folder for it resolves here (another Windows machine's template, the
+    /// console), maps this same file into it too, and two games push and pull one save.
+    /// </summary>
+    private static void KeepApart(AgentConfig config, ScanCandidate c, Guid own, IReadOnlyList<GameDto>? server)
+    {
+        if (c.IncludeGlobs is not { Count: > 0 }) return;
+        var others = config.Games
+            .Where(g => g.GameId != own && !g.IsEnrolledHere && SameScope(g.IncludeGlobs, c.IncludeGlobs))
+            .Select(g => (g.GameId, g.Name))
+            .Concat((server ?? []).Where(g => g.Id != own && SameFiles(g, c) &&
+                                              !config.Games.Any(t => t.GameId == g.Id && t.IsEnrolledHere))
+                .Select(g => (GameId: g.Id, g.Name)))
+            .DistinctBy(g => g.GameId)
+            .ToList();
+        foreach (var (gameId, name) in others)
+        {
+            try
+            {
+                config.SetTracked(gameId, tracked: false);
+                AgentLogger.Log($"'{c.Name}' kept as its own game: this machine no longer tracks '{name}', which keeps the same files.");
+            }
+            catch (AgentStateLockException ex) { AgentLogger.LogException($"Enroller.KeepApart '{name}'", ex); }
+        }
+    }
+
+    /// <summary>
+    /// Define the folders this scan declared that the server's game lacks, and return the game as it now is
+    /// with the folders this machine maps. One the server refuses (its key retired on purpose, or the same
+    /// folder already there under another key) is left out and logged; the game is still enrolled, and the
+    /// poller maps whatever the game does have.
+    /// </summary>
+    private static async Task<(GameDto Game, List<DeclaredSavePath> Extras)> AddDeclaredAsync(
+        ApiClient api, ScanCandidate c, GameDto game, List<DeclaredSavePath> extras)
+    {
+        var paths = (game.ExtraPaths ?? []).ToList();
+        var kept = new List<DeclaredSavePath>();
+        foreach (var e in extras)
+        {
+            if (paths.Any(p => p.Key == e.Key)) { kept.Add(e); continue; }
+            SavePathAddResult result;
+            try { result = await api.AddSavePathAsync(game.Id, new AddSavePathRequest(e.Key, null, e.Template, Scope(e.IncludeGlobs))); }
+            catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
+            {
+                AgentLogger.Log($"Enrollment of '{c.Name}': could not add its '{e.Key}' folder ({ex.Message}).");
+                continue;
+            }
+            if (result.Path is { } added && SameScope(added.IncludeGlobs, e.IncludeGlobs))
+            {
+                paths.Add(added);
+                kept.Add(e);
+            }
+            else
+                AgentLogger.Log($"Enrollment of '{c.Name}': the server did not add its '{e.Key}' folder: " +
+                                (result.Error ?? "it came back with other include patterns."));
+        }
+        return (game with { ExtraPaths = paths.ToArray() }, kept);
     }
 
     /// <summary>
@@ -316,27 +399,55 @@ public static class Enroller
     /// <summary>
     /// The game this machine tracks for <paramref name="c"/>, if any: one under any of its names
     /// (<see cref="NamesFor"/>) that keeps the same files. A same-named game with other include patterns is
-    /// a different game — "Chrono Trigger" from Steam is not the SNES save of the same name.
+    /// a different game — "Chrono Trigger" from Steam is not the SNES save of the same name. A candidate that
+    /// names its files (an emulator save) is also found by them under any name (D1, <see cref="ServerNameFor"/>):
+    /// a game adopted from the server may be called something this machine's scan would never say.
     /// </summary>
+    /// <para>
+    /// One set up HERE wins over one only known from the server: a save kept as its own game by hand
+    /// ("Daytona USA (Model 2)") has the same files as the fleet's "Daytona USA", which this machine may
+    /// also track, unmapped.
+    /// </para>
     public static TrackedGame? TrackedFor(AgentConfig config, ScanCandidate c)
     {
-        foreach (var name in NamesFor(c))
-            if (config.FindGame(name) is { } g && SameScope(g.IncludeGlobs, c.IncludeGlobs)) return g;
-        return null;
+        var byName = NamesFor(c)
+            .Select(config.FindGame)
+            .Where(g => g is not null && SameScope(g.IncludeGlobs, c.IncludeGlobs))
+            .Select(g => g!);
+        var matches = byName.Concat(ByFiles(config, c)).ToList();
+        return matches.FirstOrDefault(g => g.IsEnrolledHere) ?? matches.FirstOrDefault();
     }
 
+    private static IEnumerable<TrackedGame> ByFiles(AgentConfig config, ScanCandidate c) =>
+        c.IncludeGlobs is not { Count: > 0 }
+            ? []
+            : config.Games.Where(g => SameScope(g.IncludeGlobs, c.IncludeGlobs)).OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>
-    /// Which of <see cref="NamesFor"/> an emulator save takes on the server: the one whose game already
-    /// keeps exactly these files, else the first no game has. Null when every name belongs to a different
-    /// game. Order-independent across machines: whoever enrolls a ROM first, the next machine finds it by
-    /// its files, not by being first to a name.
+    /// Which name an emulator save takes on the server. First (D1) the name of the server game that already
+    /// keeps these files (<see cref="SameFiles"/>), whatever it is called: a scope names the save file, so a
+    /// title taken from something only one machine has (an ES-DE <c>gamelist.xml</c>, Supermodel's
+    /// <c>Games.xml</c>, a ScummVM description) can never split one game in two. Only the primary folder's
+    /// scope decides: which OTHER folders a game has can differ between agent versions or after an add-path,
+    /// and that must not make a second game of the same save. Else the first of <see cref="NamesFor"/> no game
+    /// has. Null when every name belongs to a different game. Order-independent across machines: whoever
+    /// enrolls a ROM first, the next machine finds it by its files, not by being first to a name.
     /// </summary>
     internal static string? ServerNameFor(IReadOnlyList<GameDto> server, ScanCandidate c, IReadOnlyList<DeclaredSavePath> extras)
     {
         var names = NamesFor(c);
-        GameDto? Named(string n) => server.FirstOrDefault(g => string.Equals(g.Name, n, StringComparison.OrdinalIgnoreCase));
-        return names.FirstOrDefault(n => Named(n) is { } g && SameFolders(g, c, extras))
-               ?? names.FirstOrDefault(n => Named(n) is null);
+        bool Is(GameDto g, string n) => string.Equals(g.Name, n, StringComparison.OrdinalIgnoreCase);
+        // Only a scoped candidate: an unscoped one (a PC game's whole folder) names no files of its own.
+        if (c.IncludeGlobs is { Count: > 0 })
+        {
+            var same = server.Where(g => SameFiles(g, c)).ToList();
+            // Two such games: one kept as its own game by hand (EnrollLinks), or a server that predates this
+            // rule. Prefer one under our own names, then one with exactly our folders, then the first by name.
+            if (names.FirstOrDefault(n => same.Any(g => Is(g, n))) is { } own) return own;
+            if (same.OrderBy(g => SameFolders(g, c, extras) ? 0 : 1).ThenBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
+                    .FirstOrDefault() is { } other) return other.Name;
+        }
+        return names.FirstOrDefault(n => !server.Any(g => Is(g, n)));
     }
 
     /// <summary>The folder has files, and none of them is in <paramref name="scope"/>.</summary>
@@ -350,8 +461,30 @@ public static class Enroller
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
     }
 
-    private static bool SameScope(IEnumerable<string>? a, IEnumerable<string>? b) =>
-        (a ?? Array.Empty<string>()).SequenceEqual(b ?? Array.Empty<string>(), StringComparer.Ordinal);
+    /// <summary>Ignoring case, as include patterns are matched: one machine's <c>daytona.DAT</c> is another's
+    /// <c>daytona.dat</c>.</summary>
+    internal static bool SameScope(IEnumerable<string>? a, IEnumerable<string>? b) =>
+        (a ?? Array.Empty<string>()).SequenceEqual(b ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Does the server's game keep the save files this scoped candidate names — the same primary
+    /// include patterns (D1)? Never true for an unscoped candidate, which names no files of its own.</summary>
+    internal static bool SameFiles(GameDto game, ScanCandidate c) =>
+        c.IncludeGlobs is { Count: > 0 } && SameScope(game.IncludeGlobs, c.IncludeGlobs);
+
+    /// <summary>
+    /// Why this candidate cannot join <paramref name="game"/>, or null when it can: the primary folder, and
+    /// every folder both sides have, must keep the same files. A folder only one side has is not a mismatch.
+    /// </summary>
+    internal static string? FolderMismatch(GameDto game, ScanCandidate c, IReadOnlyList<DeclaredSavePath> extras)
+    {
+        if (!SameScope(game.IncludeGlobs, c.IncludeGlobs))
+            return $"the server already has '{game.Name}' with different include patterns than this scan found.";
+        var server = game.ExtraPaths ?? Array.Empty<SavePathDto>();
+        return extras.FirstOrDefault(e => server.FirstOrDefault(s => s.Key == e.Key) is { } s && !SameScope(s.IncludeGlobs, e.IncludeGlobs))
+            is { } clash
+            ? $"the server's '{game.Name}' keeps its '{clash.Key}' folder with different include patterns than this scan found."
+            : null;
+    }
 
     /// <summary>Does the server's game hold exactly the scopes and folder keys this candidate declared?</summary>
     internal static bool SameFolders(GameDto game, ScanCandidate c, IReadOnlyList<DeclaredSavePath> extras)

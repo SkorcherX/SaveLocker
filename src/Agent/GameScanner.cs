@@ -58,7 +58,8 @@ public sealed class GameScanner : IGameScanner
         }
 
         all.AddRange(await SafeSourceAsync("common save roots", () => ScanSaveRootsAsync(ct), ct));
-        all.AddRange(await SafeSourceAsync("RetroArch saves", () => Task.Run(RetroArchSaves.Scan, ct), ct));
+        foreach (var (name, scan) in EmulatorSaves.Sources)
+            all.AddRange(await SafeSourceAsync(name, () => Task.Run(scan, ct), ct));
 
         // De-dupe by name: prefer a candidate that already has a suggested save dir.
         // Grouped on the NORMALISED name: the same game reaches us spelled differently by

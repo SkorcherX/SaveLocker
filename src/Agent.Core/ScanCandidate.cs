@@ -121,7 +121,13 @@ public sealed record ScanCandidate(
     string? EmulatorRom = null,
     /// <summary>Found through EmuDeck's <c>Emulation</c> folder rather than a standalone RetroArch. Carried
     /// because the folder itself is recorded by its real path, which no longer says so.</summary>
-    bool ViaEmuDeck = false)
+    bool ViaEmuDeck = false,
+    /// <summary>
+    /// The save file is still byte-identical to one EmuDeck preinstalled (<see cref="RomSaves.IsUntouchedSeed"/>):
+    /// the game was never played here. Listed only where a server game already keeps the same file, so a fresh
+    /// machine can take the fleet's save over it (<see cref="EnrollLinks"/>); never a game of its own.
+    /// </summary>
+    bool UntouchedSeed = false)
 {
     /// <summary>
     /// What a scanner merges duplicates on: the normalised name, so one game found by two sources is one
