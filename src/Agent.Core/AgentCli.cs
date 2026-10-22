@@ -15,7 +15,7 @@ public static class AgentCli
     public static bool Handles(string command) => command is
         "register" or "enroll" or "trust" or "set-server" or "whoami" or "search" or "scan" or
         "resolve" or "add-game" or "remove-game" or "list" or "status" or "push" or "pull" or
-        "refresh-manifest" or "log" or "hash" or "check-update";
+        "refresh-manifest" or "log" or "hash" or "check-update" or "emptied-hold";
 
     /// <summary>Run one command. Returns the process exit code.</summary>
     public static async Task<int> RunAsync(
@@ -353,6 +353,46 @@ public static class AgentCli
                         await engine.PullAsync(g, force);
                     }
                     await health.SendAsync(Api(), config, null, Log);
+                    break;
+                }
+
+                case "emptied-hold":
+                {
+                    // A game held because every save file vanished here: list them, or answer one.
+                    var holds = EmptyFolderHoldStore.For(config);
+                    var name = positionals.FirstOrDefault();
+                    var delete = opts.ContainsKey("delete-everywhere");
+                    var restore = opts.ContainsKey("restore-here");
+                    if (name is null)
+                    {
+                        var held = holds.Read();
+                        if (held.Count == 0) Console.WriteLine("No game is held for an emptied save folder.");
+                        foreach (var h in held)
+                            Console.WriteLine($"  {config.Games.FirstOrDefault(g => g.GameId == h.GameId)?.Name ?? h.GameId.ToString()}" +
+                                              $" — held since {h.HeldAt:u}");
+                        if (held.Count > 0)
+                            Console.WriteLine("  Answer one: emptied-hold <game> --delete-everywhere | --restore-here");
+                        break;
+                    }
+                    if (delete == restore)
+                    {
+                        Console.Error.WriteLine("Pass exactly one of --delete-everywhere or --restore-here.");
+                        return 1;
+                    }
+                    var game = config.FindGame(name);
+                    if (game is null)
+                    {
+                        Console.Error.WriteLine($"'{name}' is not tracked here.");
+                        return 1;
+                    }
+                    var (ok, message) = await Engine().AnswerEmptiedAsync(game, delete);
+                    await health.SendAsync(Api(), config, null, Log);
+                    if (!ok)
+                    {
+                        Console.Error.WriteLine(message);
+                        return 1;
+                    }
+                    Console.WriteLine(message);
                     break;
                 }
 

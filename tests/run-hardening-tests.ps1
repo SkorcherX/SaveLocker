@@ -1,4 +1,4 @@
-# Hardening (Linux agent Phase 6) - 34 checks on Linux / 33 on Windows. Runs on BOTH.
+# Hardening (Linux agent Phase 6) - 42 checks on Linux / 41 on Windows. Runs on BOTH.
 #
 # These are SECURITY tests: each one must prove the ATTACK FAILS, not merely that ordinary saves
 # still sync. Two of them delete-or-leak files outside the save folder if the fix regresses, so they
@@ -11,6 +11,8 @@
 #   4. OneDrive regression guard - the fix must key on symlinks ONLY. OneDrive files-on-demand are also
 #                                  reparse points, and skipping every reparse point would silently stop
 #                                  archiving OneDrive saves (see Gotchas.md).
+#   9. Excluded files on pull    - the delete pass keeps this machine's excluded files, and an old archive
+#                                  carrying one never overwrites it.
 #
 # Windows uses a JUNCTION (no admin needed; symlinks require elevation or Developer Mode) — which is
 # the Windows form of exactly this bug. Linux uses a symlink.
@@ -438,6 +440,65 @@ try {
     $rightOut = Agent pull $deepStamp --force --config $rightCfg
     Check "the same archive restores at the right depth" (-not ("$rightOut" -match "REFUSED"))
     Check "and lands where the game expects it" (Test-Path (Join-Path $deckRoot "1337133713371337/SaveGames/slot.sav"))
+
+    # =================================================================================
+    # 9. A PULL KEEPS THIS MACHINE'S EXCLUDED FILES
+    # =================================================================================
+    # An excluded file never rides in an archive, so the delete pass sees it as "absent from the
+    # server's save" and used to remove it. `*.bak` is a default exclude and what many games call
+    # their own backup slots; a per-game exclude is usually a file that belongs to ONE machine.
+    # And an archive made before a pattern existed may still carry the file: it must not overwrite
+    # this machine's copy either (Decisions.md §4).
+    $exStamp = "Excl-$stamp"
+    $exPc   = Join-Path $scratch "excl-pc";   New-Item -ItemType Directory -Force $exPc   | Out-Null
+    $exDeck = Join-Path $scratch "excl-deck"; New-Item -ItemType Directory -Force (Join-Path $exDeck "sub") | Out-Null
+    "pc save"    | Set-Content (Join-Path $exPc "save.dat")   -Encoding utf8
+    "pc legacy"  | Set-Content (Join-Path $exPc "legacy.bak") -Encoding utf8
+    "deck legacy"   | Set-Content (Join-Path $exDeck "legacy.bak")   -Encoding utf8
+    "deck backup"   | Set-Content (Join-Path $exDeck "slot1.bak")    -Encoding utf8
+    "deck deep bak" | Set-Content (Join-Path $exDeck "sub/deep.bak") -Encoding utf8
+    "deck gfx"      | Set-Content (Join-Path $exDeck "settings.ini") -Encoding utf8
+    "deck stale"    | Set-Content (Join-Path $exDeck "stale.dat")    -Encoding utf8
+
+    $exPcCfg   = Join-Path $scratch "excl-pc.json"
+    $exDeckCfg = Join-Path $scratch "excl-deck.json"
+    foreach ($c in @($exPcCfg, $exDeckCfg)) {
+        @{ ServerUrl = $server; Games = @() } | ConvertTo-Json | Set-Content -Path $c -Encoding utf8
+    }
+    Agent register --name "ExclPC-$exStamp"   --config $exPcCfg   | Out-Null
+    Agent register --name "ExclDeck-$exStamp" --config $exDeckCfg | Out-Null
+    Agent add-game --name $exStamp --dir $exPc   --config $exPcCfg   | Out-Null
+    Agent add-game --name $exStamp --dir $exDeck --config $exDeckCfg | Out-Null
+
+    # What the poller would write from the server's effective list; set by hand so no daemon is needed.
+    function Set-Excludes($cfgPath, $globs) {
+        $cfg = Get-Content $cfgPath -Raw | ConvertFrom-Json
+        foreach ($g in $cfg.Games) { $g.ExcludeGlobs = @($globs) }
+        $cfg | ConvertTo-Json -Depth 20 | Set-Content -Path $cfgPath -Encoding utf8
+    }
+    Set-Excludes $exDeckCfg @("*.bak", "settings.ini")
+
+    # The PC has no excludes yet, so its archive carries legacy.bak — an "old" archive.
+    Agent push $exStamp --force --config $exPcCfg | Out-Null
+    Agent pull $exStamp --force --config $exDeckCfg | Out-Null
+    # $null for a missing file, never a throw: a throw inside this try skips every check after it.
+    $read = { param($p) $f = Join-Path $exDeck $p; if (Test-Path $f) { (Get-Content $f -Raw).Trim() } }
+    Check "the pull still restored the real save"            ((& $read "save.dat") -eq "pc save")
+    Check "the pull still deleted a stale, non-excluded file" (-not (Test-Path (Join-Path $exDeck "stale.dat")))
+    Check "an excluded *.bak here was NOT deleted"            (Test-Path (Join-Path $exDeck "slot1.bak"))
+    Check "an excluded *.bak in a subfolder was NOT deleted"  (Test-Path (Join-Path $exDeck "sub/deep.bak"))
+    Check "a per-game excluded file was NOT deleted"         ((& $read "settings.ini") -eq "deck gfx")
+    Check "an old archive's excluded file did NOT overwrite this machine's" ((& $read "legacy.bak") -eq "deck legacy")
+
+    # Ordinary case: both machines exclude, the PC pushes again, the Deck pulls again.
+    Set-Excludes $exPcCfg @("*.bak", "settings.ini")
+    "pc save 2" | Set-Content (Join-Path $exPc "save.dat") -Encoding utf8
+    Agent push $exStamp --config $exPcCfg | Out-Null
+    Agent pull $exStamp --force --config $exDeckCfg | Out-Null
+    Check "a second pull applied the update"                 ((& $read "save.dat") -eq "pc save 2")
+    Check "and still kept every excluded file" ((Test-Path (Join-Path $exDeck "slot1.bak")) -and
+                                                 (Test-Path (Join-Path $exDeck "settings.ini")) -and
+                                                 ((& $read "legacy.bak") -eq "deck legacy"))
 }
 finally {
     if ($serverProc -and -not $serverProc.HasExited) { Stop-Process -Id $serverProc.Id -Force }

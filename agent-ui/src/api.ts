@@ -1,4 +1,4 @@
-import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, TrackedGame } from './types'
+import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, EmptiedHold, TrackedGame } from './types'
 
 // The agent injects the local API token into index.html when it serves the page; the same-origin
 // policy is what keeps any other page from reading it. Left as the literal placeholder under
@@ -77,4 +77,8 @@ export const api = {
   // Pull then push every tracked game, same as the tray menu's "Sync All". The response is a
   // one-line summary; progress for whichever game is mid-sync shows up on the next activity() poll.
   syncNow: () => post<{ message: string }>('/api/sync'),
+  // Games held because every save file vanished here; nothing syncs for them until one is answered.
+  emptiedHolds: () => req<EmptiedHold[]>('/api/holds/emptied'),
+  answerEmptiedHold: (id: string, action: 'delete-everywhere' | 'restore-here') =>
+    post<{ message: string }>(`/api/games/${id}/emptied-hold`, { action }),
 }

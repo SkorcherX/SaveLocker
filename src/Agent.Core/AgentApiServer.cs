@@ -40,6 +40,8 @@ public sealed class AgentApiServer : IDisposable
     // "Sync all" for the Overview page's button — same operation the tray menu offers, resolved
     // against whichever engine and game list are current at the moment it is clicked.
     private readonly Func<Task<string>> _syncAll;
+    // POST /api/games/{id}/emptied-hold — SyncEngine.AnswerEmptiedAsync (true: delete everywhere) in whichever engine is current.
+    private readonly Func<TrackedGame, bool, CancellationToken, Task<(bool Ok, string Message)>> _answerEmptied;
     // One sync at a time, however many surfaces are offering the button — see /api/sync.
     private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly string _uiRoot;
@@ -69,7 +71,8 @@ public sealed class AgentApiServer : IDisposable
         Func<DeckyStatusDto>? deckyStatus = null,
         Func<StagedUpdateInfo?>? stagedUpdate = null,
         SyncActivityTracker? activity = null,
-        Func<Task<string>>? syncAll = null)
+        Func<Task<string>>? syncAll = null,
+        Func<TrackedGame, bool, CancellationToken, Task<(bool Ok, string Message)>>? answerEmptied = null)
     {
         _browser = new PathBrowser(browseRoots);
         Port = port;
@@ -88,6 +91,7 @@ public sealed class AgentApiServer : IDisposable
         _stagedUpdate = stagedUpdate ?? (() => null);
         _activity = activity ?? new SyncActivityTracker();
         _syncAll = syncAll ?? (() => Task.FromResult("Not available."));
+        _answerEmptied = answerEmptied ?? ((_, _, _) => Task.FromResult((false, "Not available.")));
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
         _auth = LocalAuth.LoadOrCreate(config.ConfigPath);
         _leaseWarnings = LeaseWarningStore.For(config);
@@ -606,6 +610,39 @@ public sealed class AgentApiServer : IDisposable
             finally { _syncGate.Release(); }
         }).Produces<SyncNowResponse>();
 
+        // Every game held here because its save folder was emptied, with its two choices.
+        app.MapGet("/api/holds/emptied", () => EmptyFolderHoldStore.For(_config).Read()
+            .Select(h => _config.Games.FirstOrDefault(g => g.GameId == h.GameId) is { } g
+                ? new EmptiedHoldDto(h.GameId, g.Name, g.SaveDirectory, h.LastVersionId, h.HeldAt) : null)
+            .OfType<EmptiedHoldDto>().ToArray()).Produces<EmptiedHoldDto[]>();
+
+        // Answer one: delete-everywhere (a forced push of the empty folder) or restore-here (a forced pull). Not tied to
+        // the request's lifetime: a closed page must not abort a restore halfway. Shares /api/sync's gate.
+        app.MapPost("/api/games/{id:guid}/emptied-hold",
+            async Task<Results<Ok<SyncNowResponse>, Conflict<ErrorResponse>, BadRequest<ErrorResponse>, NotFound>>
+                (Guid id, EmptiedHoldAnswerRequest body) =>
+        {
+            var game = _config.Games.FirstOrDefault(g => g.GameId == id);
+            if (game is null) return TypedResults.NotFound();
+            if (body.Action is not (EmptiedHoldActions.DeleteEverywhere or EmptiedHoldActions.RestoreHere))
+                return TypedResults.BadRequest(new ErrorResponse(
+                    $"action must be {EmptiedHoldActions.DeleteEverywhere} or {EmptiedHoldActions.RestoreHere}."));
+
+            if (!await _syncGate.WaitAsync(0))
+                return TypedResults.Conflict(new ErrorResponse("A sync is already running. Try again when it is done."));
+            try
+            {
+                var (ok, message) = await _answerEmptied(game, body.Action == EmptiedHoldActions.DeleteEverywhere, CancellationToken.None);
+                return ok ? TypedResults.Ok(new SyncNowResponse(message)) : TypedResults.BadRequest(new ErrorResponse(message));
+            }
+            catch (Exception ex)
+            {
+                AgentLogger.LogException("AgentApiServer.emptied-hold", ex);
+                return TypedResults.BadRequest(new ErrorResponse(ex.Message));
+            }
+            finally { _syncGate.Release(); }
+        }).Produces<SyncNowResponse>().Produces<ErrorResponse>(StatusCodes.Status400BadRequest);
+
         app.MapGet("/api/agent-version", () =>
         {
             var latest = _getUpdateResult() is UpdateResult.Available available
@@ -952,3 +989,16 @@ public sealed record ActivitySnapshotDto(
 public sealed record ActivityLogEntryDto(DateTime TimestampUtc, string Message);
 public sealed record ActivityDto(ActivitySnapshotDto Current, ActivityLogEntryDto[] Recent);
 public sealed record SyncNowResponse(string Message);
+
+/// <summary>A game held because every save file vanished from its folder here.</summary>
+/// <param name="LastVersionId">The last version this machine synced, which still has the files.</param>
+public sealed record EmptiedHoldDto(Guid GameId, string GameName, string SaveDirectory, Guid? LastVersionId, DateTimeOffset HeldAt);
+
+/// <param name="Action"><see cref="EmptiedHoldActions.DeleteEverywhere"/> or <see cref="EmptiedHoldActions.RestoreHere"/>.</param>
+public sealed record EmptiedHoldAnswerRequest(string Action);
+
+public static class EmptiedHoldActions
+{
+    public const string DeleteEverywhere = "delete-everywhere";
+    public const string RestoreHere = "restore-here";
+}

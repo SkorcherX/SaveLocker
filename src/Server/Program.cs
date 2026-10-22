@@ -299,6 +299,7 @@ agent.MapPost("/games/{id:guid}/upload", async (
         var result = await sync.UploadAsync(id, machine.Id, parent, hash, http.Request.Body, force ?? false, ct);
         return Results.Ok(result);
     }
+    catch (EmptySaveRefusedException ex) { return Results.Conflict(ex.Message); }
     catch (ArchiveTooLargeException ex)
     {
         // 413, not the 500 an unhandled throw would produce: the agent has to be able to tell
@@ -346,6 +347,7 @@ agent.MapPut("/games/{id:guid}/upload/{sessionId:guid}/chunk", async (
     }
     catch (UnknownUploadSessionException ex) { return Results.NotFound(ex.Message); }
     catch (UploadOffsetMismatchException ex) { return Results.Conflict(ex.Message); }
+    catch (EmptySaveRefusedException ex) { return Results.Conflict(ex.Message); }
     catch (ArchiveTooLargeException ex)
     {
         return Results.Problem(ex.Message, statusCode: StatusCodes.Status413PayloadTooLarge);
@@ -361,6 +363,7 @@ agent.MapPost("/games/{id:guid}/upload/{sessionId:guid}/complete", async (
         return Results.Ok(await sync.CompleteChunkedUploadAsync(id, machine.Id, sessionId, ct));
     }
     catch (UnknownUploadSessionException ex) { return Results.NotFound(ex.Message); }
+    catch (EmptySaveRefusedException ex) { return Results.Conflict(ex.Message); }
     catch (CorruptUploadException ex)
     {
         // 422, not the 500 an unhandled throw would produce: the agent has to be able to tell

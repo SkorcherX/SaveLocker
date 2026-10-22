@@ -1,4 +1,4 @@
-# Agent health reporting (Linux agent Phase 5) - 19 checks. Runs on BOTH Windows and Linux.
+# Agent health reporting (Linux agent Phase 5) - 38 checks. Runs on BOTH Windows and Linux.
 #
 #   Windows: drives src/Agent (net10.0-windows).  Linux: drives src/Agent.Linux (net10.0).
 #
@@ -244,6 +244,75 @@ if ($null -ne $unreachable) {
 } else {
     Check "a dismissed event leaves the open set"     $false
 }
+
+# =====================================================================================
+# 8. An emptied save folder is HELD, never pushed
+# =====================================================================================
+# Every file gone at once (an uninstaller, a reset, the wrong folder cleared) used to push as an
+# ordinary change: a zero-file version became the head and the other machine's next pull deleted its
+# saves. The machine that lost them now holds the game - no push, no pull - until someone chooses.
+ClearEvents
+$emptyName = "EmptyGame-$stamp"
+$pcEmpty  = Join-Path $scratch "pc_empty";  New-Item -ItemType Directory -Force $pcEmpty  | Out-Null
+$lapEmpty = Join-Path $scratch "lap_empty"; New-Item -ItemType Directory -Force $lapEmpty | Out-Null
+"slot one" | Set-Content (Join-Path $pcEmpty "slot1.sav") -Encoding utf8
+"slot two" | Set-Content (Join-Path $pcEmpty "slot2.sav") -Encoding utf8
+Agent add-game --name $emptyName --dir $pcEmpty  --config $pcCfg  | Out-Null
+Agent add-game --name $emptyName --dir $lapEmpty --config $lapCfg | Out-Null
+Agent push $emptyName --config $pcCfg | Out-Null
+Agent pull $emptyName --config $lapCfg | Out-Null
+$emptyId = ((Get-Content $pcCfg -Raw | ConvertFrom-Json).Games | Where-Object { $_.Name -eq $emptyName }).GameId
+function HeadId { (Invoke-RestMethod "$server/api/games/$emptyId/state").head.id }
+function Held { $f = Join-Path $stateDir "emptied-holds.json"; (Test-Path $f) -and ((Get-Content $f -Raw) -match $emptyId) }
+$headBefore = HeadId
+
+Get-ChildItem $pcEmpty -File | Remove-Item -Force
+$heldPush = (Agent push $emptyName --config $pcCfg) -join "`n"
+Check "an emptied folder's push is held, not sent"      ($heldPush -match "every save file is gone")
+Check "... and the server head did not move"            ((HeadId) -eq $headBefore)
+Check "... and the hold is recorded"                    (Held)
+$emptiedEvent = (Health $pcName).openEvents | Where-Object { $_.code -eq "savedir.emptied" }
+Check "... and the console hears of it, as a Warning"   ($null -ne $emptiedEvent -and $emptiedEvent.severity -eq "Warning")
+Agent pull $emptyName --config $lapCfg | Out-Null
+Check "the other machine keeps its saves"               ((Test-Path (Join-Path $lapEmpty "slot1.sav")) -and (Test-Path (Join-Path $lapEmpty "slot2.sav")))
+Agent pull $emptyName --config $pcCfg | Out-Null
+Check "an ordinary pull on the held machine restores nothing" (@(Get-ChildItem $pcEmpty -File).Length -eq 0)
+
+# The backstop, for an agent that predates the hold: an unforced, empty upload over a head with files.
+Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
+$emptyZip = Join-Path $scratch "empty.zip"
+Remove-Item $emptyZip -Force -ErrorAction SilentlyContinue
+[System.IO.Compression.ZipFile]::Open($emptyZip, [System.IO.Compression.ZipArchiveMode]::Create).Dispose()
+$backstop = $null
+try {
+    Invoke-RestMethod "$server/api/games/$emptyId/upload?hash=old-agent-empty&parent=$headBefore&force=false" -Method Post `
+        -Headers @{ "X-Api-Key" = $pcApiKey } -InFile $emptyZip -ContentType "application/zip" | Out-Null
+    $backstop = 200
+} catch { $backstop = [int]$_.Exception.Response.StatusCode }
+Check "the server refuses an older agent's empty push (409)" ($backstop -eq 409)
+Check "... and its head still did not move"                  ((HeadId) -eq $headBefore)
+
+$restored = (Agent emptied-hold $emptyName --restore-here --config $pcCfg) -join "`n"
+Check "Restore here brings the files back"              ((Test-Path (Join-Path $pcEmpty "slot1.sav")) -and (Test-Path (Join-Path $pcEmpty "slot2.sav")))
+Check "... and lifts the hold"                          (-not (Held))
+
+# Tidying a few files is ordinary: the hold is for ALL of them gone, never for some.
+Remove-Item (Join-Path $pcEmpty "slot2.sav") -Force
+$partial = (Agent push $emptyName --config $pcCfg) -join "`n"
+Check "deleting some files still pushes normally"       ((HeadId) -ne $headBefore -and -not (Held))
+Agent pull $emptyName --config $lapCfg | Out-Null
+Check "... and that deletion reaches the other machine" (-not (Test-Path (Join-Path $lapEmpty "slot2.sav")) -and (Test-Path (Join-Path $lapEmpty "slot1.sav")))
+
+# Delete everywhere: the deliberate deletion still propagates.
+Get-ChildItem $pcEmpty -File | Remove-Item -Force
+Agent push $emptyName --config $pcCfg | Out-Null
+Check "emptying it again holds it again"                (Held)
+$deleted = (Agent emptied-hold $emptyName --delete-everywhere --config $pcCfg) -join "`n"
+Check "Delete everywhere lifts the hold"                (-not (Held))
+Agent pull $emptyName --config $lapCfg | Out-Null
+Check "... and the other machine deletes its saves too" (@(Get-ChildItem $lapEmpty -File).Length -eq 0)
+$after = (Agent push $emptyName --config $pcCfg) -join "`n"
+Check "... and the now-empty folder is not held again"  (-not (Held) -and $after -notmatch "every save file is gone")
 
 ClearEvents
 if ($serverProc -and -not $serverProc.HasExited) { Stop-Process -Id $serverProc.Id -Force }

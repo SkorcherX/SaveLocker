@@ -276,8 +276,13 @@ public static class SaveArchive
     /// agent may have been pointed at by a forged enrollment file (Decisions.md §4). It is size- and
     /// count-checked before extraction, and no destination path may traverse a symlink.
     /// </para>
+    /// <para>
+    /// A file matching <paramref name="excludeGlobs"/> is this machine's own: a push never carries it, so
+    /// the restore neither deletes it nor writes one an older archive still holds.
+    /// </para>
     /// </summary>
-    public static void RestoreArchive(string archiveZip, string targetDir, string? stagingRoot = null)
+    public static void RestoreArchive(string archiveZip, string targetDir, string? stagingRoot = null,
+        IEnumerable<string>? excludeGlobs = null)
     {
         if (!File.Exists(archiveZip))
             throw new FileNotFoundException($"Archive not found: {archiveZip}");
@@ -317,10 +322,12 @@ public static class SaveArchive
                     "level. Set SAVELOCKER_ALLOW_NESTED_RESTORE=1 only if this really is a save " +
                     "folder that legitimately repeats its own name.");
             }
+            var excluded = IsExcluded(excludeGlobs);
             var checkedDirs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var src in Directory.EnumerateFiles(stagingDir, "*", SearchOption.AllDirectories))
             {
                 var rel = Path.GetRelativePath(stagingFull, src);
+                if (excluded(rel)) continue;
                 var dst = Path.Combine(targetFull, rel);
 
                 // The delete pass below is no-follow, but this copy pass was not: if the target
@@ -339,14 +346,16 @@ public static class SaveArchive
             // a symlink, or a link inside a save folder would let it delete files outside that folder
             // entirely (a link to $HOME in a Wine prefix is not hypothetical). Links themselves are
             // skipped, never deleted — we did not archive them, so their absence from the archive
-            // must not read as "the user removed this file".
+            // must not read as "the user removed this file". An excluded file is absent from every
+            // archive by design, so it stays.
             var archiveRel = EnumerateFilesNoFollow(stagingFull)
                 .Select(f => Path.GetRelativePath(stagingFull, f))
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             foreach (var tgt in EnumerateFilesNoFollow(targetFull))
             {
-                if (!archiveRel.Contains(Path.GetRelativePath(targetFull, tgt)))
+                var rel = Path.GetRelativePath(targetFull, tgt);
+                if (!archiveRel.Contains(rel) && !excluded(rel))
                     File.Delete(tgt);
             }
 
@@ -648,27 +657,42 @@ public static class SaveArchive
             .Select(f => Path.GetRelativePath(rootFull, f).Replace('\\', '/'))
             .ToList();
 
-        var globs = excludeGlobs?
-            .Where(g => !string.IsNullOrWhiteSpace(g))
-            .Select(g => g.Trim())
-            .ToList();
-        if (globs is { Count: > 0 })
+        if (ExcludeMatcher(excludeGlobs) is { } matcher)
         {
-            var matcher = new Matcher(StringComparison.OrdinalIgnoreCase);
-            matcher.AddInclude("**/*");
-            foreach (var g in globs)
-            {
-                matcher.AddExclude(g);
-                // A bare filename pattern (no '/') should match at any depth, gitignore-style:
-                // "*.log" excludes logs in every subfolder, not just the save root. Patterns
-                // that already contain '/' are treated as explicit paths anchored at the root.
-                if (!g.Contains('/')) matcher.AddExclude("**/" + g);
-            }
             var kept = new HashSet<string>(matcher.Match(all).Files.Select(m => m.Path), StringComparer.Ordinal);
             all = all.Where(kept.Contains).ToList();
         }
 
         all.Sort(StringComparer.Ordinal);
         return all;
+    }
+
+    /// <summary>Null when there is nothing to exclude.</summary>
+    private static Matcher? ExcludeMatcher(IEnumerable<string>? excludeGlobs)
+    {
+        var globs = excludeGlobs?
+            .Where(g => !string.IsNullOrWhiteSpace(g))
+            .Select(g => g.Trim())
+            .ToList();
+        if (globs is not { Count: > 0 }) return null;
+
+        var matcher = new Matcher(StringComparison.OrdinalIgnoreCase);
+        matcher.AddInclude("**/*");
+        foreach (var g in globs)
+        {
+            matcher.AddExclude(g);
+            // A bare filename pattern (no '/') should match at any depth, gitignore-style:
+            // "*.log" excludes logs in every subfolder, not just the save root. Patterns
+            // that already contain '/' are treated as explicit paths anchored at the root.
+            if (!g.Contains('/')) matcher.AddExclude("**/" + g);
+        }
+        return matcher;
+    }
+
+    /// <summary>"Would a push leave this relative path out" — the same rule <see cref="EnumerateRelativeFiles"/> applies.</summary>
+    private static Func<string, bool> IsExcluded(IEnumerable<string>? excludeGlobs)
+    {
+        if (ExcludeMatcher(excludeGlobs) is not { } matcher) return _ => false;
+        return rel => !matcher.Match(new[] { rel.Replace('\\', '/') }).HasMatches;
     }
 }

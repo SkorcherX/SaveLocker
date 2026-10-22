@@ -220,6 +220,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         // content hash (has anything changed at all?) and the per-file manifest a delta negotiates
         // with. Hashing the directory and then building a manifest read every byte twice.
         var (manifest, hash) = SaveArchive.ComputeManifest(game.SaveDirectory, game.ExcludeGlobs);
+        if (!force && HoldIfEmptied(game, manifest.Count == 0, () => hash)) return null;
         if (!force && hash == game.LastSyncedHash)
         {
             _log($"[{game.Name}] no local changes since last sync.");
@@ -252,7 +253,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
                     countPush = true;
                     touchSyncTime = true;
                     _log($"[{game.Name}] pushed new version.");
-                    _health?.MarkSynced(game.GameId);
+                    MarkSynced(game.GameId);
                     break;
                 case UploadStatus.NoChange:
                     game.LastKnownVersionId = result.Version?.Id ?? game.LastKnownVersionId;
@@ -260,7 +261,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
                     game.ConsecutiveConflicts = 0;
                     touchSyncTime = true;
                     _log($"[{game.Name}] server already had this content.");
-                    _health?.MarkSynced(game.GameId);
+                    MarkSynced(game.GameId);
                     break;
                 case UploadStatus.Conflict:
                     game.ConsecutiveConflicts++;
@@ -464,6 +465,11 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         _config.RefreshGameSyncState(game);
         try
         {
+            // An emptied folder is held, never refilled behind the player's back: they may have cleared it to start over.
+            if (!force && HoldIfEmptied(game, IsEmptied(game),
+                    () => SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs)))
+                return false;
+
             var head = await _api.DownloadHeadAsync(game.GameId, archive, ct);
             if (head is null)
             {
@@ -480,7 +486,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
                 game.ConsecutiveConflicts = 0;
                 _config.SaveGameSyncState(game);
                 _log($"[{game.Name}] already up to date.");
-                _health?.MarkSynced(game.GameId);
+                MarkSynced(game.GameId);
                 return false;
             }
 
@@ -517,7 +523,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
 
             try
             {
-                SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir);
+                SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir, game.ExcludeGlobs);
             }
             catch (SaveArchive.UnsafeArchiveException ex)
             {
@@ -534,7 +540,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
             game.ConsecutiveConflicts = 0;
             _config.SaveGameSyncState(game, touchSyncTime: true);
             _log($"[{game.Name}] restored latest save from server.");
-            _health?.MarkSynced(game.GameId);
+            MarkSynced(game.GameId);
             return true;
         }
         catch (AgentStateLockException ex)
@@ -566,9 +572,42 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
             else await PullAsync(g, ct: ct);
             await PushAsync(g, ct: ct);
         }
-        return skipped.Count == 0
+        var holds = EmptyFolderHoldStore.For(_config);
+        var emptied = games.Where(g => holds.For(g.GameId) is not null).Select(g => g.Name).ToList();
+        var message = skipped.Count == 0
             ? "Sync all complete."
             : $"Sync all complete. Not pulled (still running): {string.Join(", ", skipped)}.";
+        return emptied.Count == 0
+            ? message
+            : $"{message} Held (every save file is gone here): {string.Join(", ", emptied)}.";
+    }
+
+    /// <summary>
+    /// A person's answer to an emptied-folder hold. <paramref name="deleteEverywhere"/> pushes the empty folder,
+    /// forced, so every other machine deletes its saves at its next pull; otherwise the latest save is pulled back
+    /// here, forced (the folder is empty, so nothing is overwritten). Either lifts the hold. Nothing is lost for good:
+    /// the version with the files stays on the server, so Set as Latest brings it back.
+    /// </summary>
+    public async Task<(bool Ok, string Message)> AnswerEmptiedAsync(TrackedGame game, bool deleteEverywhere, CancellationToken ct = default)
+    {
+        var holds = EmptyFolderHoldStore.For(_config);
+        if (holds.For(game.GameId) is null) return (false, $"{game.Name} is not held.");
+        if (!IsEmptied(game))
+        {
+            holds.Clear(game.GameId);
+            return (false, $"The save files of {game.Name} are back, so it syncs as usual again.");
+        }
+        if (deleteEverywhere)
+        {
+            var push = await PushAsync(game, force: true, ct: ct);
+            return push?.Status is UploadStatus.Created or UploadStatus.NoChange
+                ? (true, $"Deleted the save of {game.Name} everywhere. The other machines remove theirs at their next pull.")
+                : (false, $"Nothing was pushed for {game.Name}. The activity log says why.");
+        }
+        if (GameActivity.IsActive(game)) return (false, $"{game.Name} is running, so its save was not restored.");
+        return await PullAsync(game, force: true, ct: ct)
+            ? (true, $"Restored the latest save of {game.Name}.")
+            : (false, $"{game.Name} was not restored. The activity log says why.");
     }
 
     /// <summary>
@@ -636,6 +675,43 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         Alert($"[{game.Name}] REFUSED {verb}: {check.Reason} " +
               $"(mapped to '{game.SaveDirectory}')",
             AgentEventCodes.UnsafeSavePath, AgentEventSeverity.Error, game.GameId);
+        return true;
+    }
+
+    /// <summary>The save folder is here and holds none of the files a push would carry. A folder that is not here at
+    /// all is <see cref="AgentEventCodes.SaveDirMissing"/>, and a pull may create it.</summary>
+    private static bool IsEmptied(TrackedGame game) =>
+        Directory.Exists(game.SaveDirectory) && SaveArchive.ListFiles(game.SaveDirectory, game.ExcludeGlobs).Count == 0;
+
+    private void MarkSynced(Guid gameId)
+    {
+        _health?.MarkSynced(gameId);
+        EmptyFolderHoldStore.For(_config).Clear(gameId);
+    }
+
+    /// <summary>
+    /// True when the game is held because every save file vanished from this machine, having recorded and reported
+    /// the hold the first time. Only a folder that had files when it last synced is held: a game never synced here,
+    /// or one whose deletion every machine already took, has nothing to protect. A hold lifts by itself as soon as a
+    /// file is back. Called by every unforced push and pull; a forced push (Delete everywhere) or a forced pull
+    /// (Restore here) is the answer, and lifts it.
+    /// </summary>
+    private bool HoldIfEmptied(TrackedGame game, bool empty, Func<string> currentHash)
+    {
+        var holds = EmptyFolderHoldStore.For(_config);
+        if (!empty)
+        {
+            if (holds.Clear(game.GameId)) _log($"[{game.Name}] save files are back; the hold on it is lifted.");
+            return false;
+        }
+        if (holds.For(game.GameId) is not null) return true;
+        if (game.LastSyncedHash is null || game.LastSyncedHash == currentHash()) return false;
+
+        holds.Hold(game.GameId, game.LastKnownVersionId);
+        Alert($"[{game.Name}] WARNING: every save file is gone from {game.SaveDirectory}, which had them when it last " +
+              "synced. Nothing is pushed or pulled for it here until you choose: Delete everywhere (the other machines " +
+              "delete theirs too), or Restore here (the latest save comes back).",
+            AgentEventCodes.SaveFolderEmptied, AgentEventSeverity.Warning, game.GameId);
         return true;
     }
 
