@@ -976,7 +976,8 @@ public sealed class AgentApiServer : IDisposable
             candidate.UntouchedSeed,
             candidate.NotSyncable,
             GameSources.SystemLabel(candidate.EmulatorSystem),
-            candidate.Release?.Region)).ToArray();
+            candidate.Release?.Region,
+            candidate.StatesOnly)).ToArray();
 
     private static string FormatAgo(TimeSpan ago)
     {
@@ -1078,7 +1079,10 @@ public sealed record CandidateDto(
     string? EmulatorConsole = null,
     /// <summary>Which region's release a console game's save is ("USA", "Europe, Australia"), kept out of
     /// <see cref="Name"/>; null when it is no disc console's save or Redump does not know its game ID.</summary>
-    string? Region = null);
+    string? Region = null,
+    /// <summary>Found by its save states alone, before the game's first in-game save here
+    /// (<see cref="ScanCandidate.StatesOnly"/>).</summary>
+    bool StatesOnly = false);
 /// <param name="ProcessNames">
 /// Process names (no extension) that mean this game is running. <b>Empty means the Windows agent
 /// cannot detect it</b> — no lease, no exit push, and no refusal to pull under a live game — so the

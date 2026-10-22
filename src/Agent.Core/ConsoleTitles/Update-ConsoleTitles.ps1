@@ -22,6 +22,7 @@ $sets = @(
     @{ System = 'psx'; Dat = 'Sony - PlayStation' },
     @{ System = 'ps2'; Dat = 'Sony - PlayStation 2' },
     @{ System = 'ps3'; Dat = 'Sony - PlayStation 3' },
+    @{ System = 'psp'; Dat = 'Sony - PlayStation Portable' },
     @{ System = 'gc';  Dat = 'Nintendo - GameCube' },
     @{ System = 'wii'; Dat = 'Nintendo - Wii' }
 )

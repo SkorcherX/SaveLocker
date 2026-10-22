@@ -25,8 +25,14 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
-**Fork port, item 10 — emulator saves, Group C (2026-10-22, branch `port/emulator-group-c`, off `main`,
-awaiting review).** Marwanello #63 (`a97f507`): PCSX2, DuckStation, Dolphin, PrimeHack; a memory card every
+**Fork port, item 10 — emulator saves, Group D (2026-10-22, branch `port/emulator-group-d`, off `main`,
+awaiting review).** Marwanello #65 (`ff2444a`): PPSSPP, RPCS3, Vita3K, shadPS4 — one game per game-ID folder
+(`TitleFolders`), named by Redump's PSP/PS3 sets or the save's PARAM.SFO (`ParamSfo`); states-only PSP games
+listed, and a states-only push never empties another machine's real save. Agent only, no server change.
+Verified: Core.Tests 222 (30 new), the PowerShell suites unchanged, Linux 239. **Not done:** real emulator
+installs, UI by eye. Next: Group E, title-ID folders — Cemu, Azahar, Xenia (fork #68).
+
+**Fork port, item 10 — emulator saves, Group C (2026-10-22, merged to `main` at `d065c52`).** Marwanello #63 (`a97f507`): PCSX2, DuckStation, Dolphin, PrimeHack; a memory card every
 game shares is listed but never a game (`ScanCandidate.NotSyncable`, SaveDirSanity warning); saves from
 different emulators never join (`GameDto.Emulators`); console saves named by serial from a Redump-derived
 table (`ConsoleTitles`, CC BY-SA 4.0) with the region beside the name — **games are now unique by (name,

@@ -82,4 +82,40 @@ internal static class ConsoleSaveFixtures
         Encoding.BigEndianUnicode.GetBytes(subtitle).CopyTo(bytes, 0x60);
         return bytes;
     }
+
+    /// <summary>
+    /// A <c>PARAM.SFO</c> holding <paramref name="entries"/> — a string is UTF-8 (<c>0x0204</c>, NUL-terminated, padded
+    /// to 4), an int an int32 (<c>0x0404</c>) — laid out as the PS3 save RPCS3 wrote on the maintainer's Deck: header,
+    /// 16-byte index entries, key table (padded to 4), data table.
+    /// </summary>
+    public static byte[] ParamSfo(params (string Key, object Value)[] entries)
+    {
+        var keys = new List<byte>();
+        var data = new List<byte>();
+        var index = new List<byte>();
+        foreach (var (key, value) in entries)
+        {
+            var bytes = value is int n ? BitConverter.GetBytes(n) : Encoding.UTF8.GetBytes((string)value + "\0");
+            var max = (bytes.Length + 3) / 4 * 4;
+            var entry = new byte[16];
+            BinaryPrimitives.WriteUInt16LittleEndian(entry, (ushort)keys.Count);
+            BinaryPrimitives.WriteUInt16LittleEndian(entry.AsSpan(2), (ushort)(value is int ? 0x0404 : 0x0204));
+            BinaryPrimitives.WriteUInt32LittleEndian(entry.AsSpan(4), (uint)bytes.Length);
+            BinaryPrimitives.WriteUInt32LittleEndian(entry.AsSpan(8), (uint)max);
+            BinaryPrimitives.WriteUInt32LittleEndian(entry.AsSpan(12), (uint)data.Count);
+            index.AddRange(entry);
+            keys.AddRange(Encoding.ASCII.GetBytes(key + "\0"));
+            data.AddRange(bytes);
+            data.AddRange(new byte[max - bytes.Length]);
+        }
+        while (keys.Count % 4 != 0) keys.Add(0);
+        var keyTable = 20 + index.Count;
+        var header = new byte[20];
+        Encoding.ASCII.GetBytes("\0PSF").CopyTo(header, 0);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(4), 0x101);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(8), (uint)keyTable);
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(12), (uint)(keyTable + keys.Count));
+        BinaryPrimitives.WriteUInt32LittleEndian(header.AsSpan(16), (uint)entries.Length);
+        return [.. header, .. index, .. keys, .. data];
+    }
 }

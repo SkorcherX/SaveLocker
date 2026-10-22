@@ -48,6 +48,10 @@ public sealed class EmulatorChipTests
     [InlineData("wii", "Wii")]
     [InlineData("nds", "DS")]
     [InlineData("model3", "Model 3")]
-    public void Each_group_c_console_has_its_label(string system, string label) =>
+    [InlineData(PpssppSaves.System, "PSP")]
+    [InlineData(Rpcs3Saves.System, "PS3")]
+    [InlineData(Vita3KSaves.System, "PS Vita")]
+    [InlineData(ShadPs4Saves.System, "PS4")]
+    public void Each_emulator_console_has_its_label(string system, string label) =>
         Assert.Equal(label, GameSources.SystemLabel(system));
 }

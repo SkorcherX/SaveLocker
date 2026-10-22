@@ -63,6 +63,10 @@ const EMULATORS: { id: string; label: string }[] = [
   { id: 'DuckStation', label: 'DuckStation' },
   { id: 'Dolphin', label: 'Dolphin' },
   { id: 'PrimeHack', label: 'PrimeHack' },
+  { id: 'PPSSPP', label: 'PPSSPP' },
+  { id: 'RPCS3', label: 'RPCS3' },
+  { id: 'Vita3K', label: 'Vita3K' },
+  { id: 'shadPS4', label: 'shadPS4' },
 ]
 
 /** The Console row's chips: one per EmuDeck system among `found` ("ps2"), labelled as the agent says it ("PS2"),
@@ -456,6 +460,11 @@ export function AddGamesView({ onEnrolled }: Props) {
               </div>
               {c.duplicateShortcuts && c.duplicateShortcuts.length > 0 && (
                 <DuplicateNote shortcuts={c.duplicateShortcuts} />
+              )}
+              {!c.enrolled && c.statesOnly && (
+                <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>
+                  Save states only so far. Its in-game saves sync too once the game makes one.
+                </div>
               )}
               {!c.enrolled && c.untouchedSeed && (
                 <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>
