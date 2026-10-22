@@ -17,3 +17,11 @@ export type DeckyStatus = components['schemas']['DeckyStatusDto']
 export type SyncActivitySnapshot = components['schemas']['ActivitySnapshotDto']
 export type ActivityLogEntry = components['schemas']['ActivityLogEntryDto']
 export type Activity = components['schemas']['ActivityDto']
+// Hand-written until the agent's api-types are next regenerated: GET /api/holds/emptied.
+export interface EmptiedHold {
+  gameId: string
+  gameName: string
+  saveDirectory: string
+  lastVersionId: string | null
+  heldAt: string
+}

@@ -958,11 +958,27 @@ public sealed class SyncService
     /// The database half of an upload, split out so a failure anywhere in it can un-publish the
     /// archive that was just written. Every exit path here has already been paid for on disk.
     /// </summary>
+    /// <summary>Files in a stored archive, or null when it cannot be read — never a reason to refuse.</summary>
+    private int? FileCount(string rel)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(_store.FullPath(rel));
+            return zip.Entries.Count(e => !e.FullName.EndsWith('/'));
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException) { return null; }
+    }
+
     private async Task<UploadResult> IngestAsync(
         Game game, Guid versionId, string rel, long size, Guid machineId, Guid? parentVersionId,
         string contentHash, SaveVersion? serverHead, bool diverged, bool force, CancellationToken ct)
     {
         var gameId = game.Id;
+
+        // A folder emptied by an uninstaller or a reset would otherwise become the head, and every
+        // machine's next pull deletes its saves. Deleting everywhere on purpose is a forced push.
+        if (!force && serverHead is not null && FileCount(rel) == 0 && FileCount(serverHead.ArchivePath) > 0)
+            throw new EmptySaveRefusedException(game.Name);
 
         var version = new SaveVersion
         {

@@ -392,6 +392,8 @@ static class Program
         Sync
           push [game|all] [--force]                        Upload saves
           pull [game|all] [--force]                        Download saves
+          emptied-hold [game] [--delete-everywhere|--restore-here]
+                                                           A game whose save folder was emptied: list, or answer
           run -- %command%                                 Steam launch wrapper: pull, play, push
           launch-options [--list|--check]                  The string to paste into Steam's Launch
                          [--preview "<existing>"]           Options; --list adds per-game state and

@@ -33,6 +33,10 @@ public static class AgentEventCodes
     /// <summary>The game's save folder does not exist on this machine. Nothing is being synced for it.</summary>
     public const string SaveDirMissing = "savedir.missing";
 
+    /// <summary>Every save file of the game is gone from a folder that had them when it last synced. Nothing is pushed
+    /// or pulled for it here until someone chooses Delete everywhere or Restore here.</summary>
+    public const string SaveFolderEmptied = "savedir.emptied";
+
     /// <summary>The server could not be reached; the push is queued for retry. Reported when contact
     /// is regained — by definition it cannot be reported while it is happening.</summary>
     public const string ServerUnreachable = "server.unreachable";

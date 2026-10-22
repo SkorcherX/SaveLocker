@@ -4,6 +4,7 @@ import { api } from '../api'
 import { LaunchSetupCard } from './LaunchSetupCard'
 import { DeckyPluginCard } from './DeckyPluginCard'
 import { ActivityCard } from './ActivityCard'
+import { EmptiedHoldsBanner } from './EmptiedHoldsBanner'
 
 interface Props {
   state: AgentState | null
@@ -24,6 +25,8 @@ export function OverviewView({ state, onWarningDismissed }: Props) {
       display: 'flex', flexDirection: 'column',
       overflow: 'hidden',
     }}>
+      <EmptiedHoldsBanner />
+
       {/* Lease conflict banners */}
       {warnings.length > 0 && (
         <div style={{ flexShrink: 0, padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>

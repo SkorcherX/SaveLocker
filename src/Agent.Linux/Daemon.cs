@@ -148,7 +148,8 @@ public sealed class Daemon : IAsyncDisposable
             // to minute. A value captured at startup would be wrong by the time anyone read it.
             stagedUpdate: () => Updater.StagedUpdate(_config),
             activity: _activity,
-            syncAll: () => _engine.SyncAllAsync(_config.Games));
+            syncAll: () => _engine.SyncAllAsync(_config.Games),
+            answerEmptied: (game, deleteEverywhere, ct) => _engine.AnswerEmptiedAsync(game, deleteEverywhere, ct));
         _apiServer.Start();
 
         _drainer = new OfflineQueueDrainer(_offlineQueue, _config, () => _engine, Notify);
