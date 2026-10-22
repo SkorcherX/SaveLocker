@@ -1,4 +1,4 @@
-import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, EmptiedHold, FolderSuggestion, TrackedGame } from './types'
+import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, CandidateLinks, DeckyStatus, EmptiedHold, FolderSuggestion, TrackedGame } from './types'
 
 // The agent injects the local API token into index.html when it serves the page; the same-origin
 // policy is what keeps any other page from reading it. Left as the literal placeholder under
@@ -33,9 +33,13 @@ export const api = {
   state: () => req<AgentState>('/api/state'),
   candidates: () => req<Candidate[]>('/api/candidates'),
   rescan: () => post<Candidate[]>('/api/candidates/rescan'),
-  // alsoSync: per candidate, which of its "Also found" folders to add with it.
-  enroll: (ids: number[], alsoSync?: { id: number; paths: string[] }[]) =>
-    post<{ enrolled: number; skipped: number; notes?: string[] | null }>('/api/enroll', { ids, alsoSync }),
+  // `alsoSync` names, per candidate, the "Also found" folders to add with it; a candidate left out adds none.
+  // `links` names the emulator saves linked by hand (Change); any other is linked automatically.
+  enroll: (ids: number[], alsoSync?: { id: number; paths: string[] }[],
+    links?: { id: number; choice: string; gameId?: string | null }[]) =>
+    post<{ enrolled: number; skipped: number; notes?: string[] | null }>('/api/enroll', { ids, alsoSync, links }),
+  // Which server game each emulator save would join, and what else it could. One server read per call.
+  candidateLinks: () => req<CandidateLinks>('/api/candidates/links'),
   // identityCleared is true when the server URL moved to a different origin: the machine key, id
   // and TLS pin were issued by the old server and have been dropped, so this agent must register
   // or enroll again before it can sync.

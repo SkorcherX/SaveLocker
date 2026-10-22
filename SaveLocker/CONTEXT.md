@@ -25,8 +25,15 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
-**Fork port, item 10 — emulator saves, RetroArch group (2026-10-22, branch `port/emulator-retroarch`, off
-`main`, awaiting review).** Marwanello #60 (`f2b0e4b`): RetroArch `.srm` saves found in EmuDeck's
+**Fork port, item 10 — emulator saves, Group B (2026-10-22, branch `port/emulator-group-b`, off `main`,
+awaiting review).** Marwanello #61 (`860c642`): melonDS, Supermodel, Model 2 and ScummVM on a shared
+`RomSaves` reader (`EmulatorSaves.Sources`); a game is found by its files under any name (D1); Add games can
+link an emulator save by hand (`GET /api/candidates/links`, `ServerGameLink`, rebuilt in the inline UI
+style); EmuDeck's untouched preinstalled saves listed only when the server keeps one. No server change.
+Verified: Core.Tests 151 (41 new), the PowerShell suites unchanged, Linux 239. **Not done:** real emulator
+installs, the linking UI checked by eye. Next: Group C, memory cards (fork #63).
+
+**Fork port, item 10 — emulator saves, RetroArch group (2026-10-22, merged to `main` at `b150d9d`).** Marwanello #60 (`f2b0e4b`): RetroArch `.srm` saves found in EmuDeck's
 `Emulation/saves/retroarch` or a standalone `retroarch.cfg`, one game per ROM scoped to its files, plus a
 `states` folder for its save states. The server decides an emulator game's name (`Enroller.ServerNameFor`),
 and an unscoped game is refused when joining a scoped one would back up nothing (shown as "Not added: …").

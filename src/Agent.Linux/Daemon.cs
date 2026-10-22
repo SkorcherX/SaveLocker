@@ -116,10 +116,10 @@ public sealed class Daemon : IAsyncDisposable
             port: _apiPort,
             config: _config,
             doScan: () => _scanner.ScanAsync(),
-            enroll: async (candidates, ids, alsoSync) =>
+            enroll: async (candidates, ids, alsoSync, links) =>
             {
                 var notes = new List<string>();
-                var (enrolled, skipped) = await Enroller.EnrollAsync(_config, candidates, ids, ct, alsoSync, notes);
+                var (enrolled, skipped) = await Enroller.EnrollAsync(_config, candidates, ids, ct, alsoSync, links, notes);
                 if (enrolled > 0) StartFolderWatchers();
                 return (enrolled, skipped, (IReadOnlyList<string>)notes);
             },

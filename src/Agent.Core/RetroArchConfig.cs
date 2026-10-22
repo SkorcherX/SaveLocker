@@ -9,7 +9,7 @@ public static class RetroArchConfig
 {
     /// <summary>Every RetroArch setup whose saves folder exists, real paths, no duplicate saves folder.</summary>
     public static IReadOnlyList<RetroArchFolders> Folders() =>
-        Folders(EmuDeckRoots.Find(), EmuDeckRoots.Override is null ? ConfigRoots() : Array.Empty<string>());
+        Folders(EmuDeckRoots.Find(), EmulatorPaths.Standalone ? ConfigRoots() : Array.Empty<string>());
 
     /// <summary>The same, from explicit inputs — what the tests drive.</summary>
     public static IReadOnlyList<RetroArchFolders> Folders(IEnumerable<string> emuDeckRoots, IEnumerable<string> configRoots)
@@ -54,10 +54,10 @@ public static class RetroArchConfig
     /// <summary>Folders a standalone RetroArch keeps <c>retroarch.cfg</c> in, per platform.</summary>
     public static IReadOnlyList<string> ConfigRoots()
     {
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var home = EmulatorPaths.Home;
         if (OperatingSystem.IsWindows())
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            var appData = EmulatorPaths.AppData;
             return new[]
             {
                 Path.Combine(appData, "RetroArch"),

@@ -126,13 +126,16 @@ public sealed class LinuxGameScanner : IGameScanner
 
         results.AddRange((await ScanHeroicAsync(ct)).Select(c => (c, false)));
 
-        // Its own failure domain: a broken emulator folder must not cost the rest of the scan.
-        try
+        // Each its own failure domain: a broken emulator folder must not cost the rest of the scan.
+        foreach (var (name, scan) in EmulatorSaves.Sources)
         {
-            results.AddRange((await Task.Run(RetroArchSaves.Scan, ct)).Select(c => (c, false)));
+            try
+            {
+                results.AddRange((await Task.Run(scan, ct)).Select(c => (c, false)));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (Exception ex) { AgentLogger.LogException($"Scan source '{name}'", ex); }
         }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { AgentLogger.LogException("Scan source 'RetroArch saves'", ex); }
 
         // Normalised, for the same reason as the Windows scanner: one game, one row, however the
         // shortcut happens to be spelled.

@@ -196,6 +196,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/candidates/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CandidateLinksResponse"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/config": {
         parameters: {
             query?: never;
@@ -1464,6 +1499,17 @@ export interface components {
             emulatorName?: null | string;
             emulatorSystem?: null | string;
             emulatorRom?: null | string;
+            /** @default false */
+            untouchedSeed: boolean;
+        };
+        CandidateLinksDto: {
+            /** Format: int32 */
+            id: number;
+            options: components["schemas"]["LinkOption"][];
+        };
+        CandidateLinksResponse: {
+            reachable: boolean;
+            links: components["schemas"]["CandidateLinksDto"][];
         };
         ConfigChangeResponse: {
             identityCleared: boolean;
@@ -1509,9 +1555,17 @@ export interface components {
             id: number;
             paths: null | string[];
         };
+        EnrollLinkChoice: {
+            /** Format: int32 */
+            id: number;
+            choice: string;
+            /** Format: uuid */
+            gameId?: null | string;
+        };
         EnrollRequest: {
             ids: null | number[];
             alsoSync?: null | components["schemas"]["EnrollFolderChoice"][];
+            links?: null | components["schemas"]["EnrollLinkChoice"][];
         };
         EnrollResponse: {
             /** Format: int32 */
@@ -1586,6 +1640,15 @@ export interface components {
         LeaseWarningDto: {
             gameName: string;
             holderMachine: string;
+        };
+        LinkOption: {
+            choice: string;
+            kind: string;
+            name: string;
+            /** Format: uuid */
+            gameId: null | string;
+            detail: string;
+            badge: string;
         };
         OkResponse: {
             /** @default true */

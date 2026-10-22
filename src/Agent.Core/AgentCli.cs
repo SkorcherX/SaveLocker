@@ -150,9 +150,15 @@ public static class AgentCli
                 {
                     // Local-only: discover enrollment candidates on this machine.
                     var hideCloud = opts.ContainsKey("no-cloud");
-                    var candidates = (await scanner.ScanAsync())
-                        .Where(c => !hideCloud || !c.HasSteamCloud)
+                    var found = await scanner.ScanAsync();
+                    // EmuDeck's untouched preinstalled saves are not the user's games; only Add games offers
+                    // one, and only to join a server game that keeps it.
+                    var seeds = found.Count(c => c.UntouchedSeed);
+                    var candidates = found
+                        .Where(c => !c.UntouchedSeed && (!hideCloud || !c.HasSteamCloud))
                         .ToList();
+                    if (seeds > 0)
+                        Console.WriteLine($"({seeds} of EmuDeck's preinstalled saves, never played here, not listed.)");
                     if (candidates.Count == 0)
                     {
                         Console.WriteLine("No games discovered.");

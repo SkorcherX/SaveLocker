@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, FolderOpen, FolderSearch } from 'lucide-react'
-import type { Candidate, DuplicateShortcut, SaveFolder } from '../types'
+import type { Candidate, DuplicateShortcut, LinkOption, SaveFolder } from '../types'
 import { api } from '../api'
 import { useFolderPicker } from '../useFolderPicker'
 import { PathBrowserModal } from './PathBrowserModal'
 import { LaunchSetupCard } from './LaunchSetupCard'
+import { ServerGameLink, type LinkPick } from './ServerGameLink'
 
 interface Props {
   onEnrolled: () => void
@@ -54,6 +55,10 @@ const STORES: { id: string; label: string }[] = [
  * agent's `emulatorName`. */
 const EMULATORS: { id: string; label: string }[] = [
   { id: 'RetroArch', label: 'RetroArch' },
+  { id: 'melonDS', label: 'melonDS' },
+  { id: 'Supermodel', label: 'Supermodel' },
+  { id: 'Model 2', label: 'Model 2' },
+  { id: 'ScummVM', label: 'ScummVM' },
 ]
 
 function chipStyle(active: boolean): React.CSSProperties {
@@ -102,6 +107,43 @@ export function AddGamesView({ onEnrolled }: Props) {
 
   useEffect(() => { void scan(false) }, [scan])
 
+  // Which server game each emulator save joins, asked once per list. A fresh scan renumbers the
+  // candidates, so every hand-made choice is dropped with it.
+  const [links, setLinks] = useState<Map<number, LinkOption[]>>(new Map())
+  // False when the agent could not ask the server: the rows say the link is decided when the game is added.
+  const [linksReachable, setLinksReachable] = useState(true)
+  const [linkPicks, setLinkPicks] = useState<Map<number, LinkPick>>(new Map())
+  const [linkOpen, setLinkOpen] = useState<number | null>(null)
+  useEffect(() => {
+    setLinkPicks(new Map())
+    setLinkOpen(null)
+    setLinksReachable(true)
+    if (!candidates.some(c => c.source === 'Emulator' && !c.enrolled)) { setLinks(new Map()); return }
+    let live = true
+    api.candidateLinks()
+      .then(r => {
+        if (!live) return
+        setLinks(new Map(r.links.map(l => [l.id, l.options])))
+        setLinksReachable(r.reachable)
+      })
+      .catch(() => { if (live) { setLinks(new Map()); setLinksReachable(false) } })
+    return () => { live = false }
+  }, [candidates])
+  // EmuDeck's preinstalled saves, never played here, are not the user's games: one is listed only when a
+  // server game keeps it, so this machine can take the fleet's save in its place.
+  const listed = useMemo(
+    () => candidates.filter(c => !c.untouchedSeed || c.enrolled || links.get(c.id)?.[0]?.kind === 'join'),
+    [candidates, links])
+  const pickLink = (id: number, pick: LinkPick | undefined) => {
+    setLinkPicks(prev => {
+      const next = new Map(prev)
+      if (pick) next.set(id, pick)
+      else next.delete(id)
+      return next
+    })
+    setLinkOpen(null)
+  }
+
   const toggle = (id: number) => {
     setChecked(prev => {
       const next = new Set(prev)
@@ -146,7 +188,11 @@ export function AddGamesView({ onEnrolled }: Props) {
         .filter((c): c is Candidate => !!c && !!c.alsoFound?.length)
         .map(c => ({ id: c.id, paths: c.alsoFound!.map(f => f.path).filter(p => !unticked.get(c.id)?.has(p)) }))
         .filter(choice => choice.paths.length > 0)
-      const result = await api.enroll([...checked], alsoSync)
+      const linked = [...checked].flatMap(id => {
+        const pick = linkPicks.get(id)
+        return pick ? [{ id, choice: pick.choice, gameId: pick.gameId ?? null }] : []
+      })
+      const result = await api.enroll([...checked], alsoSync, linked)
       setStatus(
         `Enrolled ${result.enrolled} game(s).` +
         (result.skipped > (result.notes?.length ?? 0) ? ` Skipped ${result.skipped - (result.notes?.length ?? 0)} already tracked.` : '') +
@@ -170,27 +216,27 @@ export function AddGamesView({ onEnrolled }: Props) {
   // toolbar never collapses to nothing.
   const chips = useMemo(
     () => FILTERS
-      .map(f => ({ ...f, count: candidates.filter(f.match).length }))
+      .map(f => ({ ...f, count: listed.filter(f.match).length }))
       .filter(f => f.count > 0 || f.id === 'suggested' || f.id === 'all'),
-    [candidates])
+    [listed])
 
   const stores = useMemo(() => {
     if (filter !== 'heroic') return []
-    const heroic = candidates.filter(c => c.source === 'Heroic')
+    const heroic = listed.filter(c => c.source === 'Heroic')
     return STORES
       .map(s => ({ ...s, count: heroic.filter(c => c.store === s.id).length }))
       .filter(s => s.count > 0)
-  }, [candidates, filter])
+  }, [listed, filter])
 
   // Shown even with one emulator: it says which ones SaveLocker reads saves from.
   const emulators = useMemo(() => {
     if (filter !== 'emulator') return []
-    const emulated = candidates.filter(c => c.source === 'Emulator')
+    const emulated = listed.filter(c => c.source === 'Emulator')
     return EMULATORS.map(e => ({ ...e, count: emulated.filter(c => c.emulatorName === e.id).length }))
-  }, [candidates, filter])
+  }, [listed, filter])
 
   const active = FILTERS.find(f => f.id === filter) ?? FILTERS[0]
-  const visible = candidates
+  const visible = listed
     .filter(active.match)
     .filter(c => !(filter === 'heroic' && store) || c.store === store)
     .filter(c => !(filter === 'emulator' && emulator) || c.emulatorName === emulator)
@@ -199,11 +245,11 @@ export function AddGamesView({ onEnrolled }: Props) {
   // Named, not just counted. A user looking for a game they can plainly see in Steam needs to be
   // told it was filtered and by which control — silently showing a shorter list reads as "the scan
   // didn't find it".
-  const hiddenCount = candidates.length - visible.length
+  const hiddenCount = listed.length - visible.length
   const footerStatus = status || (
     enrollBlocked
       ? `Set a save folder for: ${missing.map(c => c.name).join(', ')}`
-      : `Showing ${visible.length} of ${candidates.length} game(s) found.` +
+      : `Showing ${visible.length} of ${listed.length} game(s) found.` +
         (hiddenCount > 0 ? ' Choose “All” to see every one.' : '')
   )
 
@@ -364,6 +410,26 @@ export function AddGamesView({ onEnrolled }: Props) {
               </div>
               {c.duplicateShortcuts && c.duplicateShortcuts.length > 0 && (
                 <DuplicateNote shortcuts={c.duplicateShortcuts} />
+              )}
+              {!c.enrolled && c.untouchedSeed && (
+                <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>
+                  EmuDeck’s preinstalled save, never played here. Adding it takes the server’s save in its place.
+                </div>
+              )}
+              {!c.enrolled && c.source === 'Emulator' && !linksReachable && (
+                <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>
+                  The server can’t be reached, so which server game this joins is decided when you add it.
+                </div>
+              )}
+              {!c.enrolled && (links.get(c.id)?.length ?? 0) > 0 && (
+                <ServerGameLink
+                  title={c.name}
+                  options={links.get(c.id)!}
+                  pick={linkPicks.get(c.id)}
+                  open={linkOpen === c.id}
+                  onToggle={() => setLinkOpen(linkOpen === c.id ? null : c.id)}
+                  onPick={pick => pickLink(c.id, pick)}
+                />
               )}
               {!c.enrolled && c.alsoFound && c.alsoFound.length > 0 && (
                 <AlsoFound
