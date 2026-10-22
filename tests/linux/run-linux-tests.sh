@@ -886,6 +886,10 @@ check "AutoUpdate:false stages nothing"                "$([ ! -f "${fake_prefix}
 echo
 echo "==> Decky plugin updates"
 
+# make-fixtures.py's MoonDeck shortcut gives the fake home a ~/homebrew/plugins/moondeck, which reads
+# as "Decky is installed" — the no-Decky checks below need a home that has never seen Decky.
+rm -rf "${HOME}/homebrew"
+
 plugin_dir="${HOME}/homebrew/plugins/SaveLocker"
 plugin_ver() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "${plugin_dir}/package.json" 2>/dev/null; }
 # The events file follows the CONFIG, not HOME: HealthReporter writes into config.StateDir, which
