@@ -9,12 +9,8 @@ export type AgentState = Omit<components['schemas']['AgentStateDto'],
   settleQuietSeconds: number
 }
 export type AgentVersion = components['schemas']['AgentVersionDto']
-// duplicateShortcuts is hand-written until the agent's api-types are next regenerated.
-export interface DuplicateShortcut { appId: string | null; name: string; tracked: boolean }
-export type Candidate = Omit<components['schemas']['CandidateDto'], 'id'> & {
-  id: number
-  duplicateShortcuts?: DuplicateShortcut[] | null
-}
+export type DuplicateShortcut = components['schemas']['DuplicateShortcut']
+export type Candidate = Omit<components['schemas']['CandidateDto'], 'id'> & { id: number }
 export type TrackedGame = components['schemas']['TrackedGameDto']
 export type BrowseEntry = components['schemas']['BrowseEntry']
 export type BrowseListing = components['schemas']['BrowseListing']
@@ -22,11 +18,4 @@ export type DeckyStatus = components['schemas']['DeckyStatusDto']
 export type SyncActivitySnapshot = components['schemas']['ActivitySnapshotDto']
 export type ActivityLogEntry = components['schemas']['ActivityLogEntryDto']
 export type Activity = components['schemas']['ActivityDto']
-// Hand-written until the agent's api-types are next regenerated: GET /api/holds/emptied.
-export interface EmptiedHold {
-  gameId: string
-  gameName: string
-  saveDirectory: string
-  lastVersionId: string | null
-  heldAt: string
-}
+export type EmptiedHold = components['schemas']['EmptiedHoldDto']
