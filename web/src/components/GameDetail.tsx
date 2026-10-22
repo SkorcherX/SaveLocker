@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import type { GameSummary, Machine, Command, Conflict, Version, MachineSavePath, MachineScanCandidate } from '../types';
+import type { GameSummary, Machine, Command, Conflict, Version, VersionStats, MachineSavePath, MachineScanCandidate } from '../types';
 import { toTemplate, isTemplate } from '../savePathTemplate';
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
@@ -52,6 +52,8 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   const [preferredMachineDraft, setPreferredMachineDraft] = useState<string | null>(summary.game.preferredMachineId ?? null);
   const [policyForGameId, setPolicyForGameId] = useState(summary.game.id);
   const [savingPolicy, setSavingPolicy] = useState(false);
+  const [versionStats, setVersionStats] = useState<Record<string, VersionStats>>({});
+  const requestedStatsRef = useRef<Set<string>>(new Set());
 
   const { game, head, lease, hasOpenConflict } = summary;
 
@@ -98,6 +100,23 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   useEffect(() => {
     api.settings().then(s => setDefaultGlobs(s.defaultExcludeGlobs ?? [])).catch(() => {});
   }, []);
+
+  // File count / newest-mtime for the versions on either side of an open conflict — fetched
+  // lazily, only for versions actually shown in a conflict card. An archive never changes once
+  // uploaded, so requestedStatsRef stops the 15s poll (App.tsx) from re-fetching what it already
+  // has, even though `conflicts` is a fresh array reference every time.
+  useEffect(() => {
+    for (const c of conflicts) {
+      if (c.gameId !== game.id) continue;
+      for (const vid of [c.versionAId, c.versionBId]) {
+        if (requestedStatsRef.current.has(vid)) continue;
+        requestedStatsRef.current.add(vid);
+        api.versionStats(game.id, vid)
+          .then(stats => setVersionStats(prev => ({ ...prev, [vid]: stats })))
+          .catch(() => { requestedStatsRef.current.delete(vid); }); // best-effort — retry on the next poll
+      }
+    }
+  }, [conflicts, game.id]);
 
   async function handleSaveExcludes() {
     const patterns = excludeText.split('\n').map(s => s.trim()).filter(Boolean);
@@ -450,15 +469,22 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
             <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
               {[c.versionAId, c.versionBId].map(vid => {
                 const v = versions.find(x => x.id === vid);
+                const stats = versionStats[vid];
                 return (
                   <div key={vid} style={{ background: '#1E252A', border: '1px solid #4a2a2a', borderRadius: 5, padding: 8 }}>
                     <div style={{ fontWeight: 600, fontSize: 12 }}>
                       {v ? v.machineName : shortId(vid)}{vid === headId ? ' — current Latest' : ''}
                     </div>
-                    <div style={{ fontSize: 10.5, color: '#8b9aaa', fontFamily: "'JetBrains Mono', monospace", margin: '2px 0 7px' }}>
+                    <div style={{ fontSize: 10.5, color: '#8b9aaa', fontFamily: "'JetBrains Mono', monospace", margin: '2px 0' }}>
                       {v ? `${when(v.createdAt)} · ${fmtSize(v.size)}` : shortId(vid)}
                     </div>
-                    <div style={{ display: 'flex', gap: 5 }}>
+                    {stats && (
+                      <div style={{ fontSize: 10.5, color: '#8b9aaa', fontFamily: "'JetBrains Mono', monospace" }}>
+                        {stats.fileCount} file{stats.fileCount === 1 ? '' : 's'}
+                        {stats.newestFileWriteUtc ? ` · newest change ${when(stats.newestFileWriteUtc)}` : ''}
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', gap: 5, marginTop: 7 }}>
                       <button
                         onClick={() => handleResolveConflict(c.id, vid, false)}
                         style={{ padding: '4px 9px', background: '#129271', color: '#fff', border: 'none', borderRadius: 4, fontSize: 10.5, cursor: 'pointer' }}

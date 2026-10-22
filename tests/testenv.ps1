@@ -20,8 +20,21 @@ param(
     [string]$Command = 'status',
 
     # Never a released version number. A test build stamped with one compares equal to the real
-    # release forever, so the update channel can never move it (Gotchas.md).
-    [string]$Version = '0.5.10-test',
+    # release forever, so the update channel can never move it (Gotchas.md). Auto-derived from the
+    # latest release tag (patch bumped, "-test" appended) rather than hardcoded, so nobody has to
+    # remember to bump a fixed string after every release — a stale one silently reintroduces the
+    # exact bug this comment warns about. Falls back to a fixed placeholder if no v*.*.* tag is
+    # reachable at all (a shallow clone, or one with no tags fetched).
+    [string]$Version = $(
+        $tag = git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname 2>$null | Select-Object -First 1
+        if (-not $tag) {
+            '0.0.0-test'
+        } else {
+            $parts = $tag.TrimStart('v') -split '\.'
+            $parts[-1] = [string]([int]$parts[-1] + 1)
+            ($parts -join '.') + '-test'
+        }
+    ),
 
     [string]$StateRoot = $(if ($env:SAVELOCKER_TEST_ROOT) { $env:SAVELOCKER_TEST_ROOT }
                            else { Join-Path $env:LOCALAPPDATA 'SaveLocker-test' }),

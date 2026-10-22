@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.OpenApi;
 
 namespace SaveLocker.Agent;
 
@@ -33,6 +34,14 @@ public sealed class AgentApiServer : IDisposable
     // server is offering something newer" — and the only one anything may offer to install now.
     // Injected because Updater lives in Agent.Linux: Windows stages nothing and supplies nothing.
     private readonly Func<StagedUpdateInfo?> _stagedUpdate;
+    // Owned by the host so it outlives any single engine rebuild (a settings change replaces the
+    // engine; the activity feed a user is watching should not reset because of that).
+    private readonly SyncActivityTracker _activity;
+    // "Sync all" for the Overview page's button — same operation the tray menu offers, resolved
+    // against whichever engine and game list are current at the moment it is clicked.
+    private readonly Func<Task<string>> _syncAll;
+    // One sync at a time, however many surfaces are offering the button — see /api/sync.
+    private readonly SemaphoreSlim _syncGate = new(1, 1);
     private readonly string _uiRoot;
     private readonly LocalAuth _auth;
     // Lease warnings are persisted, not held in memory: the Linux launch wrapper is a separate
@@ -58,7 +67,9 @@ public sealed class AgentApiServer : IDisposable
         Func<LaunchCommandDto>? launchInfo = null,
         Action? onGamesChanged = null,
         Func<DeckyStatusDto>? deckyStatus = null,
-        Func<StagedUpdateInfo?>? stagedUpdate = null)
+        Func<StagedUpdateInfo?>? stagedUpdate = null,
+        SyncActivityTracker? activity = null,
+        Func<Task<string>>? syncAll = null)
     {
         _browser = new PathBrowser(browseRoots);
         Port = port;
@@ -75,6 +86,8 @@ public sealed class AgentApiServer : IDisposable
         _onGamesChanged = onGamesChanged;
         _getUpdateResult = getUpdateResult ?? (() => null);
         _stagedUpdate = stagedUpdate ?? (() => null);
+        _activity = activity ?? new SyncActivityTracker();
+        _syncAll = syncAll ?? (() => Task.FromResult("Not available."));
         _uiRoot = Path.Combine(AppContext.BaseDirectory, "agent-ui");
         _auth = LocalAuth.LoadOrCreate(config.ConfigPath);
         _leaseWarnings = LeaseWarningStore.For(config);
@@ -103,7 +116,25 @@ public sealed class AgentApiServer : IDisposable
 
         // No CORS policy on purpose: the bundled UI is same-origin, so nothing legitimate needs
         // one, and the previous AllowAnyOrigin let any web page read this API's responses.
-        builder.Services.AddOpenApi();
+        builder.Services.AddOpenApi(o =>
+        {
+            // .NET 10 emits OpenAPI 3.1, which hedges `long` as ["integer","string"] for a
+            // serializer that might fall back to a string — System.Text.Json never does. Left in,
+            // every byte-count field (ActivitySnapshotDto's progress) generates as `number | string`
+            // in agent-ui's types for a case that cannot occur. Same fix as the server's own
+            // AddOpenApi (Program.cs) — see its comment for the full reasoning.
+            o.AddSchemaTransformer((schema, _, _) =>
+            {
+                if (schema.Type is { } t
+                    && t.HasFlag(JsonSchemaType.String)
+                    && (t.HasFlag(JsonSchemaType.Integer) || t.HasFlag(JsonSchemaType.Number)))
+                {
+                    schema.Type = t & ~JsonSchemaType.String;
+                    schema.Pattern = null;
+                }
+                return Task.CompletedTask;
+            });
+        });
 
         _app = builder.Build();
         _app.Use(GuardAsync);
@@ -305,9 +336,16 @@ public sealed class AgentApiServer : IDisposable
             }
         });
 
+        // HasSteamCloud is decided once, at enrollment (Enroller.EnrollAsync, from the candidate's
+        // own ScanCandidate.HasSteamCloud) - not re-derived here from a name-only manifest lookup.
+        // That lookup answers "does a Steam release of this TITLE have Steam Cloud", which is true
+        // for plenty of titles this machine tracks a Heroic (Epic/GOG) install of, not "is THIS
+        // install a Steam one" - see TrackedGame.HasSteamCloud's own doc comment.
         app.MapGet("/api/games", () => _config.Games
             .Select(g => new TrackedGameDto(
-                g.GameId, g.Name, g.SaveDirectory, g.ProcessNames.ToArray()))
+                g.GameId, g.Name, g.SaveDirectory, g.ProcessNames.ToArray(), g.Alias,
+                SteamShortcuts.UnsignedAppId(g.ResolveSteamAppId()), g.PullBeforeLaunchEnabled,
+                g.HasSteamCloud))
             .ToArray()).Produces<TrackedGameDto[]>();
 
         // Editing the process names is the other half of WA-08: discovery can only know them for a
@@ -330,6 +368,29 @@ public sealed class AgentApiServer : IDisposable
 
             _config.Save();
             _onGamesChanged?.Invoke();
+            return TypedResults.Ok(new OkResponse());
+        }).Produces<OkResponse>();
+
+        // The Decky plugin's per-game alias editor: a manual override for name-based matching, for
+        // when this agent has not resolved a Steam AppID for the game (see TrackedGame.Alias). Goes
+        // through SaveGameAlias rather than a plain mutate + Save() like /processes above — unlike
+        // that route, this one can be hit by the Decky plugin's HTTP request on one thread at the
+        // same moment a folder watcher on another thread calls its own Save(), and only the re-read-
+        // under-lock, single-field write actually survives that race. Silently OK on an unknown id,
+        // same as /processes — SaveGameAlias itself no-ops when the id isn't found on disk.
+        app.MapPost("/api/games/{id:guid}/alias", (Guid id, AliasRequest body) =>
+        {
+            _config.SaveGameAlias(id, body.Alias);
+            return TypedResults.Ok(new OkResponse());
+        }).Produces<OkResponse>();
+
+        // The Decky plugin's per-game Gaming Mode pull toggle. Server-side for the same reason the
+        // alias route above is: it is the one place every machine syncing this game (and a Decky
+        // plugin reinstall on this one) can agree on the setting, rather than it living only in that
+        // plugin's own local settings file. `enabled: null` clears the override.
+        app.MapPost("/api/games/{id:guid}/pull-before-launch", (Guid id, PullBeforeLaunchRequest body) =>
+        {
+            _config.SaveGamePullBeforeLaunch(id, body.Enabled);
             return TypedResults.Ok(new OkResponse());
         }).Produces<OkResponse>();
 
@@ -512,6 +573,38 @@ public sealed class AgentApiServer : IDisposable
             _config.Save();
             return TypedResults.Ok(new OkResponse());
         }).Produces<OkResponse>();
+
+        // What the Overview page's activity card polls: what is syncing right now (with byte
+        // progress for a push) and a short rolling history of what just happened. Cheap — an
+        // in-memory read, no I/O — so the UI can poll it far more often than the 10 s /api/state tick.
+        app.MapGet("/api/activity", () =>
+        {
+            var current = _activity.Current();
+            var recent = _activity.Recent()
+                .Select(e => new ActivityLogEntryDto(e.TimestampUtc, e.Message))
+                .ToArray();
+            return new ActivityDto(
+                new ActivitySnapshotDto(
+                    current.GameName, current.Phase.ToString(), current.BytesDone, current.BytesTotal,
+                    current.StartedAtUtc),
+                recent);
+        }).Produces<ActivityDto>();
+
+        // The Overview page's "Sync now" button: pull then push every tracked game, same as the tray
+        // menu's "Sync All". Fire-and-poll from the UI's side — the response is a summary line, and
+        // progress for whichever game is mid-sync shows up on the next /api/activity poll regardless.
+        //
+        // Single-flight: this route holds its request open for the whole sync, and there are now
+        // three buttons wired to it (the browser card, Game Mode, and whatever else asks). Two
+        // presses used to start two overlapping SyncAllAsync runs racing each other's leases; the
+        // second caller is now told what is already happening instead.
+        app.MapPost("/api/sync", async () =>
+        {
+            if (!await _syncGate.WaitAsync(0))
+                return new SyncNowResponse("A sync is already running — watch the activity feed.");
+            try { return new SyncNowResponse(await _syncAll()); }
+            finally { _syncGate.Release(); }
+        }).Produces<SyncNowResponse>();
 
         app.MapGet("/api/agent-version", () =>
         {
@@ -700,9 +793,42 @@ public sealed record CandidateDto(
 /// cannot detect it</b> — no lease, no exit push, and no refusal to pull under a live game — so the
 /// UI must say so rather than imply automatic sync is working. WA-08.
 /// </param>
-public sealed record TrackedGameDto(Guid Id, string Name, string Path, string[] ProcessNames);
+/// <param name="Alias">
+/// The manual name-match override, or null when none is set — see <see cref="TrackedGame.Alias"/>.
+/// </param>
+/// <param name="SteamAppId">
+/// This game's resolved compatdata-prefix AppID, or null when it has none — the same resolution
+/// <see cref="TrackedGame.ResolveSteamAppId"/> and the launch-options rows use. <b>Not</b> a "is this
+/// a Steam Store game" signal: a non-Steam shortcut run under Proton gets its own compatdata prefix
+/// too, so it resolves a non-null value here despite never having Steam Cloud. Use
+/// <paramref name="HasSteamCloud"/> for that question instead.
+/// </param>
+/// <param name="PullBeforeLaunchEnabled">
+/// The Gaming Mode pull-before-launch override, or null when none is set — see
+/// <see cref="TrackedGame.PullBeforeLaunchEnabled"/>.
+/// </param>
+/// <param name="HasSteamCloud">
+/// Whether this game was enrolled as a genuinely Steam-sourced install, or <b>null when nothing has
+/// established that</b> — see <see cref="TrackedGame.HasSteamCloud"/>, decided once at enrollment,
+/// not a live lookup. A Decky plugin needs this, not <paramref name="SteamAppId"/>, to decide
+/// whether its own pre-launch pull would race Steam's own Cloud sync — an AppID alone can't tell a
+/// real Steam install apart from a non-Steam shortcut run under Proton, which gets a compatdata
+/// prefix too. Null means "unknown, use your own heuristic", not "no Steam Cloud".
+/// </param>
+/// <remarks>
+/// <see cref="Id"/> and <see cref="Path"/> keep those names, rather than the GameId/SaveDirectory
+/// the config-side properties use, because this record IS the <c>/api/games</c> wire contract and
+/// the Decky plugin reading it ships from its own repo on its own update channel. Renaming them
+/// would break every already-installed plugin the moment an agent updated ahead of it, for nothing
+/// — the four fields after them are additive, so an older reader keeps working untouched.
+/// </remarks>
+public sealed record TrackedGameDto(
+    Guid Id, string Name, string Path, string[] ProcessNames, string? Alias,
+    uint? SteamAppId, bool? PullBeforeLaunchEnabled, bool? HasSteamCloud);
 
 public sealed record ProcessNamesRequest(string[]? ProcessNames);
+public sealed record AliasRequest(string? Alias);
+public sealed record PullBeforeLaunchRequest(bool? Enabled);
 public sealed record AgentConfigDto(
     string ServerUrl,
     string MachineName,
@@ -813,3 +939,16 @@ public sealed record EnrollResponse(int Enrolled, int Skipped);
 public sealed record RegisterResponse(string MachineName);
 public sealed record FolderResponse(string? Path);
 public sealed record SuggestedPathDto(string? Path);
+
+/// <param name="GameName">Null when nothing is syncing right now.</param>
+/// <param name="Phase">One of "Idle", "Pulling", "Settling", "Pushing" — a plain string rather than
+/// a typed enum so the local API's slim JSON pipeline needs no enum-converter configuration for it,
+/// matching every other DTO in this file.</param>
+/// <param name="BytesDone">Meaningful only during "Pushing" — see the chunk loop in
+/// <see cref="ApiClient.UploadAsync"/>, the only place that knows progress mid-transfer. Zero for
+/// every other phase.</param>
+public sealed record ActivitySnapshotDto(
+    string? GameName, string Phase, long BytesDone, long BytesTotal, DateTime? StartedAtUtc);
+public sealed record ActivityLogEntryDto(DateTime TimestampUtc, string Message);
+public sealed record ActivityDto(ActivitySnapshotDto Current, ActivityLogEntryDto[] Recent);
+public sealed record SyncNowResponse(string Message);

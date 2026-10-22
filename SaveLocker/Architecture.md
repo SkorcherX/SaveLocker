@@ -128,11 +128,34 @@ guarded pull (safe: it short-circuits before any file write when content already
 use the CLI (`savelocker pull`, `force: false` by default) rather than the console's Pull button,
 which sends `force: true` and bypasses the unpushed-changes guard.
 
+## Per-file delta upload
+A normal push only sends the bytes of files that actually changed, instead of re-zipping and
+re-uploading the whole save folder — the payoff is real for a game that keeps many largely-static
+per-slot saves (Cyberpunk 2077, Fallout: New Vegas), where one changed slot used to cost a full
+re-upload of every other unchanged one too. `SaveArchive.ComputeManifest` gives the agent a
+per-file `(path, sha256, size)` list; `POST /upload/begin` hands it to the server, which diffs it
+against a stored `SaveVersionFile` manifest for its *current* head (fetched fresh, not the agent's
+memory of its own last push) and answers with exactly which paths need fresh bytes. The server then
+reconstructs the new version's archive by copy-forwarding every unchanged entry straight from the
+head's own zip and taking fresh bytes only for what changed — one complete zip per version on disk,
+same as before, nothing about restore/download/pruning changes. See **API Reference** →
+*Sync* for the wire shape and **Decisions.md** (2026-08-22) for why copy-forward was chosen over a
+content-addressable store, and for the fast-forward-only scope boundary (`force`, a diverged push,
+a first-ever push, and a head with no stored manifest yet all keep the plain full-archive path
+unconditionally — a head self-heals a missing manifest the moment one push completes with one).
+Every push that carries a manifest is audited as `upload.delta` (`"N of M file(s) needed fresh
+bytes"`), which doubles as the answer to "why did a push I barely touched anything for still make a
+new version" — see `tests/run-delta-upload-tests.ps1` for the end-to-end proof, including a
+deliberately hostile delta payload that must be refused.
+
 ## Data model (SQLite via EF Core)
 EF-managed entities: `Machine`, `Game` (holds `HeadVersionId`), `SaveVersion` (parent chain +
-`ContentHash`; `Protected` exempts a snapshot from automatic retention), `Lease` (one per game,
-unique index), `ConflictFlag`, `AuditLog`, `AgentCommand`, `AppSetting` (key/value store),
-`MachineSavePath` (composite key `(MachineId, GameId)` → a machine's stored save folder for a game).
+`ContentHash`; `Protected` exempts a snapshot from automatic retention), `SaveVersionFile`
+(per-version per-file `(path, sha256, size)` baseline for the delta-upload diff above — cascades
+with its `SaveVersion`, and a version with no rows here just has no stored baseline yet), `Lease`
+(one per game, unique index), `ConflictFlag`, `AuditLog`, `AgentCommand`, `AppSetting` (key/value
+store), `MachineSavePath` (composite key `(MachineId, GameId)` → a machine's stored save folder for
+a game).
 
 > **"Latest" = the head.** `Game.HeadVersionId` is the authoritative version agents pull; the dashboard labels it **Latest**; the admin action to set it is **"Set as Latest"**.
 

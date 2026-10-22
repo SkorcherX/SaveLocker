@@ -440,6 +440,71 @@ public sealed class AgentConfig
         LastSyncTime = onDisk.LastSyncTime;
     }
 
+    /// <summary>
+    /// Persist a single-field change to one game without clobbering concurrent changes to anything
+    /// else, then mirror it onto our own in-memory copy.
+    ///
+    /// Same re-read-under-lock shape as <see cref="SaveGameSyncState"/>, and for the same reason:
+    /// the local API handler that calls this can run concurrently with a folder watcher's own
+    /// <see cref="Save"/> on another thread of the same daemon, or with the launch wrapper's separate
+    /// process. A plain mutate-then-<see cref="Save"/> would risk either one losing the other's write.
+    ///
+    /// <paramref name="apply"/> runs against the entry read back from disk AND against our own, so a
+    /// later plain <see cref="Save"/> from this process cannot push the stale (pre-write) value back
+    /// over it — the same reasoning <see cref="SaveGameSyncState"/> applies to its own fields. It must
+    /// therefore be a plain single-field write that does not read the entry it is handed, since the
+    /// two entries it runs against are different objects. No-op when the game is gone or never here.
+    /// </summary>
+    private void MutateGameUnderLock(Guid gameId, Action<TrackedGame> apply)
+    {
+        using var guard = AgentStateLock.Acquire("config", StateDir);
+
+        AgentConfig onDisk;
+        try
+        {
+            onDisk = File.Exists(ConfigPath)
+                ? JsonSerializer.Deserialize<AgentConfig>(File.ReadAllText(ConfigPath), JsonOpts) ?? this
+                : this;
+        }
+        catch
+        {
+            // Unreadable on disk — our in-memory copy is the best truth available.
+            onDisk = this;
+        }
+        onDisk.ConfigPath = ConfigPath;
+
+        var target = onDisk.Games.FirstOrDefault(g => g.GameId == gameId);
+        if (target is null) return; // Nothing to update — the game is gone or was never here.
+
+        apply(target);
+
+        AtomicFile.WriteAllText(ConfigPath, JsonSerializer.Serialize(onDisk, JsonOpts),
+            restrictPermissions: true);
+
+        // ReferenceEquals, not an unconditional second apply: the catch above can leave onDisk as
+        // `this`, in which case target and mine are the same object and it has already been applied.
+        var mine = Games.FirstOrDefault(g => g.GameId == gameId);
+        if (mine is not null && !ReferenceEquals(mine, target)) apply(mine);
+    }
+
+    /// <summary>
+    /// Persist one game's alias override without clobbering concurrent changes to anything else —
+    /// see <see cref="MutateGameUnderLock"/> for why it goes through the lock rather than a plain
+    /// mutate-then-<see cref="Save"/>.
+    /// </summary>
+    public void SaveGameAlias(Guid gameId, string? alias)
+    {
+        var trimmed = string.IsNullOrWhiteSpace(alias) ? null : alias.Trim();
+        MutateGameUnderLock(gameId, g => g.Alias = trimmed);
+    }
+
+    /// <summary>
+    /// Persist one game's pull-before-launch override without clobbering concurrent changes to
+    /// anything else — see <see cref="MutateGameUnderLock"/>.
+    /// </summary>
+    public void SaveGamePullBeforeLaunch(Guid gameId, bool? enabled) =>
+        MutateGameUnderLock(gameId, g => g.PullBeforeLaunchEnabled = enabled);
+
     public TrackedGame? FindGame(string name) =>
         Games.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
 }
@@ -450,6 +515,25 @@ public sealed class TrackedGame
     public Guid GameId { get; set; }
     public string Name { get; set; } = "";
     public string? ManifestKey { get; set; }
+    /// <summary>
+    /// A manual override for the name this game is matched against outside SaveLocker's own naming —
+    /// today, only Steam's own display name for a game whose Steam AppID this agent has not resolved
+    /// (see <see cref="ResolveSteamAppId"/>), so a Decky plugin's Gaming-Mode launch detection has
+    /// nothing to match on except a name. Null means "no override": match on <see cref="Name"/>
+    /// itself. Only ever written by a Decky plugin, via the local API's alias route — this agent has
+    /// no UI of its own to set it from.
+    /// </summary>
+    public string? Alias { get; set; }
+    /// <summary>
+    /// Whether Gaming Mode's pre-launch pull should run for this game — set only by a Decky plugin,
+    /// via the local API's pull-before-launch route. Null means "no override": the plugin computes
+    /// its own default (off for a game with a resolved <see cref="SteamAppId"/>, so it never fights
+    /// Steam's own Cloud sync for an ordinary Steam library game; on otherwise). Kept here rather than
+    /// in the plugin's own local settings file for the same reason <see cref="Alias"/> is — this is
+    /// the one place a Deck's plugin and every other machine syncing this game can agree on it, and it
+    /// survives a plugin reinstall or a settings-file reset that would otherwise silently lose it.
+    /// </summary>
+    public bool? PullBeforeLaunchEnabled { get; set; }
     /// <summary>The local save directory to archive/restore.</summary>
     public string SaveDirectory { get; set; } = "";
     /// <summary>Process names (without .exe) that, when running, mean the game is in use.</summary>
@@ -460,6 +544,31 @@ public sealed class TrackedGame
     /// matches on it to find the game for the prefix Steam handed it. Null on Windows.
     /// </summary>
     public string? SteamAppId { get; set; }
+    /// <summary>
+    /// Whether this game was actually enrolled AS a Steam install — decided once, at enrollment, from
+    /// the candidate's own <see cref="ScanCandidate.HasSteamCloud"/> (<c>GameScanner</c> only sets
+    /// that true for a candidate discovered as an installed or shortcut Steam game with a confirmed
+    /// manifest Steam Cloud entry; every other source — Heroic, a bare save-root match — gets false
+    /// regardless of what the manifest says about a title's Steam SKU). Deliberately NOT re-derived
+    /// later from a name-only manifest lookup: the manifest answers "does a Steam release of this
+    /// TITLE have Steam Cloud", which is true for plenty of games this machine tracks a Heroic (Epic/
+    /// GOG) install of — Fez, resolved through Heroic, is exactly that case, and a title-only lookup
+    /// wrongly called it a Steam Cloud game. Only ever set true for a genuinely Steam-sourced install.
+    /// A Decky plugin reads this to default its own Gaming Mode pre-launch pull off for a Steam
+    /// title (avoiding a race with Steam's own Cloud sync) and on for everything else.
+    ///
+    /// <para>
+    /// <b>Nullable, and null means "nobody has established this"</b> — not "no Steam Cloud". Only
+    /// the enrollment path has a candidate to decide from; a game the poller adopts from the server
+    /// and a <c>add-game</c> from the CLI have no such signal, and neither does any entry already in
+    /// <c>config.json</c> from before this field existed. A plain <c>bool</c> would silently read all
+    /// three as false — asserting "definitely not a Steam Cloud game" for what is very often exactly
+    /// one, on a Deck where adoption is how games usually arrive — so a consumer would default its
+    /// pre-launch pull ON and race Steam's own Cloud sync. Null instead tells that consumer to fall
+    /// back to its own heuristic rather than trust a value nothing ever set.
+    /// </para>
+    /// </summary>
+    public bool? HasSteamCloud { get; set; }
     /// <summary>
     /// The game's install directory on this machine — what the Ludusavi manifest calls
     /// <c>&lt;base&gt;</c>, and the placeholder its save paths use more than any other. Recorded at

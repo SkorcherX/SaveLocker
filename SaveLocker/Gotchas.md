@@ -219,6 +219,36 @@ behave in ways that look like bugs.
   a typo silently replaces a working key. **Art fetches keep their cacheable URLs on purpose** — a
   cached image is the point there.
 
+## Hosting / network
+- **A Cloudflare-proxied hostname kills any single request past ~100s — the free/pro edge timeout is
+  fixed and not configurable.** Diagnosed 2026-08-18 (`tasks/`-less session, see `logs/`): Cyberpunk
+  2077's save archive (100+ MB — one autosave per few minutes played, each several MB) took longer
+  than that to reach the origin over a slow home upload link (~200 KB/s measured), and Cloudflare cut
+  the connection mid-transfer every single time. The edge answers HTTP 524, but the .NET agent never
+  sees that status — it only sees the TCP reset while it is still writing the request body, which
+  surfaces as `HttpRequestException: Error while copying content to a stream.` (or, for a request that
+  had not started writing yet, `SocketException 10054`/a failed TLS handshake). Neither message names
+  Cloudflare or a timeout, so this reads exactly like a generic "server unreachable" fault. Confirmed
+  with a direct `curl` upload that bypassed the .NET agent entirely: identical 524 at the identical
+  ~100s mark, which is what ruled out an agent-side bug before writing one line of the fix.
+  <br>The fix is chunked upload (`POST /upload/begin` → `PUT /upload/{id}/chunk?offset=` →
+  `POST /upload/{id}/complete`, driven from `ApiClient.UploadAsync`): no single request ever carries
+  more than `UploadChunkBytes` (4 MiB), which cannot take anywhere near 100s even on a very slow link.
+  The old single-shot route is untouched and the client falls back to it on a 404 from Begin, so an
+  agent updated ahead of its server (the two redeploy separately) degrades to today's behaviour rather
+  than failing outright. **This still needs the SERVER redeployed** — an already-updated agent talking
+  to an old server just uses the fallback and hits the exact same 524 it always did for a save this
+  large; only a server that has the new routes actually fixes the upload.
+  <br>A DNS-only (un-proxied) hostname would also fix this with zero code, at the cost of losing
+  Cloudflare's WAF/DDoS masking for that record — a real alternative if a large save ever exceeds what
+  chunking can practically cover.
+- **A generic "server unreachable" / connection-reset agent log line can be a proxy timeout, not a
+  real network fault.** `SyncEngine`'s catch-without-a-status-code branch logs only `ex.Message`, not
+  the inner exception, so the log itself gives no hint of *why* the connection dropped. If it recurs
+  for one large or slow-to-sync game specifically and not others, check archive size against measured
+  upload bandwidth against the reverse proxy's fixed timeout before assuming it is the agent's or the
+  server's own code.
+
 ## Testing
 - **`systemd-analyze security` misreads a `--user` unit — do not act on its score.** Run against
   `savelocker.service` on a Deck (2026-08-15) it reports **8.5 EXPOSED** and, top of the list,

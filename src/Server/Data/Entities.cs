@@ -90,6 +90,25 @@ public class SaveVersion
     public string ArchivePath { get; set; } = "";
 }
 
+/// <summary>
+/// One file within a <see cref="SaveVersion"/>'s archive, as it existed at that version — the
+/// per-file counterpart to <see cref="SaveVersion.ContentHash"/>. Populated whenever the uploading
+/// agent supplied its full manifest (delta-capable pushes; see <c>BeginUploadRequest.Files</c>), so
+/// the NEXT push against this version as a base can diff per file instead of re-sending everything.
+/// A version with no rows here simply has no stored baseline yet — the next push to it falls back
+/// to a full archive, which self-heals the gap once it completes with a manifest.
+/// </summary>
+public class SaveVersionFile
+{
+    public Guid VersionId { get; set; }
+    public SaveVersion? Version { get; set; }
+
+    /// <summary>Forward-slash relative path, same convention as <see cref="SaveVersion.ArchivePath"/>.</summary>
+    public string Path { get; set; } = "";
+    public string Sha256 { get; set; } = "";
+    public long Size { get; set; }
+}
+
 /// <summary>An exclusive checkout of a game's saves by one machine.</summary>
 public class Lease
 {

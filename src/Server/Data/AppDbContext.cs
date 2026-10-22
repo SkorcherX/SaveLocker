@@ -9,6 +9,7 @@ public class AppDbContext : DbContext
     public DbSet<Machine> Machines => Set<Machine>();
     public DbSet<Game> Games => Set<Game>();
     public DbSet<SaveVersion> SaveVersions => Set<SaveVersion>();
+    public DbSet<SaveVersionFile> SaveVersionFiles => Set<SaveVersionFile>();
     public DbSet<Lease> Leases => Set<Lease>();
     public DbSet<ConflictFlag> Conflicts => Set<ConflictFlag>();
     public DbSet<AgentCommand> AgentCommands => Set<AgentCommand>();
@@ -35,6 +36,16 @@ public class AppDbContext : DbContext
             .HasOne(v => v.Machine).WithMany()
             .HasForeignKey(v => v.MachineId)
             .OnDelete(DeleteBehavior.SetNull);
+
+        // One manifest row per (version, path); the lookup is always "give me this version's whole
+        // manifest" or "does this version have one at all", both served by the PK/FK index alone.
+        // Cascades with the version: a pruned/deleted SaveVersion's per-file baseline is meaningless
+        // once the archive it describes is gone.
+        b.Entity<SaveVersionFile>().HasKey(f => new { f.VersionId, f.Path });
+        b.Entity<SaveVersionFile>()
+            .HasOne(f => f.Version).WithMany()
+            .HasForeignKey(f => f.VersionId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         b.Entity<ConflictFlag>().HasIndex(c => new { c.GameId, c.Status });
         b.Entity<AuditLog>().HasIndex(a => a.Timestamp);

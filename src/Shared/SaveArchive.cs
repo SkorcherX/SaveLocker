@@ -55,43 +55,183 @@ public static class SaveArchive
         return Convert.ToHexString(sha.ComputeHash(fs)).ToLowerInvariant();
     }
 
+    /// <summary>File count and the newest per-file write time inside a save archive — read
+    /// straight from the zip's own entry metadata, never re-extracted or re-hashed.
+    /// <see cref="CreateArchive"/> has always stamped <c>entry.LastWriteTime</c> from the source
+    /// file, so this works on archives written long before this method existed, not just future
+    /// ones. Meant to help tell two conflicting versions apart beyond a bare size and upload time —
+    /// by a human in the console today, and by whatever decides conflicts automatically later.</summary>
+    public readonly record struct ArchiveStats(int FileCount, DateTime? NewestFileWriteUtc);
+
+    /// <summary>Read <see cref="ArchiveStats"/> from an archive already on disk.</summary>
+    public static ArchiveStats GetArchiveStats(string zipPath)
+    {
+        using var zip = ZipFile.OpenRead(zipPath);
+        var count = 0;
+        DateTime? newest = null;
+        foreach (var entry in zip.Entries)
+        {
+            if (string.IsNullOrEmpty(entry.Name)) continue; // directory entry, no content
+            count++;
+            // entry.LastWriteTime is a DOS-format zip timestamp with no embedded offset — .UtcDateTime
+            // would reinterpret the stored wall-clock value using THIS process's local timezone, which
+            // is wrong whenever the server isn't in the same timezone the agent was in at upload time.
+            // Take the wall-clock value as written and treat it as UTC instead, so the result is at
+            // least deterministic and doesn't additionally depend on the server's configured timezone.
+            var mtime = DateTime.SpecifyKind(entry.LastWriteTime.DateTime, DateTimeKind.Utc);
+            if (newest is null || mtime > newest) newest = mtime;
+        }
+        return new ArchiveStats(count, newest);
+    }
+
     /// <summary>
     /// Zip a save directory into <paramref name="destinationZip"/>, skipping files that
-    /// match <paramref name="excludeGlobs"/>. Returns the content hash of the archived
-    /// contents (NOT of the zip bytes) — computed over the same filtered file set.
+    /// match <paramref name="excludeGlobs"/>.
+    /// <para>
+    /// Returns nothing on purpose. Every caller already holds the content hash before it asks for an
+    /// archive — <see cref="ComputeManifest"/> hands back the manifest and the aggregate hash from
+    /// one pass over the bytes — so hashing them again here would be a second SHA-256 over the whole
+    /// save folder for a value no call site reads.
+    /// </para>
     /// </summary>
-    public static string CreateArchive(string sourceDir, string destinationZip, IEnumerable<string>? excludeGlobs = null)
+    public static void CreateArchive(string sourceDir, string destinationZip, IEnumerable<string>? excludeGlobs = null)
     {
         if (!Directory.Exists(sourceDir))
             throw new DirectoryNotFoundException($"Save directory not found: {sourceDir}");
 
+        PrepareDestination(destinationZip);
+
+        // Add files individually (not ZipFile.CreateFromDirectory) so excluded files are skipped.
+        using var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create);
+        foreach (var rel in EnumerateRelativeFiles(sourceDir, excludeGlobs))
+            AddEntry(zip, sourceDir, rel);
+    }
+
+    /// <summary>
+    /// Zip only <paramref name="includePaths"/> (relative, forward-slash paths as returned by
+    /// <see cref="ListFiles"/>/<see cref="ComputeManifest"/>) out of <paramref name="sourceDir"/> —
+    /// the delta-upload payload, carrying just the files a per-file diff found changed. An empty
+    /// list produces a valid, empty zip (e.g. a push whose only change is a deletion).
+    /// <para>
+    /// Unlike every other archive path here, these paths did NOT come from enumerating the disk —
+    /// the SERVER names them. Containment is therefore checked per path: nothing that resolves
+    /// outside the save folder may enter an upload, however it got into the list. The caller is
+    /// expected to have already refused any path it did not itself declare; this is the floor under
+    /// that, so a miss there cannot become an arbitrary file read.
+    /// </para>
+    /// </summary>
+    public static void CreateArchiveSubset(string sourceDir, string destinationZip, IEnumerable<string> includePaths)
+    {
+        PrepareDestination(destinationZip);
+
+        var rootFull = Path.GetFullPath(sourceDir);
+        using var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create);
+        foreach (var rel in includePaths)
+        {
+            var full = Path.GetFullPath(
+                Path.Combine(rootFull, rel.Replace('/', Path.DirectorySeparatorChar)));
+            if (!full.StartsWith(rootFull + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                throw new UnsafeArchiveException(
+                    $"Refusing to archive '{rel}': it resolves outside the save folder.");
+            AddEntry(zip, sourceDir, rel);
+        }
+    }
+
+    /// <summary>
+    /// Per-file identity of every file <see cref="HashDirectory"/>/<see cref="CreateArchive"/> would
+    /// act on — the same ordered, exclude-filtered file set, each with its own SHA-256 and size —
+    /// together with the aggregate content hash <see cref="HashDirectory"/> would return for that
+    /// same set, chained in the same order out of the SAME pass over the bytes.
+    /// <para>
+    /// Both answers come from one read of the save folder. Computing them separately read every file
+    /// twice, which on the multi-gigabyte saves a per-file delta exists for is the dominant cost of
+    /// a push — larger than the transfer the delta saves.
+    /// </para>
+    /// </summary>
+    public static (IReadOnlyList<FileManifestEntry> Files, string ContentHash) ComputeManifest(
+        string sourceDir, IEnumerable<string>? excludeGlobs = null)
+    {
+        if (!Directory.Exists(sourceDir))
+            return (Array.Empty<FileManifestEntry>(), Convert.ToHexString(new byte[32]).ToLowerInvariant());
+
+        using var aggregate = SHA256.Create();
+        var files = EnumerateRelativeFiles(sourceDir, excludeGlobs);
+        var result = new List<FileManifestEntry>(files.Count);
+        var buffer = new byte[81920];
+
+        foreach (var rel in files)
+        {
+            // Mix in the relative path exactly as HashDirectory does, so the two agree.
+            var pathBytes = Encoding.UTF8.GetBytes(rel + "\n");
+            aggregate.TransformBlock(pathBytes, 0, pathBytes.Length, null, 0);
+
+            var full = Path.Combine(sourceDir, rel.Replace('/', Path.DirectorySeparatorChar));
+            using var perFile = SHA256.Create();
+            using var fs = OpenShared(full);
+
+            // Size is counted from the bytes actually read rather than taken from FileInfo, so a
+            // file's declared size can never disagree with the hash beside it.
+            long size = 0;
+            int read;
+            while ((read = fs.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                size += read;
+                aggregate.TransformBlock(buffer, 0, read, null, 0);
+                perFile.TransformBlock(buffer, 0, read, null, 0);
+            }
+            perFile.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            result.Add(new FileManifestEntry(
+                rel, Convert.ToHexString(perFile.Hash!).ToLowerInvariant(), size));
+        }
+
+        aggregate.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+        return (result, Convert.ToHexString(aggregate.Hash!).ToLowerInvariant());
+    }
+
+    private static void PrepareDestination(string destinationZip)
+    {
         var dir = Path.GetDirectoryName(destinationZip);
         if (!string.IsNullOrEmpty(dir))
             Directory.CreateDirectory(dir);
-
         if (File.Exists(destinationZip))
             File.Delete(destinationZip);
-
-        // Add files individually (not ZipFile.CreateFromDirectory) so excluded files are skipped.
-        var files = EnumerateRelativeFiles(sourceDir, excludeGlobs);
-        using (var zip = ZipFile.Open(destinationZip, ZipArchiveMode.Create))
-        {
-            foreach (var rel in files)
-            {
-                var full = Path.Combine(sourceDir, rel.Replace('/', Path.DirectorySeparatorChar));
-                var entry = zip.CreateEntry(rel, CompressionLevel.Optimal);
-                entry.LastWriteTime = File.GetLastWriteTime(full);
-
-                // CreateEntryFromFile opens with FileShare.Read, which throws when a game still
-                // holds the save open. Read with a permissive share instead — the agent's settle
-                // gate is what guarantees the writer has actually finished.
-                using var src = OpenShared(full);
-                using var dst = entry.Open();
-                src.CopyTo(dst);
-            }
-        }
-        return HashDirectory(sourceDir, excludeGlobs);
     }
+
+    /// <summary>
+    /// Add one file to <paramref name="zip"/> under its relative path.
+    /// <para>
+    /// The source file is OPENED FIRST, before the entry exists, and the order is load-bearing. A
+    /// file that vanished between being listed and being archived makes
+    /// <see cref="File.GetLastWriteTime"/> return 1601-01-01 rather than throwing, and
+    /// <c>ZipArchiveEntry.LastWriteTime</c> rejects anything before 1980 with an
+    /// ArgumentOutOfRangeException — an exception no caller up the stack expects, standing in for
+    /// the FileNotFoundException that would have said what actually happened.
+    /// </para>
+    /// </summary>
+    private static void AddEntry(ZipArchive zip, string sourceDir, string rel)
+    {
+        var full = Path.Combine(sourceDir, rel.Replace('/', Path.DirectorySeparatorChar));
+
+        // CreateEntryFromFile opens with FileShare.Read, which throws when a game still holds the
+        // save open. Read with a permissive share instead — the agent's settle gate is what
+        // guarantees the writer has actually finished.
+        using var src = OpenShared(full);
+        var entry = zip.CreateEntry(rel, CompressionLevel.Optimal);
+        entry.LastWriteTime = ZipSafeTimestamp(File.GetLastWriteTime(full));
+        using var dst = entry.Open();
+        src.CopyTo(dst);
+    }
+
+    /// <summary>
+    /// Zip's DOS-era timestamp field cannot represent anything outside 1980..2107, and the setter
+    /// throws rather than clamping. Wine prefixes and restored-from-backup trees do carry epoch-era
+    /// mtimes, and a save is not worth refusing over the timestamp we would have written beside it.
+    /// </summary>
+    private static DateTime ZipSafeTimestamp(DateTime value) =>
+        value < ZipMinTime ? ZipMinTime : value > ZipMaxTime ? ZipMaxTime : value;
+
+    private static readonly DateTime ZipMinTime = new(1980, 1, 1, 0, 0, 0);
+    private static readonly DateTime ZipMaxTime = new(2107, 12, 31, 23, 59, 58);
 
     /// <summary>
     /// Open a file for reading while tolerating other processes that hold it open for

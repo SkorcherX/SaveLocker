@@ -1,4 +1,4 @@
-# Server / console bug-bounty regressions (tasks/Console-BugBounty.md).
+﻿# Server / console bug-bounty regressions (tasks/Console-BugBounty.md).
 #
 # Isolated-state harness: it owns its port, its SQLite DB, and its archive store, and it starts and
 # stops every server it uses. It never touches the :5179 dev server.
@@ -1210,6 +1210,214 @@ try {
     Check "and it is online"                                       ($afterBeat.online -eq $true)
 
     Remove-Item Env:SteamGridDb__ApiKey -ErrorAction SilentlyContinue
+    Stop-TestServer $srv
+
+    # =====================================================================================
+    # CS-12: the chunked upload protocol
+    # =====================================================================================
+    # The single-shot route above is all-or-nothing: ArchiveStore.SaveAsync deletes its staging file
+    # on any failure, so a body that stopped early was simply never published. The chunked route
+    # gives that up by construction - the archive is assembled across many requests and only the
+    # last one says it is finished - so every guarantee it still has to offer needs asserting here
+    # rather than inferred from the single-shot section.
+    #
+    # The sharp one is a chunk that faults PART-WAY through. Its bytes used to stay on disk and stay
+    # counted, so the client's retry of that same chunk arrived BEHIND the session, was read as a
+    # replay of one that had already succeeded, and was answered 200 without writing anything - the
+    # rest of that chunk silently gone. On the last chunk that published a truncated zip under the
+    # content hash of a complete one, which every other machine then pulled believing it was intact.
+    Write-Host ""
+    Write-Host "==== CS-12: chunked uploads assemble exactly, or refuse ===="
+
+    $env:Storage__DbPath      = Join-Path $scratch "chunked.db"
+    $env:Storage__ArchiveRoot = Join-Path $scratch "chunk-archives"
+    $env:Storage__MaxUploadMb = "2"
+    $chunkRoot = $env:Storage__ArchiveRoot
+    New-Item -ItemType Directory -Force $chunkRoot | Out-Null
+    $srv = Start-TestServer $serverDll "chunked"
+
+    $creg = Invoke-RestMethod "$url/api/machines/register" -Method Post -ContentType "application/json" `
+        -Body (@{ name = "ChunkPC-$stamp" } | ConvertTo-Json)
+    $chdr = @{ "X-Api-Key" = $creg.apiKey }
+    $othr = Invoke-RestMethod "$url/api/machines/register" -Method Post -ContentType "application/json" `
+        -Body (@{ name = "ChunkOther-$stamp" } | ConvertTo-Json)
+    $cgame = Invoke-RestMethod "$url/api/games" -Method Post -ContentType "application/json" `
+        -Body (@{ name = "ChunkGame-$stamp" } | ConvertTo-Json)
+
+    function CStaged { @(Get-ChildItem (Join-Path $chunkRoot ".incoming") -Filter *.part -ErrorAction SilentlyContinue) }
+    function CVersions { @(Get-Json "/api/games/$($cgame.id)/versions") }
+
+    # A real zip, because CompleteSession now reads the archive's central directory before it
+    # publishes anything - which is the only integrity check available here. The session's
+    # ContentHash is SaveArchive.HashDirectory's hash of the save FOLDER, not of the zip carrying
+    # it, so the server cannot recompute it without extracting; a zip's index living at its END is
+    # what makes "did every byte arrive" answerable at all.
+    $cZipSrc = Join-Path $scratch "chunk-src"; New-Item -ItemType Directory -Force $cZipSrc | Out-Null
+    # Incompressible on purpose: a zip of repetitive text collapses to a few hundred bytes, which
+    # splits into "chunks" too small for an offset bug to have anywhere to hide. Fixed seed so a
+    # failure is reproducible.
+    $cPayload = New-Object byte[] (300KB)
+    (New-Object Random -ArgumentList 20260824).NextBytes($cPayload)
+    [System.IO.File]::WriteAllBytes((Join-Path $cZipSrc "save.dat"), $cPayload)
+    "meta" | Set-Content (Join-Path $cZipSrc "meta.txt") -Encoding utf8
+    $cZip = Join-Path $scratch "chunk.zip"
+    Compress-Archive -Path (Join-Path $cZipSrc "*") -DestinationPath $cZip -Force
+    $cBytes = [System.IO.File]::ReadAllBytes($cZip)
+
+    # The leading comma is load-bearing: PowerShell unrolls an array returned from a function into
+    # the pipeline, so a bare `return $s` hands back Object[], which Invoke-WebRequest then sends as
+    # a STRING. Every chunk went up mangled and every byte-count assertion measured the wrong thing.
+    function Slice($from, $count) {
+        $s = New-Object byte[] $count
+        [Array]::Copy($cBytes, $from, $s, 0, $count)
+        return ,$s
+    }
+    function BeginUpload($hash, $parent, $hdr) {
+        $body = @{ contentHash = $hash; parentVersionId = $parent; force = $false } | ConvertTo-Json
+        return Invoke-RestMethod "$url/api/games/$($cgame.id)/upload/begin" -Method Post `
+            -Headers $hdr -ContentType "application/json" -Body $body
+    }
+    function PutChunk($session, $offset, $bytes, $hdr) {
+        try {
+            $r = Invoke-WebRequest "$url/api/games/$($cgame.id)/upload/$session/chunk?offset=$offset" `
+                -Method Put -Headers $hdr -Body $bytes -ContentType "application/octet-stream" -UseBasicParsing
+            return @{ Code = [int]$r.StatusCode; Body = ($r.Content | ConvertFrom-Json) }
+        } catch {
+            if ($_.Exception.Response) { return @{ Code = [int]$_.Exception.Response.StatusCode; Body = $null } }
+            return @{ Code = -1; Body = $null }
+        }
+    }
+    function CompleteUpload($session, $hdr) {
+        try {
+            $r = Invoke-WebRequest "$url/api/games/$($cgame.id)/upload/$session/complete" -Method Post `
+                -Headers $hdr -UseBasicParsing
+            return @{ Code = [int]$r.StatusCode; Body = ($r.Content | ConvertFrom-Json) }
+        } catch {
+            if ($_.Exception.Response) { return @{ Code = [int]$_.Exception.Response.StatusCode; Body = $null } }
+            return @{ Code = -1; Body = $null }
+        }
+    }
+
+    $third = [int]([Math]::Floor($cBytes.Length / 3))
+
+    # ---- 1. The happy path assembles byte-for-byte ----
+    $b1 = BeginUpload "hash-chunk-1" $null $chdr
+    Check "begin hands back a session"            ($null -ne $b1.sessionId)
+    Check "begin with no head reports no NoChange" ($null -eq $b1.noChange)
+
+    $o = 0
+    $r = PutChunk $b1.sessionId $o (Slice $o $third) $chdr;                       $o += $third
+    Check "the first chunk is accepted"           ($r.Code -eq 200 -and $r.Body.bytesReceived -eq $o)
+    $r = PutChunk $b1.sessionId $o (Slice $o $third) $chdr;                       $o += $third
+    Check "the second chunk is accepted"          ($r.Code -eq 200 -and $r.Body.bytesReceived -eq $o)
+    $r = PutChunk $b1.sessionId $o (Slice $o ($cBytes.Length - $o)) $chdr
+    Check "the final chunk is accepted"           ($r.Code -eq 200 -and $r.Body.bytesReceived -eq $cBytes.Length)
+
+    $done = CompleteUpload $b1.sessionId $chdr
+    Check "complete publishes a version"          ($done.Code -eq 200 -and $done.Body.status -eq "Created")
+    Check "the published size is the whole archive" ($done.Body.version.size -eq $cBytes.Length)
+    Check "a completed session stages nothing"    (@(CStaged).Count -eq 0)
+
+    $roundTrip = Join-Path $scratch "chunk-roundtrip.zip"
+    Invoke-WebRequest "$url/api/games/$($cgame.id)/versions/$($done.Body.version.id)/download" `
+        -OutFile $roundTrip -UseBasicParsing | Out-Null
+    Check "the assembled archive is byte-identical" `
+        (@(Compare-Object ([System.IO.File]::ReadAllBytes($roundTrip)) $cBytes -SyncWindow 0).Count -eq 0)
+
+    $head1 = $done.Body.version.id
+
+    # ---- 2. Begin short-circuits when the head already has this content ----
+    $noChange = BeginUpload "hash-chunk-1" $head1 $chdr
+    Check "begin on identical content reports NoChange" ($noChange.noChange.status -eq "NoChange")
+    Check "and opens no session for it"                 ($null -eq $noChange.sessionId)
+
+    # ---- 3. A replay of a whole chunk is a no-op, not a double-append ----
+    $b2 = BeginUpload "hash-chunk-2" $head1 $chdr
+    $r  = PutChunk $b2.sessionId 0 (Slice 0 $third) $chdr
+    $again = PutChunk $b2.sessionId 0 (Slice 0 $third) $chdr
+    Check "replaying a chunk at the same offset is accepted" ($again.Code -eq 200)
+    Check "and does not append it twice"                     ($again.Body.bytesReceived -eq $third)
+
+    # ---- 4. A gap AHEAD of the session is refused ----
+    $gap = PutChunk $b2.sessionId ($third + 999) (Slice 0 16) $chdr
+    Check "a chunk past the session's end is refused with 409" ($gap.Code -eq 409)
+
+    # ---- 5. Another machine cannot touch the session, and neither can an unknown one ----
+    $stolen = PutChunk $b2.sessionId $third (Slice $third 16) @{ "X-Api-Key" = $othr.apiKey }
+    Check "another machine's key cannot append to the session" ($stolen.Code -eq 404)
+    $ghost = PutChunk ([Guid]::NewGuid()) 0 (Slice 0 16) $chdr
+    Check "an unknown session is refused with 404"             ($ghost.Code -eq 404)
+
+    # ---- 6. Truncation must never publish ----
+    # The whole point of the integrity gate: this session is told it is finished while holding only
+    # a fragment. Pre-fix, complete moved those bytes to a real version path under the FULL
+    # archive's content hash, and every machine that pulled it got a corrupt save.
+    $shortDone = CompleteUpload $b2.sessionId $chdr
+    Check "completing a truncated session is refused with 422" ($shortDone.Code -eq 422)
+    Check "the truncated session published no version"         (@(CVersions).Count -eq 1)
+    Check "and left nothing staged behind it"                  (@(CStaged).Count -eq 0)
+
+    # ---- 7. A chunk that faults mid-body rolls back, so its retry is a real write ----
+    # Raw socket, same reason as the single-shot section: it declares a Content-Length it never
+    # delivers and then vanishes, which is what a dropped tunnel actually looks like. Pre-fix the
+    # partial bytes stayed counted, so the retry below arrived BEHIND the session and was swallowed
+    # as a replay - the archive then completed short, or the next chunk failed 409.
+    $b3 = BeginUpload "hash-chunk-3" $head1 $chdr
+    $client = [System.Net.Sockets.TcpClient]::new("127.0.0.1", $Port)
+    $stream = $client.GetStream()
+    $head = "PUT /api/games/$($cgame.id)/upload/$($b3.sessionId)/chunk?offset=0 HTTP/1.1`r`n" +
+            "Host: localhost:$Port`r`nX-Api-Key: $($creg.apiKey)`r`n" +
+            "Content-Type: application/octet-stream`r`nContent-Length: $third`r`n`r`n"
+    $headBytes = [System.Text.Encoding]::ASCII.GetBytes($head)
+    $stream.Write($headBytes, 0, $headBytes.Length)
+    $stream.Write((Slice 0 512), 0, 512)          # a fraction of what was promised
+    $stream.Flush()
+    Start-Sleep -Milliseconds 500
+    $client.Close()                                # and gone
+    Start-Sleep -Seconds 2
+
+    Check "the server survived the mid-chunk disconnect" `
+        ((Invoke-WebRequest "$url/api/admin/status" -UseBasicParsing).StatusCode -eq 200)
+
+    # The retry, in full, at the offset the client still believes it is at. It must be treated as an
+    # exact-offset write - if the partial bytes were kept it is read as a replay and answers $third
+    # without writing, which is the corruption this section exists to pin.
+    $retry = PutChunk $b3.sessionId 0 (Slice 0 $third) $chdr
+    Check "the retry of a faulted chunk is accepted"  ($retry.Code -eq 200)
+    Check "and the session holds exactly one copy of it" ($retry.Body.bytesReceived -eq $third)
+
+    $o = $third
+    $r = PutChunk $b3.sessionId $o (Slice $o ($cBytes.Length - $o)) $chdr
+    Check "the rest of the archive still lines up"    ($r.Code -eq 200 -and $r.Body.bytesReceived -eq $cBytes.Length)
+    $recovered = CompleteUpload $b3.sessionId $chdr
+    Check "a session that survived a faulted chunk publishes" ($recovered.Code -eq 200)
+
+    $recoveredZip = Join-Path $scratch "chunk-recovered.zip"
+    Invoke-WebRequest "$url/api/games/$($cgame.id)/versions/$($recovered.Body.version.id)/download" `
+        -OutFile $recoveredZip -UseBasicParsing | Out-Null
+    Check "and what it published is byte-identical to the source" `
+        (@(Compare-Object ([System.IO.File]::ReadAllBytes($recoveredZip)) $cBytes -SyncWindow 0).Count -eq 0)
+
+    # ---- 8. Crossing the cap ACROSS chunks is a 413, and the session goes with it ----
+    # Cumulative, not per-request: each body here is comfortably under the request-size limit, so
+    # Kestrel lets both through and only ArchiveStore's own running total can notice. That is the
+    # shape a real over-cap upload has (4 MiB chunks against a 200 MB cap), and the one where the
+    # throw lands MID-chunk with bytes from that same chunk already written.
+    #
+    # Left alive, the session answered the agent's retry with a replay 200 and then failed the NEXT
+    # chunk on an offset mismatch, so the reason the upload died stopped being visible anywhere.
+    $b4 = BeginUpload "hash-chunk-oversize" $head1 $chdr
+    $half = New-Object byte[] (1200KB)
+    $under = PutChunk $b4.sessionId 0 $half $chdr
+    Check "a chunk under the cap is accepted"               ($under.Code -eq 200)
+    $over = PutChunk $b4.sessionId $half.Length $half $chdr
+    Check "the chunk that crosses the cap is refused with 413" ($over.Code -eq 413)
+    $after = PutChunk $b4.sessionId 0 (Slice 0 16) $chdr
+    Check "an over-cap session is dropped, not left stale"  ($after.Code -eq 404)
+    Check "the over-cap attempt published no version"       (@(CVersions).Count -eq 2)
+    Check "and left nothing staged"                         (@(CStaged).Count -eq 0)
+
+    Remove-Item Env:Storage__MaxUploadMb -ErrorAction SilentlyContinue
     Stop-TestServer $srv
 }
 finally {

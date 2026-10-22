@@ -50,6 +50,23 @@ public static class Doctor
             "no Steam root found (looked for ~/.steam/steam, ~/.local/share/Steam and the Flatpak path).");
         foreach (var r in roots) Info("root", r);
 
+        // A library Steam itself still remembers (libraryfolders.vdf persists across a card swap)
+        // but that is not currently mounted — an SD card pulled or swapped for another. Nothing here
+        // is a fault: the scan is right to skip it rather than fail. But a genuinely Steam-installed
+        // game on that card is now invisible with nothing else to say why, which reads exactly like
+        // a detection bug rather than "insert the right card."
+        foreach (var r in roots)
+        {
+            foreach (var missing in SteamRoots.AllConfiguredLibraryPaths(r)
+                         .Where(p => !Directory.Exists(p))
+                         .Distinct(StringComparer.Ordinal))
+            {
+                Console.WriteLine($"  ! library configured but not mounted right now: {missing}");
+                Console.WriteLine("      an SD card that isn't currently inserted — any game installed" +
+                                  " there is invisible to this scan until it is.");
+            }
+        }
+
         var shortcuts = await ReadShortcutsAsync(roots);
         Check("non-Steam shortcuts found", shortcuts.Count > 0,
             "no shortcuts in shortcuts.vdf. SaveLocker syncs non-Steam games added to Steam; " +
@@ -58,6 +75,28 @@ public static class Doctor
 
         Console.WriteLine();
         Section("Shortcuts and Proton prefixes");
+
+        // Steam (or a launcher like Steam ROM Manager / MoonDeck that manages its own shortcuts)
+        // can leave two entries for the same game with different AppIDs — an old one from before a
+        // re-pair, or a fresh duplicate a tool re-created instead of updating the original. Steam
+        // only ever launches ONE of them, so a scan that resolves via the wrong one silently watches
+        // a prefix that never receives this game's saves, with nothing below to say why.
+        //
+        // A NOTE, not a problem: scan's dedupe already prefers whichever duplicate actually resolves
+        // a save dir (below), so this is frequently harmless — but it cannot always tell, and failing
+        // doctor's exit code on a mere duplicate would report a working Deck as broken.
+        foreach (var g in shortcuts
+                     .GroupBy(x => ManifestLoader.NormalizeName(x.Shortcut.AppName))
+                     .Where(g => g.Key.Length > 0 &&
+                                 g.Select(x => x.Shortcut.AppId).Distinct().Count() > 1))
+        {
+            Console.WriteLine($"  ! '{g.First().Shortcut.AppName}' has {g.Count()} shortcuts with " +
+                     $"different AppIDs ({string.Join(", ", g.Select(x => x.Shortcut.AppId ?? "none"))})" +
+                     " — Steam launches only ONE of them. If the wrong one gets tracked, its saves are" +
+                     " never backed up. Remove the stale duplicate in Steam, or check which compatdata" +
+                     " folder actually has recent files and map that one with --dir.");
+        }
+
         foreach (var (root, s) in shortcuts)
         {
             if (s.AppId is null)
@@ -72,6 +111,18 @@ public static class Doctor
                 Console.WriteLine($"  - {s.AppName}  (appid {s.AppId})");
                 Console.WriteLine($"      no prefix at {Path.Combine(root, "steamapps", "compatdata", s.AppId)}");
                 Console.WriteLine("      → launch it once through Steam with Proton (Force compatibility tool) to create it.");
+
+                // A MoonDeck shortcut's own Exe launches its streaming client, not the game, so
+                // Steam never makes this prefix — that is expected, not a problem, when the real
+                // AppID it streams DOES have one: the game is also played locally.
+                if (s.MoonDeckAppId is { } moonDeckAppId)
+                {
+                    var moonDeckPrefix = SteamRoots.CompatDataPath(root, moonDeckAppId);
+                    Console.WriteLine(moonDeckPrefix is null
+                        ? $"      (MoonDeck streams appid {moonDeckAppId} — no local prefix for that one either.)"
+                        : $"      ✓ but MoonDeck streams appid {moonDeckAppId}, which DOES have a local " +
+                          $"prefix: {moonDeckPrefix}\n        scan uses that one instead.");
+                }
                 continue;
             }
             Console.WriteLine($"  ✓ {s.AppName}  (appid {s.AppId})");

@@ -187,19 +187,201 @@ public sealed class ApiClient
         return resp.IsSuccessStatusCode;
     }
 
+    /// <summary>
+    /// Bytes per request in the chunked upload protocol. Sized well under Cloudflare's fixed ~100s
+    /// proxied-edge timeout at the slowest realistic home upload speed this was diagnosed against
+    /// (~200 KB/s): 4 MiB is ~20s there, five times under the limit, and stays under it down to
+    /// roughly 40 KB/s. See Gotchas.md → "Cloudflare's 100s edge timeout".
+    /// </summary>
+    private const int UploadChunkBytes = 4 * 1024 * 1024;
+
+    /// <summary>Attempts for a single chunk before the whole push gives up and falls through to the
+    /// caller's own retry (queued for the offline drainer). A transient reset is exactly what this
+    /// protocol exists to survive — this is the layer that survives it without redoing the rest of
+    /// the archive.</summary>
+    private const int UploadChunkMaxAttempts = 4;
+
+    /// <summary>
+    /// Upload an archive via the chunked protocol: Begin (which can short-circuit with NoChange
+    /// before a single byte moves), then one small request per <see cref="UploadChunkBytes"/> slice
+    /// — each individually retried — then Complete. A single request carrying the whole archive is
+    /// what a proxied edge with a fixed timeout kills once the file is large and the link slow enough;
+    /// this never asks one request to carry more than a few seconds' worth of upload.
+    /// <para>
+    /// Falls back to the old single-shot route on a 404 from Begin — a server an agent has updated
+    /// ahead of (the two ship and get redeployed separately) simply does not have it yet. Without
+    /// this, updating the agent first would turn every upload from "sometimes works" into "always
+    /// 404s" until the server catches up, which is a worse rollout than doing nothing.
+    /// </para>
+    /// </summary>
+    /// <param name="onProgress">
+    /// Called with (bytes sent so far, total archive bytes) after every chunk, so a UI can show a
+    /// real progress bar for the direction actually slow enough to want one — a push, not a pull.
+    /// Best-effort only: the single-shot fallback can only report 0/total and total/total, since it
+    /// has no chunk boundaries to report progress from in between.
+    /// </param>
     public async Task<UploadResult> UploadAsync(
-        Guid gameId, string contentHash, Guid? parent, bool force, string archivePath, CancellationToken ct = default)
+        Guid gameId, string contentHash, Guid? parent, bool force, string archivePath,
+        Action<long, long>? onProgress = null, CancellationToken ct = default)
+    {
+        var begin = await BeginUploadAsync(gameId, contentHash, parent, force, files: null, ct);
+        if (begin is null)
+            return await UploadSingleShotAsync(gameId, contentHash, parent, force, archivePath, onProgress, ct);
+        if (begin.NoChange is { } noChange) return noChange;
+
+        return await UploadSessionPayloadAsync(gameId, begin.SessionId!.Value, archivePath, onProgress, ct);
+    }
+
+    /// <summary>
+    /// Open an upload session, optionally declaring the agent's full per-file manifest so the server
+    /// can answer with the subset it actually needs fresh bytes for.
+    /// <para>
+    /// Returns <c>null</c> — rather than throwing — when the server has no chunked routes at all, so
+    /// the caller can fall back to <see cref="UploadAsync"/>'s single-shot path. This is deliberately
+    /// only the Begin half: what to build and send afterwards is a sync-policy decision, and it lives
+    /// with the rest of that policy in <c>SyncEngine</c>, not in the HTTP client.
+    /// </para>
+    /// </summary>
+    public async Task<BeginUploadResponse?> BeginUploadAsync(
+        Guid gameId, string contentHash, Guid? parent, bool force, FileManifestEntry[]? files,
+        CancellationToken ct = default)
+    {
+        var resp = await _http.PostAsJsonAsync(
+            $"/api/games/{gameId}/upload/begin",
+            new BeginUploadRequest(contentHash, parent, force, files), ct);
+        if (resp.StatusCode == HttpStatusCode.NotFound) return null;
+        resp.EnsureSuccessStatusCode();
+        return (await resp.Content.ReadFromJsonAsync<BeginUploadResponse>(cancellationToken: ct))!;
+    }
+
+    /// <summary>Send one already-built payload against an already-Begun session and finish it.
+    /// Whether that payload is a full archive or a per-file delta is the caller's business.</summary>
+    public async Task<UploadResult> UploadSessionPayloadAsync(
+        Guid gameId, Guid sessionId, string payloadPath,
+        Action<long, long>? onProgress = null, CancellationToken ct = default)
+    {
+        await StreamChunksAsync(gameId, sessionId, payloadPath, onProgress, ct);
+        return await CompleteChunkedUploadAsync(gameId, sessionId, ct);
+    }
+
+    /// <summary>Stream one archive's bytes through the chunk protocol against an already-Begun
+    /// session — shared by the full-archive and delta-payload upload paths, which differ only in
+    /// which zip they hand this.</summary>
+    private async Task StreamChunksAsync(
+        Guid gameId, Guid sessionId, string archivePath, Action<long, long>? onProgress, CancellationToken ct)
+    {
+        var totalBytes = new FileInfo(archivePath).Length;
+        onProgress?.Invoke(0, totalBytes);
+        await using var fs = File.OpenRead(archivePath);
+        var buffer = new byte[UploadChunkBytes];
+        long offset = 0;
+        int read;
+        while ((read = await ReadFullyAsync(fs, buffer, ct)) > 0)
+        {
+            await PutChunkWithRetryAsync(gameId, sessionId, offset, buffer, read, ct);
+            offset += read;
+            onProgress?.Invoke(offset, totalBytes);
+        }
+    }
+
+    private async Task<UploadResult> CompleteChunkedUploadAsync(Guid gameId, Guid sessionId, CancellationToken ct)
+    {
+        var completeResp = await _http.PostAsync($"/api/games/{gameId}/upload/{sessionId}/complete", null, ct);
+        completeResp.EnsureSuccessStatusCode();
+        return (await completeResp.Content.ReadFromJsonAsync<UploadResult>(cancellationToken: ct))!;
+    }
+
+    /// <summary>The pre-chunking upload: the whole archive as one request body. Kept only for a
+    /// server too old to have the chunked routes — see the fallback in <see cref="UploadAsync"/>.</summary>
+    private async Task<UploadResult> UploadSingleShotAsync(
+        Guid gameId, string contentHash, Guid? parent, bool force, string archivePath,
+        Action<long, long>? onProgress, CancellationToken ct)
     {
         var url = $"/api/games/{gameId}/upload?hash={Uri.EscapeDataString(contentHash)}";
         if (parent is { } p) url += $"&parent={p}";
         if (force) url += "&force=true";
 
+        var totalBytes = new FileInfo(archivePath).Length;
+        onProgress?.Invoke(0, totalBytes);
         await using var fs = File.OpenRead(archivePath);
         using var content = new StreamContent(fs);
         content.Headers.ContentType = new("application/zip");
         var resp = await _http.PostAsync(url, content, ct);
         resp.EnsureSuccessStatusCode();
+        onProgress?.Invoke(totalBytes, totalBytes);
         return (await resp.Content.ReadFromJsonAsync<UploadResult>(cancellationToken: ct))!;
+    }
+
+    /// <summary>
+    /// PUT one chunk, retrying a network-level failure a few times before letting it propagate. The
+    /// offset makes a retry safe even when the previous attempt's bytes actually landed and only its
+    /// response was lost — the server treats an offset behind its own count as a no-op replay rather
+    /// than double-appending.
+    /// </summary>
+    private async Task PutChunkWithRetryAsync(
+        Guid gameId, Guid sessionId, long offset, byte[] buffer, int count, CancellationToken ct)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var last = attempt >= UploadChunkMaxAttempts;
+            HttpResponseMessage resp;
+            try
+            {
+                using var content = new ByteArrayContent(buffer, 0, count);
+                content.Headers.ContentType = new("application/octet-stream");
+                resp = await _http.PutAsync(
+                    $"/api/games/{gameId}/upload/{sessionId}/chunk?offset={offset}", content, ct);
+            }
+            // OperationCanceledException as well as HttpRequestException: ServerHttp sets no
+            // Timeout, so a chunk that stalls mid-body trips HttpClient's own 100s default and
+            // surfaces as a CANCELLATION, not as a request exception — which is precisely the
+            // transient stall this retry layer exists for, and it used to fall straight through
+            // it. A cancellation the caller actually asked for is still fatal: the filter checks.
+            catch (Exception ex) when (!last && IsTransientTransportFailure(ex, ct))
+            {
+                await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct);
+                continue;
+            }
+
+            // The status is judged here rather than by EnsureSuccessStatusCode inside the try, so
+            // that a refusal the server will repeat verbatim is not slept on three times first and
+            // cannot be mistaken for a transport hiccup by the filter above. A 409 (offset
+            // mismatch) or 413 (over the cap) is the server's settled answer about this session.
+            using (resp)
+            {
+                if (resp.IsSuccessStatusCode) return;
+                if (last || !IsRetryableStatus(resp.StatusCode)) resp.EnsureSuccessStatusCode();
+            }
+            await Task.Delay(TimeSpan.FromSeconds(Math.Pow(2, attempt)), ct);
+        }
+    }
+
+    /// <summary>A failure to get any answer at all, worth another attempt. A cancellation the
+    /// CALLER requested is excluded — that is a shutdown, not a hiccup.</summary>
+    private static bool IsTransientTransportFailure(Exception ex, CancellationToken ct) =>
+        !ct.IsCancellationRequested &&
+        (ex is HttpRequestException || ex is OperationCanceledException || ex is IOException);
+
+    /// <summary>Worth another attempt with the same bytes at the same offset. Everything else the
+    /// server answers about a chunk is a decision, not a hiccup.</summary>
+    private static bool IsRetryableStatus(HttpStatusCode status) =>
+        (int)status >= 500 || status == HttpStatusCode.RequestTimeout;
+
+    /// <summary>
+    /// Fill <paramref name="buffer"/> as full as the stream allows before returning. A single
+    /// <c>ReadAsync</c> is allowed to return fewer bytes than asked for even mid-file, and a short
+    /// chunk here would desync the byte offset both sides are counting from that point on.
+    /// </summary>
+    private static async Task<int> ReadFullyAsync(Stream s, byte[] buffer, CancellationToken ct)
+    {
+        var total = 0;
+        while (total < buffer.Length)
+        {
+            var read = await s.ReadAsync(buffer.AsMemory(total, buffer.Length - total), ct);
+            if (read == 0) break;
+            total += read;
+        }
+        return total;
     }
 
     /// <summary>

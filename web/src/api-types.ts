@@ -375,6 +375,125 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/games/{id}/upload/begin": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["BeginUploadRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["BeginUploadResponse"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/upload/{sessionId}/chunk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: {
+            parameters: {
+                query: {
+                    offset: number;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ChunkAppendResponse"];
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/upload/{sessionId}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["UploadResult"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/games/{id}/download": {
         parameters: {
             query?: never;
@@ -434,6 +553,43 @@ export interface paths {
                         [name: string]: unknown;
                     };
                     content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/versions/{versionId}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    versionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionStatsDto"];
+                    };
                 };
             };
         };
@@ -1571,6 +1727,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/games/{id}/versions/{versionId}/stats": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    versionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionStatsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/games/{id}/prune": {
         parameters: {
             query?: never;
@@ -2503,6 +2697,25 @@ export interface components {
             /** Format: int32 */
             totalBackups: number;
         };
+        BeginUploadRequest: {
+            contentHash: string;
+            /** Format: uuid */
+            parentVersionId: null | string;
+            force: boolean;
+            files?: null | components["schemas"]["FileManifestEntry"][];
+        };
+        BeginUploadResponse: {
+            /** Format: uuid */
+            sessionId: null | string;
+            noChange: null | components["schemas"]["UploadResult"];
+            /** @default false */
+            useDeltaPath: boolean;
+            needPaths?: null | string[];
+        };
+        ChunkAppendResponse: {
+            /** Format: int64 */
+            bytesReceived: number;
+        };
         CommandResultRequest: {
             status: components["schemas"]["CommandStatus"];
             result: null | string;
@@ -2625,6 +2838,12 @@ export interface components {
             /** Format: int32 */
             settleMaxWaitSeconds?: null | number;
             games?: null | components["schemas"]["EnrollmentGame"][];
+        };
+        FileManifestEntry: {
+            path: string;
+            sha256: string;
+            /** Format: int64 */
+            size: number;
         };
         GameDto: {
             /** Format: uuid */
@@ -2782,7 +3001,13 @@ export interface components {
             conflict: null | components["schemas"]["ConflictDto"];
         };
         /** @enum {unknown} */
-        UploadStatus: "Created" | "NoChange" | "Conflict";
+        UploadStatus: "Created" | "NoChange" | "Conflict" | "RetryFull";
+        VersionStatsDto: {
+            /** Format: int32 */
+            fileCount: number;
+            /** Format: date-time */
+            newestFileWriteUtc: null | string;
+        };
     };
     responses: never;
     parameters: never;

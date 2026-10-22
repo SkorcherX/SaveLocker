@@ -17,6 +17,19 @@ MACHINE="${SAVELOCKER_LINUX_MACHINE:-LinuxTest}"
 # cache and the lock directory together, so nothing here can touch a real install's state.
 export XDG_DATA_HOME="${SAVELOCKER_LINUX_STATE:-$HOME/savelocker-test}"
 STATE="$XDG_DATA_HOME/SaveLocker"
+
+die() { echo "ERROR: $*" >&2; exit 1; }
+
+# Not a formality — the same check, and the same reason, as testenv-deck.sh's own: cmd_clean below
+# reaches an `rm -rf` on this path, and it is built from a value testenv.ps1 passes in. Refuse
+# anything that doesn't look like a test directory, so a blank or mistyped SAVELOCKER_LINUX_STATE
+# (or an empty $HOME, which collapses the default to "/savelocker-test") can never resolve to
+# something real.
+case "$XDG_DATA_HOME" in
+  *savelocker-test*) ;;
+  *) die "refusing to operate — state dir '$XDG_DATA_HOME' doesn't look like a test directory" ;;
+esac
+
 DLL="$REPO/src/Agent.Linux/bin/Debug/net10.0/savelocker.dll"
 DAEMON_LOG="$HOME/.savelocker-testenv-daemon.log"
 SUITE_LOG="$HOME/.savelocker-testenv-suite.log"
@@ -26,8 +39,6 @@ if [ -x "$HOME/.dotnet/dotnet" ]; then
   export DOTNET_ROOT="$HOME/.dotnet"
   export PATH="$HOME/.dotnet:$HOME/.local/bin:$PATH"
 fi
-
-die() { echo "ERROR: $*" >&2; exit 1; }
 
 # Only ever matches a dev build run as `dotnet savelocker.dll daemon`. A real install is a
 # self-contained apphost named `savelocker`, so this pattern cannot reach one.
@@ -193,8 +204,21 @@ cmd_sync() {
     [ -n "$rel" ] || continue
     if [ ! -f "$wt/$rel" ]; then echo "  skip (gone): $rel"; continue; fi
     mkdir -p "$REPO/$(dirname "$rel")"
-    sed 's/\r$//' "$wt/$rel" > "$REPO/$rel" || die "copy failed: $rel"
-    echo "  $rel"
+    # The CR strip applies to TEXT ONLY. It exists because CRLF in tests/linux/*.sh fails six
+    # checks in ways that read as real wrapper bugs — but run over a font, an icon, a PNG or a
+    # fixture archive it deletes every 0x0D that happens to precede a 0x0A and hands the clone a
+    # silently corrupt file, which surfaces much later as something that fails to load. stage_ui
+    # already avoids exactly this for agent-ui/dist; ask the file itself rather than assume.
+    # `grep -I` is the one that already knows: it classifies a file as binary exactly the way the
+    # rest of the toolchain does, so nothing here has to keep a list of extensions in sync. An
+    # empty file lands on the cp branch too, which is correct — it has no CRLF to strip.
+    if grep -qI . "$wt/$rel" 2>/dev/null; then
+      sed 's/\r$//' "$wt/$rel" > "$REPO/$rel" || die "copy failed: $rel"
+      echo "  $rel"
+    else
+      cp "$wt/$rel" "$REPO/$rel" || die "copy failed: $rel"
+      echo "  $rel (binary, copied verbatim)"
+    fi
     n=$((n + 1))
   done
   echo "synced $n file(s) into $REPO"

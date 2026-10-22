@@ -460,6 +460,26 @@ namespace SaveLocker.Server.Migrations
                     b.ToTable("SaveVersions");
                 });
 
+            modelBuilder.Entity("SaveLocker.Server.Data.SaveVersionFile", b =>
+                {
+                    b.Property<Guid>("VersionId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Sha256")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("Size")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("VersionId", "Path");
+
+                    b.ToTable("SaveVersionFiles");
+                });
+
             modelBuilder.Entity("SaveLocker.Server.Data.AgentCommand", b =>
                 {
                     b.HasOne("SaveLocker.Server.Data.Machine", "Machine")
@@ -561,6 +581,17 @@ namespace SaveLocker.Server.Migrations
                     b.Navigation("Game");
 
                     b.Navigation("Machine");
+                });
+
+            modelBuilder.Entity("SaveLocker.Server.Data.SaveVersionFile", b =>
+                {
+                    b.HasOne("SaveLocker.Server.Data.SaveVersion", "Version")
+                        .WithMany()
+                        .HasForeignKey("VersionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Version");
                 });
 
             modelBuilder.Entity("SaveLocker.Server.Data.Game", b =>

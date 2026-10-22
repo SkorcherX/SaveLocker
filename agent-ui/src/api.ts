@@ -1,4 +1,4 @@
-import type { AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, TrackedGame } from './types'
+import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, TrackedGame } from './types'
 
 // The agent injects the local API token into index.html when it serves the page; the same-origin
 // policy is what keeps any other page from reading it. Left as the literal placeholder under
@@ -71,4 +71,10 @@ export const api = {
   // What the agent's last check found. The agent decides this, not the UI: it is the host that
   // knows which platform's package the server offered and whether the version is actually newer.
   agentVersion: () => req<AgentVersion>('/api/agent-version'),
+  // What is syncing right now (with byte progress for a push) plus a short rolling history.
+  // Cheap — an in-memory read on the agent's side — so this can be polled far more often than state.
+  activity: () => req<Activity>('/api/activity'),
+  // Pull then push every tracked game, same as the tray menu's "Sync All". The response is a
+  // one-line summary; progress for whichever game is mid-sync shows up on the next activity() poll.
+  syncNow: () => post<{ message: string }>('/api/sync'),
 }

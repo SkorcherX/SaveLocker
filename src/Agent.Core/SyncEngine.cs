@@ -17,6 +17,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
     private readonly HealthReporter? _health;
     private readonly string _tempDir;
     private readonly OfflineQueue? _offlineQueue;
+    private readonly SyncActivityTracker? _activity;
     private readonly TimeSpan _leaseRenewInterval = ResolveRenewInterval();
     private const int ConflictUploadLimit = 3;
     private readonly Dictionary<Guid, System.Threading.Timer> _leaseTimers = new();
@@ -61,7 +62,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
     /// (Decisions.md §2). Both hosts report, so the console is one honest view of the whole fleet.
     /// </param>
     public SyncEngine(AgentConfig config, ApiClient api, Action<string>? log = null, Action<string>? notify = null,
-        OfflineQueue? offlineQueue = null, HealthReporter? health = null)
+        OfflineQueue? offlineQueue = null, HealthReporter? health = null, SyncActivityTracker? activity = null)
     {
         _config = config;
         _api = api;
@@ -70,6 +71,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         _notify = notify ?? (_ => { });
         _health = health;
         _offlineQueue = offlineQueue;
+        _activity = activity;
         _tempDir = Path.Combine(config.StateDir, "tmp");
         Directory.CreateDirectory(_tempDir);
         CleanStaleTemps();
@@ -149,6 +151,11 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
 
         var gate = _pushLocks.GetOrAdd(game.GameId, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct);
+        // Brackets the whole attempt regardless of which exit path below is taken (success, no
+        // change, conflict, contention, or an exception) — the alternative was threading Begin/End
+        // through every return in PushCoreAsync, and a phase change mid-attempt (settle -> upload)
+        // is handled there instead, once the state that matters (which game, when it started) exists.
+        _activity?.Begin(game.Name, settle ? SyncPhase.Settling : SyncPhase.Pushing);
         try
         {
             // Fails closed. Proceeding unlocked here meant this process archived and rewrote sync
@@ -169,7 +176,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
             ReportContention(game, "push", ex);
             return null;
         }
-        finally { gate.Release(); }
+        finally { gate.Release(); _activity?.End(); }
     }
 
     private async Task<UploadResult?> PushCoreAsync(TrackedGame game, bool force, bool settle, CancellationToken ct)
@@ -205,7 +212,14 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
                     AgentEventCodes.SettleTimeout, AgentEventSeverity.Warning, game.GameId);
         }
 
-        var hash = SaveArchive.HashDirectory(game.SaveDirectory, game.ExcludeGlobs);
+        // Whether or not settle ran, everything from here on is the "Pushing" phase — settle only
+        // ever set Settling in the first place when it was going to run at all.
+        _activity?.SetPhase(SyncPhase.Pushing);
+
+        // One pass over the save folder answers both questions a push asks of it: the aggregate
+        // content hash (has anything changed at all?) and the per-file manifest a delta negotiates
+        // with. Hashing the directory and then building a manifest read every byte twice.
+        var (manifest, hash) = SaveArchive.ComputeManifest(game.SaveDirectory, game.ExcludeGlobs);
         if (!force && hash == game.LastSyncedHash)
         {
             _log($"[{game.Name}] no local changes since last sync.");
@@ -222,12 +236,11 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
             return new UploadResult(UploadStatus.Conflict, null, null);
         }
 
-        var archive = TempArchive(game.GameId, "push");
-        SaveArchive.CreateArchive(game.SaveDirectory, archive, game.ExcludeGlobs);
-
         try
         {
-            var result = await _api.UploadAsync(game.GameId, hash, game.LastKnownVersionId, force, archive, ct);
+            var result = await SendPushAsync(game, hash, manifest, force, ct);
+            if (result is null) return null;   // refused outright; SendPushAsync already alerted
+
             var countPush = false;
             var touchSyncTime = false;
             switch (result.Status)
@@ -294,10 +307,115 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
             _offlineQueue?.Enqueue(game.GameId, game.Name, force);
             return null;
         }
-        finally
+    }
+
+    /// <summary>
+    /// Bytes below which a per-file delta is pure overhead: an ordinary push is already one round
+    /// trip, and the manifest it would carry is not worth paying for on a save this small.
+    /// <para>
+    /// There is deliberately no file-COUNT floor beside it. A game keeping three 400 MB slots is
+    /// exactly the case a delta exists for, and a count floor would send it down the full-archive
+    /// path forever — re-uploading gigabytes to change one slot.
+    /// </para>
+    /// </summary>
+    private const long DeltaTotalBytesFloor = 2 * 1024 * 1024;
+
+    /// <summary>
+    /// Decide what this push actually sends, and send it. A forced push — and a first-ever one, with
+    /// no parent to diff against — is unconditionally a full archive: those are exactly the cases
+    /// where the server cannot assume what "the old content" was to copy forward from. Everything
+    /// else negotiates a per-file delta, and falls back to a full archive within the SAME session
+    /// whenever the server declines one.
+    /// <para>
+    /// This lives here rather than in <see cref="ApiClient"/> because it is a sync-policy question,
+    /// not a transport one; ApiClient's job is Begin, stream, Complete. Returns null when the push
+    /// was refused outright and the caller should treat it as a failed attempt.
+    /// </para>
+    /// </summary>
+    private async Task<UploadResult?> SendPushAsync(
+        TrackedGame game, string hash, IReadOnlyList<FileManifestEntry> manifest, bool force,
+        CancellationToken ct)
+    {
+        void Progress(long done, long total) => _activity?.Progress(done, total);
+
+        var deltaWorthwhile = !force
+            && game.LastKnownVersionId is not null
+            && manifest.Sum(f => f.Size) >= DeltaTotalBytesFloor;
+        if (!deltaWorthwhile)
+            return await SendFullArchiveAsync(game, hash, force, Progress, ct);
+
+        var begin = await _api.BeginUploadAsync(
+            game.GameId, hash, game.LastKnownVersionId, force: false, manifest.ToArray(), ct);
+        if (begin is null)                                    // server predates the chunked routes
+            return await SendFullArchiveAsync(game, hash, force, Progress, ct);
+        if (begin.NoChange is { } noChange) return noChange;
+
+        var payload = TempArchive(game.GameId, "delta");
+        try
         {
-            if (File.Exists(archive)) File.Delete(archive);
+            if (begin.UseDeltaPath)
+            {
+                var needPaths = begin.NeedPaths ?? Array.Empty<string>();
+                if (FirstUndeclaredPath(needPaths, manifest) is { } rogue)
+                {
+                    // The server may only ask for files this agent just told it about. Anything else
+                    // is a server reaching for a file on this machine that is not part of the save —
+                    // the upload-side mirror of the hostile-archive rule RestoreArchive applies on
+                    // pull (Decisions.md §4), and the same reason an enrollment file cannot be taken
+                    // at face value. Refused outright rather than quietly falling back to a full
+                    // archive, because a fallback would still answer a request that should never
+                    // have been made, and nothing would ever say so.
+                    Alert($"[{game.Name}] REFUSED the server's delta request: it asked for " +
+                          $"'{rogue}', which is not part of this game's saves. Nothing was uploaded.",
+                        AgentEventCodes.PushFailed, AgentEventSeverity.Error, game.GameId);
+                    return null;
+                }
+                SaveArchive.CreateArchiveSubset(game.SaveDirectory, payload, needPaths);
+            }
+            else
+            {
+                SaveArchive.CreateArchive(game.SaveDirectory, payload, game.ExcludeGlobs);
+            }
+
+            var result = await _api.UploadSessionPayloadAsync(game.GameId, begin.SessionId!.Value,
+                payload, Progress, ct);
+            if (result.Status != UploadStatus.RetryFull) return result;
         }
+        finally { TryDeleteTemp(payload); }
+
+        // The negotiated base went stale between Begin and Complete — another machine pushed in
+        // between, so the delta no longer reconstructs a complete version. Retry ONCE with a full
+        // archive against the same (now stale) parent: the server re-runs its checks fresh and
+        // reports a conflict if the content genuinely diverged, or NoChange if it happens to match
+        // — the two outcomes any ordinary push could reach. RetryFull never escapes this method.
+        return await SendFullArchiveAsync(game, hash, force, Progress, ct);
+    }
+
+    private async Task<UploadResult> SendFullArchiveAsync(
+        TrackedGame game, string hash, bool force, Action<long, long> onProgress, CancellationToken ct)
+    {
+        var archive = TempArchive(game.GameId, "push");
+        try
+        {
+            SaveArchive.CreateArchive(game.SaveDirectory, archive, game.ExcludeGlobs);
+            return await _api.UploadAsync(
+                game.GameId, hash, game.LastKnownVersionId, force, archive, onProgress, ct);
+        }
+        finally { TryDeleteTemp(archive); }
+    }
+
+    /// <summary>The first path the server asked for that this agent never declared, or null if the
+    /// request is entirely within what was offered.</summary>
+    private static string? FirstUndeclaredPath(
+        IEnumerable<string> needPaths, IReadOnlyList<FileManifestEntry> manifest)
+    {
+        var declared = new HashSet<string>(manifest.Select(f => f.Path), StringComparer.Ordinal);
+        return needPaths.FirstOrDefault(p => !declared.Contains(p));
+    }
+
+    private static void TryDeleteTemp(string path)
+    {
+        try { if (File.Exists(path)) File.Delete(path); } catch { /* best-effort cleanup */ }
     }
 
     /// <summary>Download the server head and restore it locally if it differs.</summary>
@@ -337,6 +455,9 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         }
 
         using var _lock = crossProcess;
+        // Begin here, not before the lock: the two early refusals above (running, unsafe path) never
+        // attempted a pull at all, so there is nothing for the activity feed to show in progress.
+        _activity?.Begin(game.Name, SyncPhase.Pulling);
         // LastSyncedHash gates the un-pushed-changes check below, so a stale one is not merely
         // untidy: it makes a legitimate pull look like it would overwrite local progress, and the
         // pull is refused. Refresh before either is read.
@@ -426,7 +547,28 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
         finally
         {
             if (File.Exists(archive)) File.Delete(archive);
+            _activity?.End();
         }
+    }
+
+    /// <summary>
+    /// Pull then push every game, skipping the pull (not the push) for whatever is currently running
+    /// — the same "sync all" both the tray menu and the agent UI's Overview button offer, kept in one
+    /// place so the two cannot drift. A running game still gets pushed: that is the normal folder-
+    /// watch behaviour and costs the user nothing, it only forgoes restoring a save out from under it.
+    /// </summary>
+    public async Task<string> SyncAllAsync(IReadOnlyList<TrackedGame> games, CancellationToken ct = default)
+    {
+        var skipped = new List<string>();
+        foreach (var g in games)
+        {
+            if (GameActivity.IsActive(g)) skipped.Add(g.Name);
+            else await PullAsync(g, ct: ct);
+            await PushAsync(g, ct: ct);
+        }
+        return skipped.Count == 0
+            ? "Sync all complete."
+            : $"Sync all complete. Not pulled (still running): {string.Join(", ", skipped)}.";
     }
 
     /// <summary>

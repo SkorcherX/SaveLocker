@@ -1,3 +1,5 @@
+using SaveLocker.Shared;
+
 namespace SaveLocker.Server.Services;
 
 /// <summary>
@@ -10,6 +12,33 @@ public sealed class ArchiveTooLargeException(long limitBytes)
 {
     public long LimitBytes { get; } = limitBytes;
 }
+
+/// <summary>The chunked-upload session named does not exist — it completed, was aborted, or this
+/// process restarted (sessions are in-memory only; see <see cref="ArchiveStore"/>).</summary>
+public sealed class UnknownUploadSessionException(Guid sessionId)
+    : Exception($"No upload session '{sessionId}' (it may have finished, been abandoned, or the " +
+                "server restarted since it began — the agent starts a fresh one automatically).");
+
+/// <summary>
+/// A chunk arrived at an offset that does not match what the session has actually received.
+/// <see cref="ArchiveStore.AppendChunkAsync"/> treats an offset BEHIND the session as a harmless
+/// replay (the previous attempt's bytes landed even though its response did not) and only raises
+/// this for a gap AHEAD of it, which chunks sent strictly in order should never produce.
+/// </summary>
+public sealed class UploadOffsetMismatchException(Guid sessionId, long expected, long actual)
+    : Exception($"Upload session '{sessionId}' has {actual} byte(s); a chunk arrived expecting {expected}.");
+
+/// <summary>
+/// The bytes a chunked upload assembled are not a readable archive. The single-shot route never
+/// needed this check — <see cref="ArchiveStore.SaveAsync"/> is all-or-nothing, so a body that
+/// stopped early was simply never published — whereas a chunked upload is assembled across many
+/// requests and only the last one says it is finished. Publishing an unreadable archive under the
+/// content hash of a complete one is the worst outcome available here: every other machine then
+/// pulls it believing it is intact.
+/// </summary>
+public sealed class CorruptUploadException(Guid sessionId, string detail)
+    : Exception($"Upload session '{sessionId}' did not assemble a readable archive ({detail}). " +
+                "Nothing was published; the agent's next attempt starts a fresh session.");
 
 /// <summary>
 /// Stores save-game archive files on disk (an unRAID share volume in production).
@@ -41,6 +70,291 @@ public sealed class ArchiveStore
     }
 
     private string IncomingDir => Path.Combine(_root, IncomingDirName);
+
+    // ----- Chunked upload sessions -----
+    //
+    // A single-request upload works until the archive is big and the link is slow enough that the
+    // request outlives whatever sits between the agent and this server — a proxied Cloudflare edge
+    // kills any request/response cycle past ~100s, and a well-loved Cyberpunk 2077 save (dozens of
+    // autosaves, each several MB) over a modest home upload routinely takes minutes. Splitting the
+    // transfer into several short requests keeps every individual one comfortably under that limit.
+    // Sessions live in memory only (this is a Singleton): a server restart drops them, but that is no
+    // different from the crash-mid-upload case the startup SweepIncoming() call already exists for —
+    // the orphaned staging file gets swept, and the agent's next attempt just begins a new session.
+
+    private sealed class UploadSession
+    {
+        public required Guid GameId { get; init; }
+        public required Guid MachineId { get; init; }
+        public required Guid VersionId { get; init; }
+        public required string ContentHash { get; init; }
+        public required Guid? ParentVersionId { get; init; }
+        public required bool Force { get; init; }
+        public required string StagedPath { get; init; }
+        public long BytesReceived;
+        public DateTime LastActivityUtc;
+        /// <summary>Serializes writes to the staged file. The agent only ever has one chunk for a
+        /// session in flight at a time, but a retried chunk racing a slow-to-fail original must not
+        /// interleave with it.</summary>
+        public readonly SemaphoreSlim WriteLock = new(1, 1);
+
+        // ----- Per-file delta negotiation (set only when the agent sent a manifest at Begin) -----
+
+        /// <summary>The agent's complete current file manifest, as declared at Begin — also the full
+        /// target file set a delta reconstruction copies forward or takes fresh bytes for. Null when
+        /// no manifest was sent (an old agent, or a push below the delta-worthwhile floor).</summary>
+        public FileManifestEntry[]? Files;
+        /// <summary>Paths (subset of <see cref="Files"/>) the server asked for fresh bytes on. Only
+        /// meaningful when <see cref="BaseVersionId"/> is set.</summary>
+        public string[]? NeedPaths;
+        /// <summary>The server head this session's delta was diffed against at Begin. Null means
+        /// either no manifest was sent, or one was sent but the server declined the delta path (no
+        /// stored baseline for the head, or the push cannot fast-forward) — either way the staged
+        /// bytes are a full archive, exactly like a pre-delta session. Re-checked at Complete: if the
+        /// head has moved on since, the negotiated diff is stale and must not be trusted.</summary>
+        public Guid? BaseVersionId;
+        /// <summary>Path → SHA-256 of the base version, as the diff at Begin already read it. Carried
+        /// on the session so Complete can verify every carried-forward entry without re-querying the
+        /// same rows a second time. Set together with <see cref="BaseVersionId"/>.</summary>
+        public IReadOnlyDictionary<string, string>? BaseManifest;
+    }
+
+    /// <summary>Read-only view of a session handed back across the ArchiveStore/SyncService boundary
+    /// — SyncService owns auth (does this machine own this session?) and the DB-facing metadata this
+    /// carries, ArchiveStore owns only the bytes.</summary>
+    public sealed record ChunkedUploadInfo(
+        Guid GameId, Guid MachineId, Guid VersionId, long BytesReceived,
+        string ContentHash, Guid? ParentVersionId, bool Force,
+        FileManifestEntry[]? Files, string[]? NeedPaths, Guid? BaseVersionId,
+        IReadOnlyDictionary<string, string>? BaseManifest);
+
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, UploadSession> _sessions = new();
+
+    /// <summary>How long an inactive session is allowed to sit before a later Begin call sweeps it.
+    /// Generous on purpose: sized for a full, very slow (~50 KB/s) 200 MB upload with several
+    /// chunk-level retries, not for the common case.</summary>
+    private static readonly TimeSpan SessionIdleLimit = TimeSpan.FromMinutes(45);
+
+    /// <summary>Start a chunked upload: stage an empty file and remember the metadata the eventual
+    /// <see cref="CompleteSession"/> will need, so later requests need only name the session.</summary>
+    public Guid BeginSession(
+        Guid gameId, Guid machineId, Guid versionId, string contentHash, Guid? parentVersionId, bool force)
+    {
+        SweepExpiredSessions();
+
+        Directory.CreateDirectory(IncomingDir);
+        var sessionId = Guid.NewGuid();
+        var staged = Path.Combine(IncomingDir, $"{versionId:N}-{sessionId:N}.part");
+        using (File.Create(staged)) { }
+
+        _sessions[sessionId] = new UploadSession
+        {
+            GameId = gameId,
+            MachineId = machineId,
+            VersionId = versionId,
+            ContentHash = contentHash,
+            ParentVersionId = parentVersionId,
+            Force = force,
+            StagedPath = staged,
+            LastActivityUtc = DateTime.UtcNow
+        };
+        return sessionId;
+    }
+
+    public bool TryGetSession(Guid sessionId, out ChunkedUploadInfo info)
+    {
+        if (_sessions.TryGetValue(sessionId, out var s))
+        {
+            info = new ChunkedUploadInfo(
+                s.GameId, s.MachineId, s.VersionId, Interlocked.Read(ref s.BytesReceived),
+                s.ContentHash, s.ParentVersionId, s.Force, s.Files, s.NeedPaths, s.BaseVersionId,
+                s.BaseManifest);
+            return true;
+        }
+        info = default!;
+        return false;
+    }
+
+    /// <summary>
+    /// Record the outcome of the per-file diff negotiation on an existing session — called once,
+    /// right after <see cref="BeginSession"/>, so <see cref="BeginSession"/> itself stays about
+    /// staging bytes and nothing else. <paramref name="baseVersionId"/> null means the agent sent no
+    /// manifest, or the server declined the delta path; either way the session expects a full archive.
+    /// </summary>
+    public void SetDeltaInfo(
+        Guid sessionId, FileManifestEntry[]? files, string[]? needPaths, Guid? baseVersionId,
+        IReadOnlyDictionary<string, string>? baseManifest = null)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var s)) throw new UnknownUploadSessionException(sessionId);
+        s.Files = files;
+        s.NeedPaths = needPaths;
+        s.BaseVersionId = baseVersionId;
+        s.BaseManifest = baseManifest;
+    }
+
+    /// <summary>
+    /// Append one chunk at the offset the caller believes the session is at.
+    /// <para>
+    /// <b>All-or-nothing, like <see cref="SaveAsync"/>.</b> A chunk whose body faults part-way
+    /// through — a connection reset, which is the exact failure this protocol exists to survive —
+    /// is rolled back: the staged file is truncated to where it was before the chunk started and
+    /// the session's byte count goes back with it. Without that, the partial bytes counted as
+    /// received, so the retry of that same chunk arrived BEHIND the session and took the replay
+    /// branch below, silently dropping the rest of it and desynchronising both sides from there on.
+    /// </para>
+    /// <para>
+    /// Idempotent against a retry: if <paramref name="expectedOffset"/> is behind what has already
+    /// landed, the request is a replay of one that actually succeeded even though its response was
+    /// lost, and this is a no-op that reports the current total. Because a failed chunk now rolls
+    /// back, "behind" can only mean a whole chunk landed — never a fragment of one. An offset AHEAD
+    /// of what has landed is rejected: chunks are sent strictly in order, so a gap can only mean an
+    /// earlier one never arrived.
+    /// </para>
+    /// </summary>
+    public async Task<long> AppendChunkAsync(
+        Guid sessionId, long expectedOffset, Stream content, long maxBytes, CancellationToken ct)
+    {
+        if (!_sessions.TryGetValue(sessionId, out var s))
+            throw new UnknownUploadSessionException(sessionId);
+
+        // Over the cap is not retryable — the archive itself is too big, so no later chunk can
+        // rescue this session. Dropping it (outside the lock, below) is what keeps the 413 the
+        // single-shot route returns meaningful: left alive, the session answered the agent's retry
+        // with a replay 200 and then failed the NEXT chunk on an offset mismatch, so the reason
+        // the upload died stopped being visible anywhere.
+        var abortOversize = false;
+        await s.WriteLock.WaitAsync(ct);
+        try
+        {
+            if (expectedOffset != s.BytesReceived)
+            {
+                if (expectedOffset < s.BytesReceived) return s.BytesReceived;
+                throw new UploadOffsetMismatchException(sessionId, expectedOffset, s.BytesReceived);
+            }
+
+            var startOffset = s.BytesReceived;
+            try
+            {
+                long written = 0;
+                await using (var fs = new FileStream(
+                    s.StagedPath, FileMode.Append, FileAccess.Write, FileShare.None,
+                    bufferSize: 81920, useAsync: true))
+                {
+                    var buffer = new byte[81920];
+                    int read;
+                    while ((read = await content.ReadAsync(buffer, ct)) > 0)
+                    {
+                        if (maxBytes > 0 && startOffset + written + read > maxBytes)
+                            throw new ArchiveTooLargeException(maxBytes);
+                        await fs.WriteAsync(buffer.AsMemory(0, read), ct);
+                        written += read;
+                    }
+                    await fs.FlushAsync(ct);
+                    fs.Flush(flushToDisk: true);
+                }
+                // Only once the whole chunk is durable: the count is what a retry is judged against,
+                // so it must never describe bytes that are still in flight.
+                Interlocked.Exchange(ref s.BytesReceived, startOffset + written);
+            }
+            catch (ArchiveTooLargeException) { abortOversize = true; throw; }
+            catch
+            {
+                RollbackTo(s, startOffset);
+                throw;
+            }
+
+            s.LastActivityUtc = DateTime.UtcNow;
+            return s.BytesReceived;
+        }
+        finally
+        {
+            s.WriteLock.Release();
+            if (abortOversize) AbortSession(sessionId);
+        }
+    }
+
+    /// <summary>Undo a partly-written chunk: truncate the staged file back to where the session was
+    /// before it started. Best-effort — if the truncate itself fails the session is poisoned rather
+    /// than silently short, so its byte count is left describing the file as it actually is and the
+    /// next chunk's offset check refuses to build on it.</summary>
+    private static void RollbackTo(UploadSession s, long offset)
+    {
+        try
+        {
+            using var fs = new FileStream(s.StagedPath, FileMode.Open, FileAccess.Write, FileShare.None);
+            fs.SetLength(offset);
+            fs.Flush(flushToDisk: true);
+            Interlocked.Exchange(ref s.BytesReceived, offset);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+    }
+
+    /// <summary>Finish a session: verify the assembled bytes are a readable archive, then publish
+    /// them to the archive's final path (same atomic rename the single-shot path uses) and forget
+    /// the session. The database work this enables is the caller's — ArchiveStore only ever knows
+    /// about bytes.
+    /// <para>
+    /// The session's <c>ContentHash</c> cannot be the check here: it is
+    /// <c>SaveArchive.HashDirectory</c>'s hash of the save FOLDER, not of the zip carrying it, so
+    /// the server would have to extract the archive to recompute it. Reading the archive's
+    /// central directory proves the one property that actually matters at this boundary — that
+    /// every byte the agent sent arrived — because a zip's index lives at its END, so a short or
+    /// torn assembly cannot produce a readable one.
+    /// </para>
+    /// </summary>
+    public (string relativePath, long size) CompleteSession(Guid sessionId)
+    {
+        if (!_sessions.TryRemove(sessionId, out var s))
+            throw new UnknownUploadSessionException(sessionId);
+
+        try
+        {
+            using var zip = System.IO.Compression.ZipFile.OpenRead(s.StagedPath);
+            _ = zip.Entries.Count;
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException)
+        {
+            // Refuse rather than publish. The staged bytes go now instead of waiting for the idle
+            // sweep — nothing can ever be made of them.
+            TryDeleteFile(s.StagedPath);
+            throw new CorruptUploadException(sessionId, $"{s.BytesReceived} byte(s) received");
+        }
+
+        var rel = RelativePath(s.GameId, s.VersionId);
+        var full = FullPath(rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        File.Move(s.StagedPath, full, overwrite: true);
+        return (rel, s.BytesReceived);
+    }
+
+    /// <summary>
+    /// Remove a session and return the path to its staged bytes — the small delta payload — WITHOUT
+    /// publishing them as a version's archive. Used only by the delta reconstruction path, which
+    /// builds a different file (copy-forward + these bytes) to publish instead. The caller owns
+    /// deleting the returned path once it has read what it needs from it.
+    /// </summary>
+    public string TakeSessionStagedPath(Guid sessionId)
+    {
+        if (!_sessions.TryRemove(sessionId, out var s)) throw new UnknownUploadSessionException(sessionId);
+        return s.StagedPath;
+    }
+
+    /// <summary>Abandon a session without publishing. Used when the content turned out to already be
+    /// on the server (another machine raced ahead while chunks were in flight) — the staged bytes are
+    /// deleted immediately rather than waiting for the next-startup sweep.</summary>
+    public void AbortSession(Guid sessionId)
+    {
+        if (_sessions.TryRemove(sessionId, out var s)) TryDeleteFile(s.StagedPath);
+    }
+
+    private void SweepExpiredSessions()
+    {
+        var cutoff = DateTime.UtcNow - SessionIdleLimit;
+        foreach (var (id, s) in _sessions)
+        {
+            if (s.LastActivityUtc < cutoff) AbortSession(id);
+        }
+    }
 
     /// <summary>
     /// The store path persisted in <c>SaveVersion.ArchivePath</c>. Always '/'-separated, never
@@ -111,6 +425,41 @@ public sealed class ArchiveStore
             throw;
         }
     }
+
+    /// <summary>
+    /// A fresh path on the SAME volume as the archive root, for a caller that needs to build a file
+    /// before publishing it (delta reconstruction: copy-forward + new entries into a brand-new zip).
+    /// Matches every other publish path's same-volume-rename requirement — a cross-volume move would
+    /// not be atomic. The caller publishes it with <see cref="PublishFile"/> or cleans it up with
+    /// <see cref="TryDeleteStaged"/> on failure.
+    /// <para>
+    /// Carries the same <c>.part</c> extension as a staged upload so <see cref="SweepIncoming"/>
+    /// reclaims it. A build is short-lived within one request only when that request finishes: a
+    /// container restart or an OOM kill mid-reconstruction runs neither the catch nor the finally,
+    /// and an unswept build can be as large as the whole save.
+    /// </para>
+    /// </summary>
+    public string NewStagingPath(Guid versionId)
+    {
+        Directory.CreateDirectory(IncomingDir);
+        return Path.Combine(IncomingDir, $"{versionId:N}-{Guid.NewGuid():N}.part");
+    }
+
+    /// <summary>Publish an already-built file (e.g. a delta-reconstructed archive) as a version's
+    /// final archive, via the same atomic same-volume rename every other publish path uses.</summary>
+    public (string relativePath, long size) PublishFile(Guid gameId, Guid versionId, string sourceFullPath)
+    {
+        var rel = RelativePath(gameId, versionId);
+        var full = FullPath(rel);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        var size = new FileInfo(sourceFullPath).Length;
+        File.Move(sourceFullPath, full, overwrite: true);
+        return (rel, size);
+    }
+
+    /// <summary>Remove a staging file this caller created (e.g. an abandoned delta build) — same
+    /// best-effort semantics as every other cleanup path here.</summary>
+    public void TryDeleteStaged(string fullPath) => TryDeleteFile(fullPath);
 
     public Stream OpenRead(string relativePath) => File.OpenRead(FullPath(relativePath));
 

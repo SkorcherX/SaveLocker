@@ -75,17 +75,7 @@ public static class SteamRoots
         var seen = new HashSet<string>(StringComparer.Ordinal) { steamRoot };
         yield return steamRoot;
 
-        var file = new[]
-        {
-            Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf"),
-            Path.Combine(steamRoot, "config", "libraryfolders.vdf"),
-        }.FirstOrDefault(File.Exists);
-        if (file is null) yield break;
-
-        var root = ParseVdf(file);
-        if (root is null) yield break;
-
-        var folders = root.Object("libraryfolders");
+        var folders = LibraryFolders(steamRoot);
         if (folders is null) yield break;
 
         foreach (var lib in folders.Children)
@@ -95,6 +85,76 @@ public static class SteamRoots
             if (!string.IsNullOrEmpty(path) && Directory.Exists(path) && seen.Add(path))
                 yield return Path.GetFullPath(path);
         }
+    }
+
+    /// <summary>
+    /// Every library <c>libraryfolders.vdf</c> names, whether or not it currently exists —
+    /// unlike <see cref="LibraryPaths"/>, which silently skips a library that is not mounted right
+    /// now (an SD card pulled or swapped for another). Nothing here is wrong to skip — a scan that
+    /// errored out over a missing card would be worse — but "this library is not currently visible"
+    /// and "you have no such library" look identical from a scan alone, and Steam itself remembers a
+    /// library across a card swap in exactly this file. <c>doctor</c> is where the difference gets
+    /// said out loud: found on a real Deck (2026-08-19) with three SD-card libraries configured and
+    /// only one inserted, where a genuinely Steam-installed game on an absent card had no way to
+    /// explain why it was invisible.
+    /// </summary>
+    public static IEnumerable<string> AllConfiguredLibraryPaths(string steamRoot)
+    {
+        var folders = LibraryFolders(steamRoot);
+        if (folders is null) yield break;
+
+        foreach (var lib in folders.Children)
+        {
+            var path = lib.String("path");
+            if (!string.IsNullOrEmpty(path))
+                yield return path;
+        }
+    }
+
+    /// <summary>
+    /// Every AppID Steam's own <c>libraryfolders.vdf</c> currently believes is installed, across
+    /// every configured library — mounted or not. Steam persists each library's own <c>apps</c>
+    /// block (<c>{ appid: size-on-disk }</c>) in this ONE file, on the always-reachable main root,
+    /// specifically so it survives that library's own media being absent (an SD card pulled or
+    /// swapped) — which is exactly what makes it usable when the library it names cannot itself be
+    /// read.
+    /// <para>
+    /// This is the one signal that can tell "genuinely installed right now, on media I cannot see"
+    /// apart from "was installed once, uninstalled since, orphaned data left behind" — a MoonDeck
+    /// shortcut's own resolved compatdata prefix cannot: Steam does not clean up compatdata on
+    /// uninstall (see <c>Decisions.md</c> → Linux discovery), so a real prefix full of real save
+    /// data proves nothing about whether the game is still installed anywhere at all. Found on a
+    /// real Deck (2026-08-19): Cyberpunk 2077, genuinely installed via Steam on a card labelled
+    /// "SD2" that was not currently inserted, was still named in this file's own <c>apps</c> block.
+    /// </para>
+    /// </summary>
+    public static IReadOnlySet<string> AllKnownInstalledAppIds(string steamRoot)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var folders = LibraryFolders(steamRoot);
+        if (folders is null) return ids;
+
+        foreach (var lib in folders.Children)
+        {
+            var apps = lib.Object("apps");
+            if (apps is null) continue;
+            foreach (var appId in apps.Items.Keys)
+                ids.Add(appId);
+        }
+        return ids;
+    }
+
+    /// <summary>The parsed <c>libraryfolders</c> object from a Steam root's own VDF, or null.</summary>
+    private static SteamVdf.VdfObject? LibraryFolders(string steamRoot)
+    {
+        var file = new[]
+        {
+            Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf"),
+            Path.Combine(steamRoot, "config", "libraryfolders.vdf"),
+        }.FirstOrDefault(File.Exists);
+        if (file is null) return null;
+
+        return ParseVdf(file)?.Object("libraryfolders");
     }
 
     /// <summary>Read and parse a text VDF, or null if it is unreadable or malformed.</summary>

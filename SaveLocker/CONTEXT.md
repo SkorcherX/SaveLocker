@@ -25,6 +25,14 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
+**Fork port (2026-10-21, branch `port/fork-sync-features`, not yet merged or released).** Cherry-picked
+from Marwanello/SaveLocker (`-x` keeps the source SHAs): chunked upload that is all-or-nothing, Linux/Deck
+save detection plus case-insensitive Wine/Proton paths, per-file delta upload (new `SaveVersionFile`
+migration), the conflict card's file-count/newest-mtime delta, and per-game alias + pull-before-launch +
+HasSteamCloud. Not ported: their sync-activity UI (PR #9), their Deck testenv (#4), and everything from
+the redesign onward. Verified: full build, delta upload 29/29, server bug bounty 194/194, hardening 33/33.
+**Not yet run:** `run-linux-tests` (WSL) or a Deck check of the detection changes.
+
 **Console UI/audit cleanup (2026-08-16, this session, on `main` but NOT in v0.5.8 — that was already
 tagged).** Four small tasks, one commit each, all with a real bug caught during manual browser
 verification and fixed before shipping — write-ups in `logs/2026-08-16_*.md`:

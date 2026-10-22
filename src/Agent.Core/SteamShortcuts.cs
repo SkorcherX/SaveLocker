@@ -11,11 +11,20 @@ namespace SaveLocker.Agent;
 /// Null for a shortcut that carries no AppID key: harmless on Windows, but on Linux it means
 /// the prefix cannot be located, so <c>doctor</c> calls it out rather than failing silently.
 /// </param>
+/// <param name="MoonDeckAppId">
+/// The real Steam AppID a MoonDeck (Decky game-streaming plugin) shortcut streams, read out of its
+/// <c>LaunchOptions</c> (<c>MOONDECK_STEAM_APP_ID=&lt;id&gt;</c>). A MoonDeck shortcut's <c>Exe</c>
+/// launches its streaming client script, not the game — Steam never creates a compatdata prefix for
+/// <see cref="AppId"/>, because the game itself runs on a different machine. When the same title is
+/// ALSO installed locally under Proton (played both ways, or migrated from local to streamed), this
+/// is the id whose prefix the real local save data lives in. Null for an ordinary shortcut.
+/// </param>
 public sealed record SteamShortcut(
     string AppName,
     string? Exe,
     string? StartDir,
-    string? AppId);
+    string? AppId,
+    string? MoonDeckAppId = null);
 
 /// <summary>Reads non-Steam shortcuts out of Steam's binary <c>shortcuts.vdf</c>.</summary>
 public static class SteamShortcuts
@@ -60,14 +69,41 @@ public static class SteamShortcuts
             // Steam has spelled this key "appid" and "AppID" across versions; the map is
             // case-insensitive, so one lookup covers both.
             var appId = entry.Int("appid");
+            var launchOptions = entry.String("LaunchOptions") ?? entry.String("launchoptions");
 
             results.Add(new SteamShortcut(
                 AppName: name.Trim(),
                 Exe: Unquote(entry.String("Exe") ?? entry.String("exe")),
                 StartDir: Unquote(entry.String("StartDir") ?? entry.String("startdir")),
-                AppId: appId is null ? null : CompatDataId(appId.Value)));
+                AppId: appId is null ? null : CompatDataId(appId.Value),
+                MoonDeckAppId: ParseMoonDeckAppId(launchOptions)));
         }
         return results;
+    }
+
+    /// <summary>
+    /// Pull <c>MOONDECK_STEAM_APP_ID=&lt;digits&gt;</c> out of a shortcut's <c>LaunchOptions</c>.
+    /// <para>
+    /// Not a full tokenizer: other MoonDeck values are single-quoted and may contain spaces
+    /// (<c>MOONDECK_LINKED_DISPLAY='LG Electronics LG TV (1600x900 mm)'</c>), which a naive
+    /// space-split would break on. A Steam AppID is always a bare digit run, so finding the marker
+    /// and reading the digits after it is both sufficient and immune to how neighbouring values are
+    /// quoted.
+    /// </para>
+    /// </summary>
+    private static string? ParseMoonDeckAppId(string? launchOptions)
+    {
+        const string marker = "MOONDECK_STEAM_APP_ID=";
+        if (string.IsNullOrEmpty(launchOptions)) return null;
+
+        var idx = launchOptions.IndexOf(marker, StringComparison.Ordinal);
+        if (idx < 0) return null;
+
+        var start = idx + marker.Length;
+        var end = start;
+        while (end < launchOptions.Length && char.IsAsciiDigit(launchOptions[end])) end++;
+
+        return end > start ? launchOptions[start..end] : null;
     }
 
     /// <summary>

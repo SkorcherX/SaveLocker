@@ -288,6 +288,12 @@ session can judge an edge case, not to reopen the choice.
   save-variant model — different formats/paths/line-endings per platform). A Proton save is a
   Windows save, byte-identical to a Windows PC's — existing content-hash lineage works with zero
   server schema change. **Never sync a native-Linux save into a Windows install.**
+  <br>**Revisit requested 2026-08-19** (maintainer: willing to accept per-game uncertainty on restore
+  in exchange for being able to try it at all — "if it doesn't [work] I have my OS save already
+  there"). The scope call itself still stands until the save-variant model exists; a phased plan for
+  building that model — the missing piece named above — is scoped in [[Backlog]] → *Native Linux save
+  support*. The one part of this decision that plan must not weaken: a Windows/Proton save and a
+  native-Linux save of the same game must never share a version lineage, however the UI presents them.
 - **Linux discovery:** `shortcuts.vdf` (non-Steam shortcuts), Heroic's library files, **and — since
   2026-08-10 — `libraryfolders.vdf`/`*.acf` (installed Steam games)**. Steam's shortcut AppID is
   signed in the VDF but the `compatdata/<id>/` folder name is unsigned —
@@ -310,6 +316,49 @@ session can judge an edge case, not to reopen the choice.
   Valve mints a new appid per Proton release, so any such list is stale the day it is written. Both
   scanners use the marker file; the appid list survives only for Steamworks Common Redistributables,
   which ships no toolmanifest. Pinned by a fixture whose appid is deliberately unguessable.
+  <br>**A MoonDeck (Decky streaming plugin) shortcut's own AppID never gets a prefix either**
+  (2026-08-19, `logs/2026-08-19_moondeck-save-detection.md`) — its `Exe` launches MoonDeck's own
+  streaming client, never the game, so Steam has nothing to make compatdata for. When the same title
+  is (or was) ALSO installed locally under Proton, the real AppID is in `LaunchOptions`
+  (`MOONDECK_STEAM_APP_ID=`), and that is the prefix any local save data lives in — found via
+  Cyberpunk 2077 on the maintainer's own Deck, where the Steam-Store copy had since been uninstalled
+  but its compatdata (and real save data, 9 days old) was still there. `SteamShortcuts.MoonDeckAppId`
+  carries it; `LinuxGameScanner` tries it only after the shortcut's own prefix fails to resolve, with
+  `installDir` left null since `StartDir` here is MoonDeck's script directory, not the game's.
+  <br>**An installed game's `&lt;root&gt;` is always the caller's verified Steam root, never derived
+  from whichever compatdata path is being tried** (same 2026-08-19 session). Steam Cloud's own sync
+  folder (`&lt;root&gt;/userdata/&lt;storeUserId&gt;/&lt;appid&gt;/remote`) exists exactly once, at
+  the true Steam root, regardless of which library holds a game's files or compatdata — deriving
+  `&lt;root&gt;` from the prefix path instead (the general-purpose `SteamLayout.RootFromCompatData`)
+  silently pointed it at a secondary library with no `userdata` at all. Found via Left 4 Dead 2, whose
+  compatdata does not exist anywhere on the maintainer's Deck at all — resolution is now attempted
+  even then, since a `&lt;root&gt;`-anchored template needs no prefix to exist.
+  <br>**A relocated install (most commonly internal storage → SD card) can leave a fresh, USELESS
+  prefix at the new location while the original, working one stays in the main root** — Steam
+  re-creates a prefix there rather than moving the old one, and the fresh one's special folders can be
+  auto-created with different casing than an existing save history expects (Borderlands 2:
+  `My games` where the manifest and the original prefix both say `My Games`; Linux is
+  case-sensitive). The fallback to the main root's own compatdata is therefore tried whenever the
+  current library's prefix resolves NOTHING, not only when the directory is missing outright — a
+  present-but-unusable prefix looks identical to an absent one from outside, and the first cut of this
+  fix (checking only `Directory.Exists`) missed exactly this shape.
+  <br>**The casing half was a hand-fix for this one game, not a general answer — generalized
+  2026-08-20.** `PathResolver.Wine()`/`.Proton()` now fall back to a case-insensitive,
+  segment-by-segment walk whenever the naive exact-case path fails to resolve, so any future prefix a
+  relocation, a different Proton build, or a different Wine version happens to case differently is
+  covered, not just this one already-diagnosed instance.
+  `logs/2026-08-20_wine-case-insensitive-and-scoping.md` has the fix; `Backlog.md` → *Multiple save
+  paths per game* and *Registry-based saves* carry the two follow-on items scoped the same session.
+  <br>**A MoonDeck shortcut's real AppID is reclassified as `SteamInstalled`, not `SteamShortcut`,
+  when Steam's own `libraryfolders.vdf` — specifically its per-library `apps` block — says the AppID
+  is installed somewhere** (`SteamRoots.AllKnownInstalledAppIds`, same session). A resolved compatdata
+  prefix can never justify this by itself: Steam does not clean up compatdata on uninstall, so a real
+  prefix full of real save data is equally consistent with "genuinely installed, on media not
+  reachable right now" and "was installed once, uninstalled since, orphaned data left behind." The
+  `apps` block is the one place that says which — and it survives its own library's media being
+  absent, because it lives in the SAME file on the always-reachable main root, not on the card
+  itself. Found via Cyberpunk 2077 a second time: genuinely Steam-installed on a card labelled "SD2"
+  that stayed unmounted throughout, reclassified correctly with no card swap needed at all.
 - **Linux UI: headless daemon serving the existing React UI** on `:5178` (Desktop Mode = KDE +
   browser). **Game Mode has no browser**, so `savelocker ui` (SDL + Dear ImGui, in-process against
   `Agent.Core`, no second API client) covers Status/Add game/Set folder/Launch setup as a gamepad
@@ -435,6 +484,36 @@ session can judge an edge case, not to reopen the choice.
   "Keep both" doesn't create two heads — the chosen snapshot becomes Latest, both conflicting
   snapshots get `Protected` (exempt from retention) until explicitly unprotected. Resolution
   refuses to promote something older than the current head.
+- **Per-file delta upload reconstructs by copy-forward, not content-addressable storage**
+  (2026-08-22, `tasks/PerFileDeltaUpload.md`). On a clean fast-forward push, the server opens the
+  previous head's own archive and copies forward every entry the agent's manifest didn't declare
+  changed, adding only the freshly uploaded entries — one complete zip per version, same on-disk
+  layout as before (`{gameId}/{versionId}.zip`), zero change to restore/download/pruning. Rejected:
+  a content-addressable blob store, deduping identical files by hash across versions — it would not
+  improve *detecting* an unchanged push at all (that's pure hash/manifest comparison, already
+  content-only and unaffected by storage layout) and it trades a real problem (upload bandwidth on a
+  constrained uplink — the thing that was actually reported) for a different one (a
+  reference-counted GC subsystem, solving disk space, which nobody had complained about). Deferred,
+  not rejected, if storage cost ever becomes the complaint.
+- **Delta floor: below 5 files or 2 MB total, skip the manifest round trip entirely** and push the
+  whole archive in one request, exactly as before — a starting number, not a tuned one. Below it the
+  manifest exchange is pure overhead: one extra request for a save that was already cheap.
+- **A delta is only ever attempted on a clean fast-forward** — `force`, a diverged push, and a
+  first-ever push (no known parent) always get today's full-archive behavior unconditionally, and so
+  does a fast-forward whose head has no *stored* per-file manifest yet (an old agent's push, or one
+  below the floor). Those are exactly the cases where the server cannot safely assume what "the old
+  content" was to copy forward from. A head with no manifest self-heals the moment one push completes
+  with one — the first two pushes to a fresh game always take the full-archive path for this reason,
+  proven by `tests/run-delta-upload-tests.ps1` section 1, not just asserted.
+- **Content-hash-based version dedup was already correct before this work — confirmed, not fixed.**
+  Raised because a new version appeared after "barely" opening a game. `SaveArchive.HashDirectory`
+  folds relative path + file *bytes* into its SHA-256, explicitly excluding mtimes and zip metadata
+  by design, and both the agent (`SyncEngine.PushCoreAsync`) and the server
+  (`SyncService.PrepareUploadAsync`) already skip creating a version when content genuinely matches.
+  The reported symptom is almost certainly a real content change some games make on load (an
+  autosave slot, a last-played stat) — the per-file manifest this work adds now makes that
+  concretely diagnosable per push, via the `upload.delta` audit entry's "N of M files needed fresh
+  bytes", rather than needing to guess.
 
 ## Environment facts (user-provided)
 - Games are standalone builds, not bought on Steam/Epic → manifest-based detection + manual
