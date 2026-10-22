@@ -77,4 +77,19 @@ public sealed record ScanCandidate(
     /// </summary>
     string? SuggestedProcessName = null,
     /// <summary>Which storefront sold the game, when discovery knows. See <see cref="GameStore"/>.</summary>
-    GameStore Store = GameStore.Unknown);
+    GameStore Store = GameStore.Unknown,
+    /// <summary>
+    /// Steam has this game under more than one AppID — a launcher re-created the shortcut instead of
+    /// updating it (<see cref="SteamShortcuts.DuplicateNameGroups"/>), and Steam only ever launches
+    /// one. One entry per distinct AppID; <see cref="DuplicateShortcut.Tracked"/> marks the shortcut
+    /// this scan resolved. Null unless the shape was actually seen (and never an empty list).
+    /// </summary>
+    IReadOnlyList<DuplicateShortcut>? DuplicateShortcuts = null);
+
+/// <summary>
+/// One same-named Steam shortcut that carries its own AppID (see
+/// <see cref="ScanCandidate.DuplicateShortcuts"/>): <see cref="Name"/> is the shortcut's own vdf
+/// name, <see cref="AppId"/> its unsigned AppID (null for a shortcut carrying none), and
+/// <see cref="Tracked"/> marks the one the scan will actually follow.
+/// </summary>
+public sealed record DuplicateShortcut(string? AppId, string Name, bool Tracked);

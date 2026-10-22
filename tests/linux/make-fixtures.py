@@ -600,6 +600,9 @@ def main() -> int:
     print(f"HEROIC_STRANDED_SAVE={heroic['stranded_save']}")
     print(f"HEROIC_SIDELOAD_LIBRARY={heroic['sideload_library']}")
     print(f"MOONDECK_REAL_APPID={MOONDECK_REAL_APPID}")
+    # The duplicate pair's wire form: what CompatDataId() emits from the signed vdf value.
+    print(f"MOONDECK_SHORTCUT_APPID={MOONDECK_SHORTCUT_APPID_SIGNED & 0xFFFFFFFF}")
+    print(f"MOONDECK_DUP_APPID={MOONDECK_DUP_APPID_SIGNED & 0xFFFFFFFF}")
     print(f"MOONDECK_REAL_PREFIX={moondeck_prefix}")
     print(f"MOONDECK_REAL_SAVE={moondeck_save}")
     return 0

@@ -751,7 +751,8 @@ public sealed class AgentApiServer : IDisposable
             candidate.SuggestedSaveDir ?? "",
             SaveLocker.Shared.WinePrefix.BrowseStart(candidate.PrefixPath),
             candidate.SuggestedProcessName,
-            candidate.Store.ToString())).ToArray();
+            candidate.Store.ToString(),
+            candidate.DuplicateShortcuts is { Count: > 0 } duplicates ? duplicates.ToArray() : null)).ToArray();
 
     private static string FormatAgo(TimeSpan ago)
     {
@@ -822,9 +823,13 @@ public sealed record AgentStateDto(
 /// to <paramref name="Source"/>: one Heroic source covers four storefronts, and a large install
 /// base is only navigable if the UI can narrow to one of them.
 /// </param>
+/// <param name="DuplicateShortcuts">
+/// Same-named Steam shortcuts under different AppIDs (<see cref="ScanCandidate.DuplicateShortcuts"/>):
+/// one entry per AppID, <see cref="DuplicateShortcut.Tracked"/> on the one the scan uses. Null when not the shape.
+/// </param>
 public sealed record CandidateDto(
     int Id, string Name, string Source, bool HasSteamCloud, string Path, string? PrefixPath,
-    string? ProcessName, string Store);
+    string? ProcessName, string Store, DuplicateShortcut[]? DuplicateShortcuts = null);
 /// <param name="ProcessNames">
 /// Process names (no extension) that mean this game is running. <b>Empty means the Windows agent
 /// cannot detect it</b> — no lease, no exit push, and no refusal to pull under a live game — so the

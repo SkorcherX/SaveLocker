@@ -9,7 +9,12 @@ export type AgentState = Omit<components['schemas']['AgentStateDto'],
   settleQuietSeconds: number
 }
 export type AgentVersion = components['schemas']['AgentVersionDto']
-export type Candidate = Omit<components['schemas']['CandidateDto'], 'id'> & { id: number }
+// duplicateShortcuts is hand-written until the agent's api-types are next regenerated.
+export interface DuplicateShortcut { appId: string | null; name: string; tracked: boolean }
+export type Candidate = Omit<components['schemas']['CandidateDto'], 'id'> & {
+  id: number
+  duplicateShortcuts?: DuplicateShortcut[] | null
+}
 export type TrackedGame = components['schemas']['TrackedGameDto']
 export type BrowseEntry = components['schemas']['BrowseEntry']
 export type BrowseListing = components['schemas']['BrowseListing']
