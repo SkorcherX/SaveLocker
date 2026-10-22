@@ -14,6 +14,7 @@ export type Candidate = Omit<components['schemas']['CandidateDto'], 'id'> & { id
 export type LinkOption = components['schemas']['LinkOption']
 export type CandidateLinks = components['schemas']['CandidateLinksResponse']
 export type TrackedGame = components['schemas']['TrackedGameDto']
+export type GameRelease = components['schemas']['GameReleaseDto']
 export type BrowseEntry = components['schemas']['BrowseEntry']
 export type BrowseListing = components['schemas']['BrowseListing']
 export type DeckyStatus = components['schemas']['DeckyStatusDto']

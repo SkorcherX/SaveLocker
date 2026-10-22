@@ -309,6 +309,13 @@ namespace SaveLocker.Server.Migrations
                     b.Property<Guid?>("PreferredMachineId")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Region")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ReleaseJson")
+                        .HasColumnType("TEXT");
+
                     b.Property<int?>("RetainVersions")
                         .HasColumnType("INTEGER");
 
@@ -317,7 +324,7 @@ namespace SaveLocker.Server.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("Name")
+                    b.HasIndex("Name", "Region")
                         .IsUnique();
 
                     b.ToTable("Games");

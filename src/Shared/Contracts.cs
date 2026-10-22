@@ -44,7 +44,52 @@ public record GameDto(
     // working on it unchanged.
     SavePathDto[]? ExtraPaths = null,
     // How the calling machine found this game (agent routes only); null when it has not said.
-    GameSourceDto? MachineSource = null);
+    GameSourceDto? MachineSource = null,
+    // The emulators any machine found this game through (agent routes only), null when none has said: an
+    // emulator save never joins a game another emulator's save made, even with the same files.
+    string[]? Emulators = null,
+    // Which release of a console game it is — region, game IDs — when an emulator save said. Kept apart from
+    // the name: two games may share a name when their regions differ.
+    GameReleaseDto? Release = null);
+
+/// <summary>
+/// Which release of a console game an emulator save belongs to, read from the game ID the save is filed under
+/// (<c>BASLUS-21022…</c> → SLUS-21022): the <see cref="Console"/> ("PlayStation 2"), the <see cref="Region"/> as
+/// Redump names it ("USA", "Europe, Australia"), the disc's <see cref="GameIds"/> (every disc's, for a multi-disc
+/// game), its <see cref="Languages"/> ("En", "Fr"), and <see cref="NamedBy"/> — "Redump" when the name came from
+/// that table, null when it was read from inside the save. Display text the agent wrote, except
+/// <see cref="Region"/>, which also decides joins: a European disc reads none of a USA disc's saves, so two
+/// releases of one game are two games, told apart by region and not by name.
+/// </summary>
+public record GameReleaseDto(
+    string Console,
+    string? Region = null,
+    string[]? GameIds = null,
+    string[]? Languages = null,
+    string? NamedBy = null)
+{
+    /// <summary>Longest string the server stores, and most game IDs or languages.</summary>
+    public const int MaxLength = 64, MaxItems = 16;
+
+    /// <summary>The region as the server keys games by it: trimmed, <c>""</c> for none.</summary>
+    public static string RegionKey(string? region) => region?.Trim() ?? "";
+
+    /// <summary>Why the server refuses this release, or null: a string over <see cref="MaxLength"/>, or more
+    /// than <see cref="MaxItems"/> game IDs or languages.</summary>
+    public static string? Validate(GameReleaseDto? r) =>
+        r is null ? null
+        : new[] { r.Console, r.Region, r.NamedBy }.Concat(r.GameIds ?? []).Concat(r.Languages ?? [])
+            .Any(s => s is { Length: > MaxLength }) ? $"A release's text is at most {MaxLength} characters."
+        : (r.GameIds?.Length ?? 0) > MaxItems || (r.Languages?.Length ?? 0) > MaxItems ? $"A release lists at most {MaxItems} game IDs and languages."
+        : null;
+
+    /// <summary>Equal field by field, the lists in order: a record compares arrays by reference.</summary>
+    public static bool Same(GameReleaseDto? a, GameReleaseDto? b) =>
+        a is null || b is null
+            ? a is null && b is null
+            : a.Console == b.Console && a.Region == b.Region && a.NamedBy == b.NamedBy &&
+              (a.GameIds ?? []).SequenceEqual(b.GameIds ?? []) && (a.Languages ?? []).SequenceEqual(b.Languages ?? []);
+}
 
 /// <summary>
 /// How a machine found a game, in two levels: <see cref="Kind"/> (one of <see cref="GameSourceKinds"/>:
@@ -138,7 +183,10 @@ public record CreateGameRequest(
     // Both applied only when this request creates the game; an existing game keeps its own folders
     // and scopes, and the caller compares what comes back with what it asked for.
     string[]? IncludeGlobs = null,
-    SavePathDto[]? ExtraPaths = null);
+    SavePathDto[]? ExtraPaths = null,
+    // A console game's release. With a region, the request joins only a game of that region (or one with none
+    // yet, which takes it); without one, any game of the name, as before.
+    GameReleaseDto? Release = null);
 
 // ----- Server settings (dashboard-managed) -----
 

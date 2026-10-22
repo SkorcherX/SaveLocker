@@ -77,10 +77,19 @@ public sealed class ProcessWatcher : IDisposable
     private int _polling;
     private volatile bool _disposed;
 
-    public event Action<string>? GameLaunched; // game name
-    public event Action<string>? GameExited;   // game name
+    public event Action<string>? GameLaunched; // the game's key in the map
+    public event Action<string>? GameExited;   // the game's key in the map
 
-    /// <param name="watchedByGame">Returns a map of game-name -> process names (no .exe).</param>
+    /// <summary>
+    /// The map to watch for <paramref name="games"/>: those with process names, keyed by id. Not by name — two releases
+    /// of one console game share it, and a duplicate key would throw on every poll inside a timer that swallows it,
+    /// so no game's launch or exit would be seen again.
+    /// </summary>
+    public static IReadOnlyDictionary<string, IReadOnlyList<string>> ByGameId(IEnumerable<TrackedGame> games) =>
+        games.Where(g => g.ProcessNames.Count > 0)
+            .ToDictionary(g => g.GameId.ToString(), g => (IReadOnlyList<string>)g.ProcessNames.ToList());
+
+    /// <param name="watchedByGame">Returns a map of game key (the tray uses its id) -> process names (no .exe).</param>
     public ProcessWatcher(Func<IReadOnlyDictionary<string, IReadOnlyList<string>>> watchedByGame, double pollMs = 4000)
     {
         _watchedByGame = watchedByGame;

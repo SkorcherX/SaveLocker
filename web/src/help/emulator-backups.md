@@ -4,6 +4,20 @@ SaveLocker can back up emulator saves just like other game saves. It preserves f
 
 The important distinction is **what kind of emulator save you are syncing**. In-game saves are generally portable. Save states are snapshots of an emulator's internal state and need more care.
 
+## Emulators Add games finds by itself
+
+Add games lists one game per save for RetroArch, melonDS, Supermodel, Model 2, ScummVM, PCSX2, DuckStation, Dolphin and PrimeHack. It looks in EmuDeck's folders on SteamOS and Windows first, then in standalone installs where SaveLocker knows the folder. Each game keeps only its own files inside a folder other games share, and its save states come with it.
+
+**A memory card every game shares is never added as one game.** PCSX2's card file (`Mcd001.ps2`, 8–64 MB), Dolphin's `MemoryCardA.USA.raw` and DuckStation's `shared_card_1.mcd` hold every game's saves, so restoring one game's save would restore them all. Add games shows such a card greyed out, with how to switch the emulator to a card per game:
+
+- **PCSX2:** Settings > Memory Cards, right-click the card > Convert > Folder, then right-click the new card > Use for Slot 1. The saves are kept.
+- **Dolphin:** Options > Configuration > GameCube, set Slot A to GCI Folder. Dolphin copies the old card's saves into the folder by itself.
+- **DuckStation:** Settings > Memory Cards, set Card 1 to Separate Card Per Game (Title). The new cards start empty; copy the saves over with Tools > Memory Card Editor.
+
+**PlayStation, GameCube and Wii games are named by their disc's serial** — *Prince of Persia - The Two Thrones*. Each region's disc has its own serial and reads only its own saves, so a USA save and a European save of the same game are two games with the same name. The region isn't part of the name: it's shown beside it — as text in game lists and Add games, and on the game's page as a chip. Hover over the chip, or click or tap it, to see the release's details: region, game ID, console, languages and the save's files. A save only joins a game of its name from the same region. Titles come from [Redump](http://redump.org/) via [libretro-database](https://github.com/libretro/libretro-database) (CC BY-SA 4.0); a game Redump doesn't list is named by the title inside its save.
+
+**A save from one emulator never joins another emulator's game**, even for the same title: Metroid Prime Trilogy saved in Dolphin and in PrimeHack are two games, and never sync with each other.
+
 ## Prefer in-game saves
 
 Whenever possible, sync the files created by the game's own save system:
@@ -79,7 +93,7 @@ If both machines create different saves, SaveLocker records a conflict instead o
 ## First-time setup checklist
 
 1. Make an independent copy of the current save or memory-card file.
-2. Create one server game for the emulated title or shared memory card.
+2. Create one server game for the emulated title. Map a shared memory card as one game only if you accept that restoring it restores every game on it; SaveLocker warns when you do.
 3. Map the smallest non-overlapping save folder on each machine; put a standalone memory-card file in a dedicated folder.
 4. Add exclude patterns for caches, logs, screenshots, and other generated files.
 5. Confirm both machines use compatible ROMs, emulator versions, cores, BIOS files, and settings.

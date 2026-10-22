@@ -1242,8 +1242,11 @@ sealed class UiApp
         ImGui.PushID(i);
         bool ticked = _selected.Contains(i);
 
+        // A memory card every game of a console shares: listed so the Deck says why, never tickable.
+        bool blocked = c.NotSyncable is not null;
+
         ImGui.BeginGroup();
-        if (Widgets.CheckRow("sel", ref ticked, enabled: !alreadyTracked))
+        if (Widgets.CheckRow("sel", ref ticked, enabled: !alreadyTracked && !blocked) && !blocked)
         {
             if (ticked) _selected.Add(i); else _selected.Remove(i);
         }
@@ -1253,7 +1256,8 @@ sealed class UiApp
         Widgets.Text(c.Name, alreadyTracked ? Theme.TextMuted : Theme.TextPrimary, Theme.BodyStrong);
         ImGui.SameLine(0, Theme.Space.Sm);
         ImGui.AlignTextToFramePadding();
-        Widgets.Text(c.EmulatorName is { } emu ? $"[{emu}]" : $"[{c.Source}]", Theme.TextDim, Theme.Caption);
+        var from = c.EmulatorName is { } emu ? $"[{emu}]" : $"[{c.Source}]";
+        Widgets.Text(c.Release?.Region is { } region ? $"{from} {region}" : from, Theme.TextDim, Theme.Caption);
 
         if (alreadyTracked)
         {
@@ -1271,7 +1275,12 @@ sealed class UiApp
             Widgets.Badge($"{duplicates.Count} AppIDs", Theme.AccentAmber, Icons.AlertTriangle);
         }
 
-        if (!alreadyTracked)
+        if (blocked && !alreadyTracked)
+        {
+            if (hasFolder) Widgets.Text(c.SuggestedSaveDir!, Theme.TextMuted, Theme.Caption);
+            Widgets.TextWrapped(c.NotSyncable!, Theme.AccentAmberLt, Theme.Caption);
+        }
+        else if (!alreadyTracked)
         {
             Widgets.Text(hasFolder ? c.SuggestedSaveDir! : "Pick where this game keeps its saves.",
                 hasFolder ? Theme.TextMuted : Theme.AccentAmberLt, Theme.Caption);

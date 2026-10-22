@@ -33,13 +33,16 @@ public static class SupermodelSaves
     public static IReadOnlyList<ScanCandidate> Scan()
     {
         var roots = EmuDeckRoots.Find();
-        return Scan(EmulatorPaths.Standalone ? DataRoots(roots.Count > 0) : Array.Empty<(string, bool)>(), roots);
+        return Scan(EmulatorPaths.Standalone ? DataRoots(roots.Count > 0) : Array.Empty<(string, bool)>(), roots,
+            gamelists: GamelistXml.Find(roots));
     }
 
     /// <param name="dataRoots">Supermodel folders holding <c>NVRAM</c>, <c>Saves</c> and <c>Config</c>, with whether
     /// EmuDeck set each up.</param>
+    /// <param name="gamelists">ES-DE's arcade titles; when omitted, only those inside <paramref name="emuDeckRoots"/>, so a test
+    /// never reads the machine's own.</param>
     public static IReadOnlyList<ScanCandidate> Scan(IEnumerable<(string Dir, bool EmuDeck)> dataRoots, IEnumerable<string> emuDeckRoots,
-        IReadOnlySet<string>? seeds = null)
+        IReadOnlySet<string>? seeds = null, GamelistXml? gamelists = null)
     {
         seeds ??= EmuDeckSeeds;
         var roots = dataRoots.ToList();
@@ -54,7 +57,7 @@ public static class SupermodelSaves
             KnownTitle: set => titles.GetValueOrDefault(set));
         var folders = roots.Select(r => new RomSaveFolders(Path.Combine(r.Dir, "NVRAM"), Path.Combine(r.Dir, "Saves"), r.EmuDeck));
         var emu = emuDeckRoots.ToList();
-        return RomSaves.Scan(rules, RomSaves.Existing(folders), emu, GamelistXml.Find(emu));
+        return RomSaves.Scan(rules, RomSaves.Existing(folders), emu, gamelists ?? GamelistXml.In(emu));
     }
 
     /// <summary>Supermodel's data folders on this machine. <paramref name="emuDeck"/>: an EmuDeck install exists,

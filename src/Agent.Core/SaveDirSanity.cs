@@ -66,6 +66,8 @@ public static class SaveDirSanity
                          "delete the duplicated copy.");
         }
 
+        if (SharedCard(saveDir, excludeGlobs, includeGlobs) is { } shared) problems.Add(shared);
+
         // Size is the backstop: the path may be wrong in a way no name check anticipates.
         var (bytes, count) = Measure(saveDir, excludeGlobs, includeGlobs);
         if (bytes > UploadCapBytes)
@@ -76,6 +78,55 @@ public static class SaveDirSanity
         }
 
         return problems;
+    }
+
+    /// <summary>
+    /// What would be archived here holds a memory card every game of a console shares (tasks/emulator-saves Phase 2):
+    /// a card file (<see cref="MemoryCards.Shared"/>), or a whole PCSX2 folder card, Dolphin GCI folder or folder of
+    /// DuckStation per-game cards — every game's saves at once, where the Add games rows scope each game to its own.
+    /// Judged by the files, not by any emulator setting. A warning, never a refusal: someone may want the whole card
+    /// backed up as one, knowing.
+    /// </summary>
+    private static string? SharedCard(string dir, IEnumerable<string>? excludeGlobs, IEnumerable<string>? includeGlobs)
+    {
+        IReadOnlyList<string> files;
+        try { files = SaveArchive.ListFiles(dir, excludeGlobs, includeGlobs); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return null; }
+
+        foreach (var rel in files)
+        {
+            var ext = Path.GetExtension(rel).ToLowerInvariant();
+            if (ext is not (".ps2" or ".raw" or ".mcd" or ".mcr")) continue;
+            if (MemoryCards.Shared(new FileInfo(Path.Combine(dir, rel.Replace('/', Path.DirectorySeparatorChar)))) is { } card)
+                return $"'{card.FileName}' looks like a SHARED {card.Console} memory card, not one game's save: every " +
+                       $"{card.Console} game saves to it. Pulling an older version here would restore EVERY game on that " +
+                       $"card. {card.HowToFix}";
+        }
+
+        if (files.Any(f => Path.GetFileName(f) == MemoryCards.FolderCardSuperblock))
+            return "this is a whole PCSX2 folder memory card: every PS2 game's saves at once. Pulling an older version " +
+                   "here would restore EVERY game on it. Add each game from Add games instead, where each keeps only its " +
+                   "own save folders on the card.";
+
+        var gciGames = files.Where(f => f.EndsWith(".gci", StringComparison.OrdinalIgnoreCase))
+            .Select(f => Path.GetFileName(f).Split('-') is { Length: >= 3 } parts ? parts[0] + "-" + parts[1] : null)
+            .Where(g => g is not null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        if (gciGames > 1)
+            return $"this is a whole Dolphin memory card folder: saves of {gciGames} GameCube games at once. Pulling an " +
+                   "older version here would restore EVERY one of them. Add each game from Add games instead, where " +
+                   "each keeps only its own .gci files.";
+
+        var ps1Games = files.Select(f => MemoryCards.Ps1CardTitle(Path.GetFileName(f)))
+            .Where(t => t is not null)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+        if (ps1Games > 1)
+            return $"this is a whole DuckStation memory card folder: the cards of {ps1Games} PS1 games at once. Pulling an " +
+                   "older version here would restore EVERY one of them. Add each game from Add games instead, where " +
+                   "each keeps only its own cards.";
+        return null;
     }
 
     /// <summary>

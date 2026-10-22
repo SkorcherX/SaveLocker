@@ -12,6 +12,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <EmbeddedResource Include="ConsoleTitles\console-titles.tsv.gz" LogicalName="SaveLocker.Agent.console-titles.tsv.gz" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Shared\SaveLocker.Shared.csproj" />
   </ItemGroup>
 

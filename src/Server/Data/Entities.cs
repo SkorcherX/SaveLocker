@@ -17,6 +17,14 @@ public class Game
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = "";
+    /// <summary>
+    /// Which region's release of a console game this is ("USA", "Europe, Australia"), <c>""</c> for none. With
+    /// <see cref="Name"/>, what tells games apart: the USA and the European Warrior Within are both "Prince of
+    /// Persia - Warrior Within", and a disc reads only its own region's saves.
+    /// </summary>
+    public string Region { get; set; } = "";
+    /// <summary>The whole release (<see cref="GameReleaseDto"/>: console, game IDs, languages) as JSON, or null.</summary>
+    public string? ReleaseJson { get; set; }
     /// <summary>Key into the Ludusavi manifest, if matched.</summary>
     public string? ManifestKey { get; set; }
     /// <summary>JSON array of user-provided override paths.</summary>

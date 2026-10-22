@@ -26,7 +26,8 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder b)
     {
         b.Entity<Machine>().HasIndex(m => m.Name).IsUnique();
-        b.Entity<Game>().HasIndex(g => g.Name).IsUnique();
+        // Two releases of one game share a name; one region's release is one game.
+        b.Entity<Game>().HasIndex(g => new { g.Name, g.Region }).IsUnique();
 
         // One active lease per game.
         b.Entity<Lease>().HasIndex(l => l.GameId).IsUnique();

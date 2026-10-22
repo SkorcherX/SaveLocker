@@ -13,5 +13,8 @@ public static class EmulatorSaves
         ("Supermodel saves", SupermodelSaves.Scan),
         ("Model 2 saves", Model2Saves.Scan),
         ("ScummVM saves", ScummVmSaves.Scan),
+        ("PCSX2 saves", Pcsx2Saves.Scan),
+        ("DuckStation saves", DuckStationSaves.Scan),
+        ("Dolphin and PrimeHack saves", DolphinSaves.Scan),
     };
 }

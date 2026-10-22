@@ -1,6 +1,7 @@
 ﻿using System.Collections.Concurrent;
 using System.IO.Compression;
 using System.Security.Cryptography;
+using System.Text.Json;
 using SaveLocker.Server.Data;
 using SaveLocker.Shared;
 using Microsoft.EntityFrameworkCore;
@@ -378,6 +379,19 @@ public sealed class SyncService
         (await _db.MachineGameSources.Where(s => s.MachineId == machineId).ToListAsync())
         .ToDictionary(s => s.GameId, ToDto);
 
+    /// <summary>
+    /// Every game's emulators, as the machines that found it through one reported them: game ID → emulator names,
+    /// distinct, sorted. An emulator save never joins a game another emulator's save made (tasks/emulator-saves
+    /// Phase 4, maintainer's choice): the agent reads this to tell "the same files" from "the same game".
+    /// </summary>
+    public async Task<Dictionary<Guid, string[]>> GetEmulatorMapAsync() =>
+        // A source with no emulator named would make the game no emulator's at all.
+        (await _db.MachineGameSources.Where(s => s.Kind == GameSourceKinds.Emulator && s.Detail != "")
+            .Select(s => new { s.GameId, s.Detail }).ToListAsync())
+        .GroupBy(s => s.GameId)
+        .ToDictionary(g => g.Key, g => g.Select(s => s.Detail).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.OrdinalIgnoreCase).ToArray());
+
     /// <summary>Upsert how a machine found a game. False, storing nothing, for a game that does not exist.</summary>
     public async Task<bool> SetMachineSourceAsync(Guid machineId, Guid gameId, GameSourceDto source)
     {
@@ -484,13 +498,32 @@ public sealed class SyncService
         // the SAME game even if they enroll with different casing/whitespace.
         var name = req.Name.Trim();
         var lowered = name.ToLower();
-        var existing = await _db.Games.FirstOrDefaultAsync(g => g.Name.ToLower() == lowered);
-        if (existing is not null) return existing;
+        var release = Clean(req.Release);
+        var region = GameReleaseDto.RegionKey(release?.Region);
+        // Two releases of one game share a name: a request that says its region joins only that region's game,
+        // or one no release was recorded for yet, which takes this one. One that says none joins any, as before.
+        var named = await _db.Games.Where(g => g.Name.ToLower() == lowered).ToListAsync();
+        var existing = region.Length == 0
+            ? named.OrderBy(g => g.Region.Length == 0 ? 0 : 1).FirstOrDefault()
+            : named.FirstOrDefault(g => string.Equals(g.Region, region, StringComparison.OrdinalIgnoreCase)) ??
+              named.FirstOrDefault(g => g.Region.Length == 0);
+        if (existing is not null)
+        {
+            if (release is not null && existing.ReleaseJson is null)
+            {
+                existing.Region = region;
+                existing.ReleaseJson = JsonSerializer.Serialize(release, JsonSerializerOptions.Web);
+                await _db.SaveChangesAsync();
+            }
+            return existing;
+        }
 
         var game = new Game
         {
             Id = Guid.NewGuid(),
             Name = name,
+            Region = region,
+            ReleaseJson = release is null ? null : JsonSerializer.Serialize(release, JsonSerializerOptions.Web),
             ManifestKey = req.ManifestKey,
             CustomPathsJson = req.CustomPathsJson,
             SuggestedSaveDir = string.IsNullOrWhiteSpace(req.SuggestedSaveDir) ? null : req.SuggestedSaveDir.Trim(),
@@ -504,6 +537,15 @@ public sealed class SyncService
         await Audit(null, game.Id, "game.create", req.Name);
         await _db.SaveChangesAsync();
         return game;
+    }
+
+    /// <summary>A release as stored: trimmed, empty strings and lists dropped.</summary>
+    private static GameReleaseDto? Clean(GameReleaseDto? r)
+    {
+        if (r is null || string.IsNullOrWhiteSpace(r.Console)) return null;
+        static string? Text(string? s) => string.IsNullOrWhiteSpace(s) ? null : s.Trim();
+        static string[]? List(string[]? l) => l?.Select(s => s.Trim()).Where(s => s.Length > 0).ToArray() is { Length: > 0 } a ? a : null;
+        return new GameReleaseDto(r.Console.Trim(), Text(r.Region), List(r.GameIds), List(r.Languages), Text(r.NamedBy));
     }
 
     /// <summary>Admin: remove a game and all its versions, archives, leases, and conflicts.</summary>

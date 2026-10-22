@@ -1,4 +1,5 @@
-﻿using SaveLocker.Server.Data;
+﻿using System.Text.Json;
+using SaveLocker.Server.Data;
 using SaveLocker.Shared;
 
 namespace SaveLocker.Server.Services;
@@ -25,7 +26,16 @@ public static class Mapping
             machinePaths?.GetValueOrDefault(SaveRoot.PrimaryKey), g.GridUrl, g.HeroUrl, g.LogoUrl, g.IconUrl,
             g.RetainVersions, GlobConfig.Parse(g.ExcludeGlobs), g.ConflictPolicy, g.PreferredMachineId,
             NullIfEmpty(GlobConfig.Parse(g.IncludeGlobs)),
-            ToDtos(extraPaths, machinePaths));
+            ToDtos(extraPaths, machinePaths),
+            Release: ReadRelease(g));
+
+    /// <summary>The game's release, or null for none — or for JSON this build cannot read.</summary>
+    public static GameReleaseDto? ReadRelease(Game g)
+    {
+        if (g.ReleaseJson is null) return null;
+        try { return JsonSerializer.Deserialize<GameReleaseDto>(g.ReleaseJson, JsonSerializerOptions.Web); }
+        catch (JsonException) { return null; }
+    }
 
     public static SavePathDto ToDto(this GameSavePath p, string? machinePath = null) =>
         new(p.Key, p.Label, p.Template, NullIfEmpty(GlobConfig.Parse(p.IncludeGlobs)), machinePath);

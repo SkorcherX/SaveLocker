@@ -25,14 +25,20 @@ public static class Model2Saves
 {
     public const string EmulatorName = "Model 2";
 
-    public static IReadOnlyList<ScanCandidate> Scan() =>
-        Scan(EmuDeckRoots.Find(),
-            OperatingSystem.IsWindows() && EmulatorPaths.Standalone ? new[] { WindowsEmuDeckDir() } : Array.Empty<string>(), EmuDeckSeeds);
+    public static IReadOnlyList<ScanCandidate> Scan()
+    {
+        var roots = EmuDeckRoots.Find();
+        return Scan(roots,
+            OperatingSystem.IsWindows() && EmulatorPaths.Standalone ? new[] { WindowsEmuDeckDir() } : Array.Empty<string>(), EmuDeckSeeds,
+            GamelistXml.Find(roots));
+    }
 
     /// <param name="emulatorDirs">Model 2 install folders outside an <c>Emulation</c> folder (EmuDeck for
     /// Windows' <c>m2emulator</c>).</param>
+    /// <param name="gamelists">ES-DE's arcade titles; when omitted, only those inside <paramref name="emuDeckRoots"/>, so a test
+    /// never reads the machine's own.</param>
     public static IReadOnlyList<ScanCandidate> Scan(IEnumerable<string> emuDeckRoots, IEnumerable<string> emulatorDirs,
-        IReadOnlySet<string> seeds)
+        IReadOnlySet<string> seeds, GamelistXml? gamelists = null)
     {
         var roots = emuDeckRoots.ToList();
         var rules = new RomSaveRules(EmulatorName, ".DAT", (set, ext) => new[] { set + ext }, StateGlobs,
@@ -40,7 +46,7 @@ public static class Model2Saves
         var folders = roots.Select(r => Path.Combine(r, "roms", "model2"))
             .Concat(emulatorDirs)
             .Select(d => new RomSaveFolders(Path.Combine(d, "NVDATA"), Path.Combine(d, StatesFolder), EmuDeck: true));
-        return RomSaves.Scan(rules, RomSaves.Existing(folders), roots, GamelistXml.Find(roots));
+        return RomSaves.Scan(rules, RomSaves.Existing(folders), roots, gamelists ?? GamelistXml.In(roots));
     }
 
     public const string StatesFolder = "STATES";

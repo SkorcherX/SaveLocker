@@ -59,7 +59,24 @@ const EMULATORS: { id: string; label: string }[] = [
   { id: 'Supermodel', label: 'Supermodel' },
   { id: 'Model 2', label: 'Model 2' },
   { id: 'ScummVM', label: 'ScummVM' },
+  { id: 'PCSX2', label: 'PCSX2' },
+  { id: 'DuckStation', label: 'DuckStation' },
+  { id: 'Dolphin', label: 'Dolphin' },
+  { id: 'PrimeHack', label: 'PrimeHack' },
 ]
+
+/** The Console row's chips: one per EmuDeck system among `found` ("ps2"), labelled as the agent says it ("PS2"),
+ * in label order. Rows with no system (an arcade set with no ROM folder) are under All only. */
+function consoleChips(found: Candidate[]): { id: string; label: string; count: number }[] {
+  const bySystem = new Map<string, { id: string; label: string; count: number }>()
+  for (const c of found) {
+    if (!c.emulatorSystem) continue
+    const chip = bySystem.get(c.emulatorSystem) ?? { id: c.emulatorSystem, label: c.emulatorConsole ?? c.emulatorSystem, count: 0 }
+    chip.count++
+    bySystem.set(c.emulatorSystem, chip)
+  }
+  return [...bySystem.values()].sort((a, b) => a.label.localeCompare(b.label))
+}
 
 function chipStyle(active: boolean): React.CSSProperties {
   return {
@@ -80,7 +97,11 @@ export function AddGamesView({ onEnrolled }: Props) {
   const [unticked, setUnticked] = useState<Map<number, Set<string>>>(new Map())
   const [filter, setFilter] = useState<FilterId>('suggested')
   const [store, setStore] = useState<string | null>(null)
-  const [emulator, setEmulator] = useState<string | null>(null)
+  const [emulator, setEmulatorState] = useState<string | null>(null)
+  // The console (an EmuDeck system folder name, "ps2"), a third axis under the emulator. Picking another
+  // emulator clears it: the console picked may have no games under the new one.
+  const [consoleId, setConsoleId] = useState<string | null>(null)
+  const setEmulator = (id: string | null) => { setEmulatorState(id); setConsoleId(null) }
   const [scanning, setScanning] = useState(false)
   const [enrolling, setEnrolling] = useState(false)
   const [status, setStatus] = useState('')
@@ -235,11 +256,20 @@ export function AddGamesView({ onEnrolled }: Props) {
     return EMULATORS.map(e => ({ ...e, count: emulated.filter(c => c.emulatorName === e.id).length }))
   }, [listed, filter])
 
+  // Only offered when the games found span more than one console.
+  const consoles = useMemo(() => {
+    if (filter !== 'emulator') return []
+    return consoleChips(listed.filter(c => c.source === 'Emulator' && (!emulator || c.emulatorName === emulator)))
+  }, [listed, filter, emulator])
+  // The pick applies only while its chip is on screen: a filter nobody can see or clear would hide rows.
+  const activeConsole = consoles.length > 1 && consoles.some(s => s.id === consoleId) ? consoleId : null
+
   const active = FILTERS.find(f => f.id === filter) ?? FILTERS[0]
   const visible = listed
     .filter(active.match)
     .filter(c => !(filter === 'heroic' && store) || c.store === store)
     .filter(c => !(filter === 'emulator' && emulator) || c.emulatorName === emulator)
+    .filter(c => !(filter === 'emulator' && activeConsole) || c.emulatorSystem === activeConsole)
 
   const enrollBlocked = missing.length > 0
   // Named, not just counted. A user looking for a game they can plainly see in Steam needs to be
@@ -327,6 +357,21 @@ export function AddGamesView({ onEnrolled }: Props) {
         </div>
       )}
 
+      {consoles.length > 1 && (
+        <div style={{ display: 'flex', gap: 5, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 2 }}>
+          <span style={{ color: '#6B7280', fontSize: 11 }}>Console:</span>
+          <button onClick={() => setConsoleId(null)} style={chipStyle(activeConsole === null)}>All</button>
+          {consoles.map(s => (
+            <button key={s.id} onClick={() => setConsoleId(s.id)} style={chipStyle(activeConsole === s.id)}>
+              <span>{s.label}</span>
+              <span style={{ opacity: 0.65, fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace", fontSize: 10.5 }}>
+                {s.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Game list */}
       <div style={{
         background: '#1E252A', border: '1px solid #494949', borderRadius: 6,
@@ -345,6 +390,7 @@ export function AddGamesView({ onEnrolled }: Props) {
             <input
               type="checkbox"
               checked={checked.has(c.id)}
+              disabled={!!c.notSyncable}
               onChange={() => toggle(c.id)}
               style={{ marginTop: 2 }}
             />
@@ -372,7 +418,7 @@ export function AddGamesView({ onEnrolled }: Props) {
                   </span>
                 )}
                 {/* The save file's own name too: two ROMs (two regions, two consoles) can share a title. */}
-                {[c.emulatorName, c.emulatorRom && c.emulatorRom !== c.name ? c.emulatorRom : null].filter(Boolean).map(t => (
+                {[c.emulatorName, c.region, c.emulatorRom && c.emulatorRom !== c.name ? c.emulatorRom : null].filter(Boolean).map(t => (
                   <span key={t} style={{
                     color: '#9CA3AF', fontSize: 10,
                     background: 'rgba(255,255,255,0.05)',
@@ -416,7 +462,7 @@ export function AddGamesView({ onEnrolled }: Props) {
                   EmuDeck’s preinstalled save, never played here. Adding it takes the server’s save in its place.
                 </div>
               )}
-              {!c.enrolled && c.source === 'Emulator' && !linksReachable && (
+              {!c.enrolled && c.source === 'Emulator' && !c.notSyncable && !linksReachable && (
                 <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 4 }}>
                   The server can’t be reached, so which server game this joins is decided when you add it.
                 </div>
@@ -444,7 +490,16 @@ export function AddGamesView({ onEnrolled }: Props) {
                   })}
                 />
               )}
-              {c.path ? (
+              {c.notSyncable ? (
+                // A memory card every game of a console shares: never a game, so no folder to change. The row
+                // says why those saves are not offered, and what to switch in the emulator.
+                <div style={{ marginTop: 3 }}>
+                  {c.path && (
+                    <div style={{ color: '#9CA3AF', fontSize: 10, fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace" }}>{c.path}</div>
+                  )}
+                  <div style={{ color: '#f4a60d', fontSize: 11, marginTop: 2 }}>{c.notSyncable}</div>
+                </div>
+              ) : c.path ? (
                 <div style={{
                   color: '#9CA3AF', fontSize: 10, marginTop: 3,
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
