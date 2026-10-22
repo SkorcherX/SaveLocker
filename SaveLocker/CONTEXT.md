@@ -25,8 +25,17 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
-**Fork port, item 10 — emulator saves, Group B (2026-10-22, branch `port/emulator-group-b`, off `main`,
-awaiting review).** Marwanello #61 (`860c642`): melonDS, Supermodel, Model 2 and ScummVM on a shared
+**Fork port, item 10 — emulator saves, Group C (2026-10-22, branch `port/emulator-group-c`, off `main`,
+awaiting review).** Marwanello #63 (`a97f507`): PCSX2, DuckStation, Dolphin, PrimeHack; a memory card every
+game shares is listed but never a game (`ScanCandidate.NotSyncable`, SaveDirSanity warning); saves from
+different emulators never join (`GameDto.Emulators`); console saves named by serial from a Redump-derived
+table (`ConsoleTitles`, CC BY-SA 4.0) with the region beside the name — **games are now unique by (name,
+region)**, migration `AddGameRelease`. Not ported: the PR's conflict-resolution change (needs the fork's
+conflict UI), the release chip and other redesign UI, testenv fixtures. Verified: Core.Tests 192 (41 new),
+the PowerShell suites unchanged, Linux 239. **Not done:** real emulator installs, UI by eye. Next: Group D,
+Sony PARAM.SFO (fork #65).
+
+**Fork port, item 10 — emulator saves, Group B (2026-10-22, merged to `main` at `9b66b3b`).** Marwanello #61 (`860c642`): melonDS, Supermodel, Model 2 and ScummVM on a shared
 `RomSaves` reader (`EmulatorSaves.Sources`); a game is found by its files under any name (D1); Add games can
 link an emulator save by hand (`GET /api/candidates/links`, `ServerGameLink`, rebuilt in the inline UI
 style); EmuDeck's untouched preinstalled saves listed only when the server keeps one. No server change.
