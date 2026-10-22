@@ -58,6 +58,7 @@ public sealed class GameScanner : IGameScanner
         }
 
         all.AddRange(await SafeSourceAsync("common save roots", () => ScanSaveRootsAsync(ct), ct));
+        all.AddRange(await SafeSourceAsync("RetroArch saves", () => Task.Run(RetroArchSaves.Scan, ct), ct));
 
         // De-dupe by name: prefer a candidate that already has a suggested save dir.
         // Grouped on the NORMALISED name: the same game reaches us spelled differently by
@@ -65,7 +66,7 @@ public sealed class GameScanner : IGameScanner
         // heuristic reads "DRAGON QUEST III HD-2D Remake" off disk — and grouping on the raw name
         // listed it twice, once with a path and once without.
         return all
-            .GroupBy(c => ManifestLoader.NormalizeName(c.Name), StringComparer.Ordinal)
+            .GroupBy(ScanCandidate.DedupeKey, StringComparer.Ordinal)
             .Select(MergeGroup)
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();

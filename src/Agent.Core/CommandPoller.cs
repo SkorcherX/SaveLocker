@@ -174,6 +174,19 @@ public sealed class CommandPoller : IDisposable
                 if (!string.IsNullOrWhiteSpace(local.SaveDirectory))
                     ReportTemplateAsync(sg, local.SaveDirectory);
 
+                // How this machine found the game: re-sent whenever the server's copy differs (a game
+                // enrolled offline, or by a process that could not reach the server).
+                // Once per source: a console that predates the route never echoes it back, and asking it
+                // again every 20 s for every game would change nothing.
+                if (local is { IsEnrolledHere: true, Source: { } source } && !source.SameAs(sg.MachineSource) &&
+                    !(_sourceSettled.TryGetValue(sg.Id, out var settled) && source.SameAs(settled)))
+                {
+                    _ = Task.Run(async () =>
+                    {
+                        if (await GameSources.ReportAsync(_api(), local)) _sourceSettled[sg.Id] = source;
+                    });
+                }
+
                 changed |= await ReconcileFoldersAsync(local, sg);
                 continue;
             }
@@ -317,6 +330,10 @@ public sealed class CommandPoller : IDisposable
             return false;
         }
     }
+
+    /// <summary>Each game's source the server has already answered for (stored or refused), so a poll that
+    /// still does not see it echoed back does not send it again. Written from the report task.</summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, GameSourceDto> _sourceSettled = new();
 
     /// <summary>Folders already reported as not mappable, so a 20 s poll says so once, not forever.</summary>
     private readonly HashSet<string> _unmappedReported = new(StringComparer.Ordinal);

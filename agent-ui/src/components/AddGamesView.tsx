@@ -27,7 +27,7 @@ const BTN_BASE: React.CSSProperties = {
  * the part the Linux agent was missing entirely: it filtered Cloud games out with no control to
  * bring them back, so an installed Steam game could not be reached at all.
  */
-type FilterId = 'suggested' | 'all' | 'steam' | 'shortcut' | 'heroic' | 'nopath'
+type FilterId = 'suggested' | 'all' | 'steam' | 'shortcut' | 'heroic' | 'emulator' | 'nopath'
 
 const FILTERS: { id: FilterId; label: string; hint: string; match: (c: Candidate) => boolean }[] = [
   { id: 'suggested', label: 'Suggested', hint: 'Everything except games Steam Cloud already backs up', match: c => !c.hasSteamCloud },
@@ -35,6 +35,7 @@ const FILTERS: { id: FilterId; label: string; hint: string; match: (c: Candidate
   { id: 'steam', label: 'Steam', hint: 'Games installed from the Steam store', match: c => c.source === 'SteamInstalled' },
   { id: 'shortcut', label: 'Added to Steam', hint: 'Non-Steam games you added to your Steam library', match: c => c.source === 'SteamShortcut' },
   { id: 'heroic', label: 'Heroic', hint: 'Games installed through Heroic Games Launcher', match: c => c.source === 'Heroic' },
+  { id: 'emulator', label: 'Emulators', hint: 'Games found by their save files in an emulator’s saves folder', match: c => c.source === 'Emulator' },
   // Not a source but a state, and the one that costs the user the most time: these are the games
   // absent from the Ludusavi manifest, so each needs a save folder set by hand before it can enroll.
   { id: 'nopath', label: 'Needs path', hint: 'No save folder could be detected — set one by hand', match: c => !c.path },
@@ -47,6 +48,12 @@ const STORES: { id: string; label: string }[] = [
   { id: 'Amazon', label: 'Amazon' },
   { id: 'Sideload', label: 'Sideloaded' },
   { id: 'Unknown', label: 'Other' },
+]
+
+/** The emulators SaveLocker reads saves from, as a second axis under the Emulators filter. `id` is the
+ * agent's `emulatorName`. */
+const EMULATORS: { id: string; label: string }[] = [
+  { id: 'RetroArch', label: 'RetroArch' },
 ]
 
 function chipStyle(active: boolean): React.CSSProperties {
@@ -68,6 +75,7 @@ export function AddGamesView({ onEnrolled }: Props) {
   const [unticked, setUnticked] = useState<Map<number, Set<string>>>(new Map())
   const [filter, setFilter] = useState<FilterId>('suggested')
   const [store, setStore] = useState<string | null>(null)
+  const [emulator, setEmulator] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
   const [enrolling, setEnrolling] = useState(false)
   const [status, setStatus] = useState('')
@@ -141,7 +149,8 @@ export function AddGamesView({ onEnrolled }: Props) {
       const result = await api.enroll([...checked], alsoSync)
       setStatus(
         `Enrolled ${result.enrolled} game(s).` +
-        (result.skipped > 0 ? ` Skipped ${result.skipped} already tracked.` : '')
+        (result.skipped > (result.notes?.length ?? 0) ? ` Skipped ${result.skipped - (result.notes?.length ?? 0)} already tracked.` : '') +
+        (result.notes?.length ? ` Not added: ${result.notes.join(' ')}` : '')
       )
       if (result.enrolled > 0) setEnrolled(true)
       setChecked(new Set())
@@ -173,10 +182,18 @@ export function AddGamesView({ onEnrolled }: Props) {
       .filter(s => s.count > 0)
   }, [candidates, filter])
 
+  // Shown even with one emulator: it says which ones SaveLocker reads saves from.
+  const emulators = useMemo(() => {
+    if (filter !== 'emulator') return []
+    const emulated = candidates.filter(c => c.source === 'Emulator')
+    return EMULATORS.map(e => ({ ...e, count: emulated.filter(c => c.emulatorName === e.id).length }))
+  }, [candidates, filter])
+
   const active = FILTERS.find(f => f.id === filter) ?? FILTERS[0]
   const visible = candidates
     .filter(active.match)
     .filter(c => !(filter === 'heroic' && store) || c.store === store)
+    .filter(c => !(filter === 'emulator' && emulator) || c.emulatorName === emulator)
 
   const enrollBlocked = missing.length > 0
   // Named, not just counted. A user looking for a game they can plainly see in Steam needs to be
@@ -249,6 +266,21 @@ export function AddGamesView({ onEnrolled }: Props) {
         </div>
       )}
 
+      {emulators.length > 0 && (
+        <div style={{ display: 'flex', gap: 5, flexShrink: 0, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 2 }}>
+          <span style={{ color: '#6B7280', fontSize: 11 }}>Emulator:</span>
+          <button onClick={() => setEmulator(null)} style={chipStyle(emulator === null)}>All</button>
+          {emulators.map(e => (
+            <button key={e.id} onClick={() => setEmulator(e.id)} style={chipStyle(emulator === e.id)}>
+              <span>{e.label}</span>
+              <span style={{ opacity: 0.65, fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace", fontSize: 10.5 }}>
+                {e.count}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Game list */}
       <div style={{
         background: '#1E252A', border: '1px solid #494949', borderRadius: 6,
@@ -293,6 +325,17 @@ export function AddGamesView({ onEnrolled }: Props) {
                     {STORES.find(s => s.id === c.store)?.label ?? c.store}
                   </span>
                 )}
+                {/* The save file's own name too: two ROMs (two regions, two consoles) can share a title. */}
+                {[c.emulatorName, c.emulatorRom && c.emulatorRom !== c.name ? c.emulatorRom : null].filter(Boolean).map(t => (
+                  <span key={t} style={{
+                    color: '#9CA3AF', fontSize: 10,
+                    background: 'rgba(255,255,255,0.05)',
+                    border: '1px solid rgba(255,255,255,0.09)',
+                    padding: '1px 6px', borderRadius: 3,
+                  }}>
+                    {t}
+                  </span>
+                ))}
                 {c.hasSteamCloud && (
                   <span style={{
                     color: '#60a5fa', fontSize: 10,

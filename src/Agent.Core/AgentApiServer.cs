@@ -19,7 +19,7 @@ public sealed class AgentApiServer : IDisposable
 {
     private readonly AgentConfig _config;
     private readonly Func<Task<IReadOnlyList<ScanCandidate>>> _doScan;
-    private readonly Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, Task<(int enrolled, int skipped)>> _enroll;
+    private readonly Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>> _enroll;
     private readonly IAutoStart _autoStart;
     private readonly Func<Task<string?>> _pickFolder;
     private readonly Func<LaunchCommandDto> _launchInfo;
@@ -73,7 +73,7 @@ public sealed class AgentApiServer : IDisposable
         int port,
         AgentConfig config,
         Func<Task<IReadOnlyList<ScanCandidate>>> doScan,
-        Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, Task<(int enrolled, int skipped)>> enroll,
+        Func<IReadOnlyList<ScanCandidate>, int[], IReadOnlyDictionary<int, string[]>?, Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>> enroll,
         IAutoStart autoStart,
         Func<Task<string?>>? pickFolder = null,
         Action? onConnectionChanged = null,
@@ -251,8 +251,8 @@ public sealed class AgentApiServer : IDisposable
             var alsoSync = body.AlsoSync?
                 .GroupBy(c => c.Id)
                 .ToDictionary(g => g.Key, g => g.SelectMany(c => c.Paths ?? Array.Empty<string>()).ToArray());
-            var (enrolled, skipped) = await _enroll(candidates, body.Ids, alsoSync);
-            return TypedResults.Ok(new EnrollResponse(enrolled, skipped));
+            var (enrolled, skipped, notes) = await _enroll(candidates, body.Ids, alsoSync);
+            return TypedResults.Ok(new EnrollResponse(enrolled, skipped, notes.Count > 0 ? notes.ToArray() : null));
         });
 
         app.MapGet("/api/config", () => new AgentConfigDto(
@@ -371,7 +371,7 @@ public sealed class AgentApiServer : IDisposable
             .Select(g => new TrackedGameDto(
                 g.GameId, g.Name, g.SaveDirectory, g.ProcessNames.ToArray(), g.Alias,
                 SteamShortcuts.UnsignedAppId(g.ResolveSteamAppId()), g.PullBeforeLaunchEnabled,
-                g.HasSteamCloud, SaveFolderDto.Of(g)))
+                g.HasSteamCloud, SaveFolderDto.Of(g), g.IsEnrolledHere ? g.Source : null))
             .ToArray()).Produces<TrackedGameDto[]>();
 
         // Editing the process names is the other half of WA-08: discovery can only know them for a
@@ -455,7 +455,8 @@ public sealed class AgentApiServer : IDisposable
                     return TypedResults.BadRequest(new ErrorResponse($"Can't use that folder: {extraCheck.Reason}"));
                 if (!body.Confirm)
                 {
-                    var problems = SaveDirSanity.Inspect(extraCheck.Canonical, game.ExcludeGlobs);
+                    var problems = SaveDirSanity.Inspect(extraCheck.Canonical, game.ExcludeGlobs,
+                        game.ExtraPaths.First(p => p.Key == key).IncludeGlobs);
                     if (problems.Count > 0)
                         return TypedResults.BadRequest(new ErrorResponse(
                             "That folder looks wrong: " + string.Join(" ", problems) +
@@ -493,7 +494,7 @@ public sealed class AgentApiServer : IDisposable
                 // second, explicit confirmation rather than being silently ignored.
                 if (!body.Confirm)
                 {
-                    var problems = SaveDirSanity.Inspect(check.Canonical, game.ExcludeGlobs);
+                    var problems = SaveDirSanity.Inspect(check.Canonical, game.ExcludeGlobs, game.IncludeGlobs);
                     if (problems.Count > 0)
                         return TypedResults.BadRequest(new ErrorResponse(
                             "That folder looks wrong: " + string.Join(" ", problems) +
@@ -503,6 +504,10 @@ public sealed class AgentApiServer : IDisposable
                 // The canonical form is stored, not the typed text: a relative path or a path with
                 // a trailing separator must not reach the server as a different string than the one
                 // that was validated.
+                // A game set up here by picking its folder, not by a scan: it was added by hand. Moving the
+                // folder of one already set up says nothing about how it was found, and stamping it here would
+                // keep a scan from ever recording the real answer for a game enrolled before sources were.
+                if (!game.IsEnrolledHere) game.Source ??= GameSources.Manual(GameSources.FolderPickedInAgent);
                 game.SaveDirectory = check.Canonical!;
                 // Save first: watchers must be built from the config that is on disk, never from
                 // one a concurrent write is about to supersede.
@@ -517,6 +522,7 @@ public sealed class AgentApiServer : IDisposable
                 {
                     try { await ApiClient.For(_config).SetMachinePathAsync(id, check.Canonical!); }
                     catch (Exception ex) { AgentLogger.LogException("AgentApiServer.SetMachinePath", ex); }
+                    await GameSources.ReportAsync(ApiClient.For(_config), game);
                 }
             }
             return TypedResults.Ok(new OkResponse());
@@ -904,6 +910,13 @@ public sealed class AgentApiServer : IDisposable
     {
         var result = await _doScan();
         _candidateCache = result;
+        try
+        {
+            var filled = GameSources.Backfill(_config, result);
+            if (filled.Count > 0 && !string.IsNullOrEmpty(_config.ApiKey))
+                foreach (var game in filled) await GameSources.ReportAsync(ApiClient.For(_config), game);
+        }
+        catch (AgentStateLockException ex) { AgentLogger.LogException("AgentApiServer.BackfillSources", ex); }
         return result;
     }
 
@@ -925,7 +938,10 @@ public sealed class AgentApiServer : IDisposable
             candidate.AlternateSaveDirs is { Count: > 0 } also
                 ? also.Select(a => new SaveFolderDto(a.Key, null, a.Dir, false, Array.Empty<string>())).ToArray()
                 : null,
-            _config.FindGame(candidate.Name) is not null)).ToArray();
+            Enroller.TrackedFor(_config, candidate) is { IsEnrolledHere: true },
+            candidate.EmulatorName,
+            candidate.EmulatorSystem,
+            candidate.EmulatorRom)).ToArray();
 
     private static string FormatAgo(TimeSpan ago)
     {
@@ -1009,8 +1025,13 @@ public sealed record CandidateDto(
     /// <summary>The manifest's other locations for this game that exist here ("Also found"): added only
     /// when the enroll request names them in <see cref="EnrollRequest.AlsoSync"/>. Null when there are none.</summary>
     SaveFolderDto[]? AlsoFound = null,
-    /// <summary>Already tracked here by name, so enrolling it again is skipped (<see cref="Enroller"/>).</summary>
-    bool Enrolled = false);
+    /// <summary>Already tracked here with a folder, so enrolling it again is skipped (<see cref="Enroller"/>).
+    /// A game adopted from the server with no folder on this machine is not enrolled: adding it maps it.</summary>
+    bool Enrolled = false,
+    // Which emulator and console, for an emulator save (null otherwise) — the Add games filter's keys.
+    string? EmulatorName = null, string? EmulatorSystem = null,
+    // The save file's own name ("Chrono Trigger (Japan)"): two ROMs can share a title.
+    string? EmulatorRom = null);
 /// <param name="ProcessNames">
 /// Process names (no extension) that mean this game is running. <b>Empty means the Windows agent
 /// cannot detect it</b> — no lease, no exit push, and no refusal to pull under a live game — so the
@@ -1050,7 +1071,10 @@ public sealed record TrackedGameDto(
     uint? SteamAppId, bool? PullBeforeLaunchEnabled, bool? HasSteamCloud,
     /// <summary>Every save folder of the game, primary (<c>main</c>) first. <see cref="Path"/> stays the
     /// primary folder, for readers that predate this.</summary>
-    SaveFolderDto[]? Paths = null);
+    SaveFolderDto[]? Paths = null,
+    /// <summary>How this machine found the game; null when it was enrolled before sources were recorded,
+    /// or is not set up here.</summary>
+    GameSourceDto? Source = null);
 
 /// <summary>One save folder of a tracked game on this machine.</summary>
 /// <param name="Path">This machine's folder, or <c>""</c> when it is not mapped here — an unmapped
@@ -1204,7 +1228,9 @@ public sealed record ErrorResponse(string Error, bool NeedsChoice = false, bool 
     /// <summary>The sentence a confirmable refusal ends with.</summary>
     public const string ConfirmHint = " Re-send with confirm to use it anyway.";
 }
-public sealed record EnrollResponse(int Enrolled, int Skipped);
+/// <param name="Notes">Why each refused game was not added ("Chrono Trigger: the server's …"), one line each;
+/// null when every skip was a game already set up here.</param>
+public sealed record EnrollResponse(int Enrolled, int Skipped, string[]? Notes = null);
 public sealed record RegisterResponse(string MachineName);
 public sealed record FolderResponse(string? Path);
 public sealed record SuggestedPathDto(string? Path);

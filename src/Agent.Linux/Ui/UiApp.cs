@@ -36,6 +36,19 @@ sealed class UiApp
     private long _warningsReadAt;
     private const long WarningsPollMs = 2000;
 
+    /// <summary>Record how this device found games enrolled before sources were, from a scan that found
+    /// them at the same folder. This process has no poller, so it tells the server itself.</summary>
+    private void BackfillSources(IReadOnlyList<ScanCandidate> found)
+    {
+        try
+        {
+            var filled = GameSources.Backfill(_config, found);
+            if (filled.Count > 0 && !string.IsNullOrEmpty(_config.ApiKey))
+                _ = Task.Run(async () => { foreach (var g in filled) await GameSources.ReportAsync(ApiClient.For(_config), g); });
+        }
+        catch (AgentStateLockException ex) { AgentLogger.LogException("UiApp.BackfillSources", ex); }
+    }
+
     private IWindow _window = null!;
     private GL _gl = null!;
     private IInputContext _input = null!;
@@ -95,7 +108,7 @@ sealed class UiApp
     private Task<IReadOnlyList<ScanCandidate>>? _scanTask;
     private readonly List<ScanCandidate> _candidates = new();
     private readonly HashSet<int> _selected = new();
-    private Task<(int enrolled, int skipped)>? _enrollTask;
+    private Task<(int enrolled, int skipped, IReadOnlyList<string> notes)>? _enrollTask;
     private string _addStatus = "";
 
     /// <summary>
@@ -104,7 +117,7 @@ sealed class UiApp
     /// it can be narrowed. Mirrors the browser UI's filter chips, minus the store axis — Heroic's
     /// storefronts are a Desktop Mode concern and each extra pill costs a d-pad press here.
     /// </summary>
-    private enum AddFilter { Suggested, All, Steam, Shortcut, Heroic, NoPath }
+    private enum AddFilter { Suggested, All, Steam, Shortcut, Heroic, Emulator, NoPath }
     private AddFilter _addFilter = AddFilter.Suggested;
 
     private static bool MatchesFilter(ScanCandidate c, AddFilter f) => f switch
@@ -113,6 +126,7 @@ sealed class UiApp
         AddFilter.Steam => c.Source == ScanSource.SteamInstalled,
         AddFilter.Shortcut => c.Source == ScanSource.SteamShortcut,
         AddFilter.Heroic => c.Source == ScanSource.Heroic,
+        AddFilter.Emulator => c.Source == ScanSource.Emulator,
         AddFilter.NoPath => string.IsNullOrEmpty(c.SuggestedSaveDir),
         _ => true,
     };
@@ -123,6 +137,7 @@ sealed class UiApp
         AddFilter.Steam => "Steam",
         AddFilter.Shortcut => "Added to Steam",
         AddFilter.Heroic => "Heroic",
+        AddFilter.Emulator => "Emulators",
         AddFilter.NoPath => "Needs path",
         _ => "All",
     };
@@ -1046,6 +1061,7 @@ sealed class UiApp
             _selected.Clear();
             _addStatus = $"Found {_candidates.Count} game(s).";
             _scanTask = null;
+            BackfillSources(done.Result);
 
             // Dev affordance: `--screen folder` has nothing to browse until a scan has produced a
             // candidate, so entering that screen is deferred until one exists.
@@ -1066,8 +1082,10 @@ sealed class UiApp
         {
             if (_enrollTask.IsCompletedSuccessfully)
             {
-                var (enrolled, skipped) = _enrollTask.Result;
+                var (enrolled, skipped, notes) = _enrollTask.Result;
                 _addStatus = $"Enrolled {enrolled}, skipped {skipped}.";
+                if (notes.Count > 0)
+                    _addStatus += " Not added: " + string.Join(" ", notes);
                 _selected.Clear();
                 _candidates.Clear();
                 _screen = Screen.LaunchSetup;
@@ -1166,7 +1184,7 @@ sealed class UiApp
         bool blocked = _selected.Count == 0 || missing.Count > 0 || _enrollTask is { IsCompleted: false };
         var label = _selected.Count > 0 ? $"Enroll {_selected.Count} selected" : "Enroll selected";
         if (Widgets.PillButton(label, Widgets.ButtonKind.Primary, Icons.Check, enabled: !blocked))
-            _enrollTask = Enroller.EnrollAsync(_config, new List<ScanCandidate>(_candidates), _selected.ToArray());
+            _enrollTask = EnrollAsync(new List<ScanCandidate>(_candidates), _selected.ToArray());
 
         if (missing.Count > 0)
         {
@@ -1177,10 +1195,18 @@ sealed class UiApp
         }
     }
 
+    private async Task<(int enrolled, int skipped, IReadOnlyList<string> notes)> EnrollAsync(
+        List<ScanCandidate> candidates, int[] ids)
+    {
+        var notes = new List<string>();
+        var (enrolled, skipped) = await Enroller.EnrollAsync(_config, candidates, ids, notes: notes);
+        return (enrolled, skipped, notes);
+    }
+
     private void DrawCandidateRow(int i)
     {
         var c = _candidates[i];
-        bool alreadyTracked = _config.FindGame(c.Name) is not null;
+        bool alreadyTracked = Enroller.TrackedFor(_config, c) is { IsEnrolledHere: true };
         bool hasFolder = !string.IsNullOrEmpty(c.SuggestedSaveDir);
         // Steam has this game under more than one AppID: the caption names the one this scan follows.
         var duplicates = c.DuplicateShortcuts is { Count: > 0 } d ? d : null;
@@ -1199,7 +1225,7 @@ sealed class UiApp
         Widgets.Text(c.Name, alreadyTracked ? Theme.TextMuted : Theme.TextPrimary, Theme.BodyStrong);
         ImGui.SameLine(0, Theme.Space.Sm);
         ImGui.AlignTextToFramePadding();
-        Widgets.Text($"[{c.Source}]", Theme.TextDim, Theme.Caption);
+        Widgets.Text(c.EmulatorName is { } emu ? $"[{emu}]" : $"[{c.Source}]", Theme.TextDim, Theme.Caption);
 
         if (alreadyTracked)
         {

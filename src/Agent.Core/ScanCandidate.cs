@@ -16,7 +16,14 @@ public enum ScanSource
     /// files, not from Steam — Heroic runs its games in prefixes it manages itself, so a Heroic game
     /// added to the Steam library has a shortcut but no compatdata prefix behind it.
     /// </summary>
-    Heroic
+    Heroic,
+    /// <summary>
+    /// One game's save file inside an emulator's saves folder — found by the save itself, not by a
+    /// launcher's library, so it works however the ROM was launched (EmuDeck's ES-DE, Steam ROM
+    /// Manager shortcuts, or the emulator's own menu). <see cref="ScanCandidate.EmulatorName"/> says
+    /// which emulator; <see cref="ScanCandidate.IncludeGlobs"/> scopes the shared folder to this game.
+    /// </summary>
+    Emulator
 }
 
 /// <summary>
@@ -99,7 +106,33 @@ public sealed record ScanCandidate(
     /// never adopted until the user says so — the manifest cannot tell a second save folder from an
     /// alternative install's, or from a settings folder beside the saves. Null when there are none.
     /// </summary>
-    IReadOnlyList<DeclaredSavePath>? AlternateSaveDirs = null);
+    IReadOnlyList<DeclaredSavePath>? AlternateSaveDirs = null,
+    /// <summary>"RetroArch", "PCSX2", … — free text, not an enum: which emulators exist changes
+    /// faster than this codebase does. Null for every non-emulator source.</summary>
+    string? EmulatorName = null,
+    /// <summary>The emulated console in EmuDeck/ES-DE's own folder vocabulary ("snes", "psx", …) —
+    /// the <c>Emulation/roms/&lt;system&gt;</c> folder the ROM was found in. Null when no ROM was found.</summary>
+    string? EmulatorSystem = null,
+    /// <summary>The libretro core whose per-core saves folder the file sits in (RetroArch's "Sort
+    /// saves by core"), else null. Diagnostic only — not part of the game's identity.</summary>
+    string? EmulatorCore = null,
+    /// <summary>The save file's name without its extension, exactly as on disk ("Chrono Trigger (USA)"):
+    /// what the include patterns name, and the last name <see cref="Enroller.NamesFor"/> falls back to.</summary>
+    string? EmulatorRom = null,
+    /// <summary>Found through EmuDeck's <c>Emulation</c> folder rather than a standalone RetroArch. Carried
+    /// because the folder itself is recorded by its real path, which no longer says so.</summary>
+    bool ViaEmuDeck = false)
+{
+    /// <summary>
+    /// What a scanner merges duplicates on: the normalised name, so one game found by two sources is one
+    /// row — except an emulator save, which is one ROM's file and never the same game as a PC release or
+    /// another ROM that happens to share its title ("Chrono Trigger" on Steam and on the SNES).
+    /// </summary>
+    public static string DedupeKey(ScanCandidate c) =>
+        c.Source == ScanSource.Emulator
+            ? $"\0{c.EmulatorName}\0{c.EmulatorRom ?? c.Name}".ToLowerInvariant()
+            : ManifestLoader.NormalizeName(c.Name);
+}
 
 /// <summary>
 /// One extra save folder a scanner declares for a candidate. <see cref="Key"/> names the folder on

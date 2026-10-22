@@ -246,6 +246,7 @@ public static class AgentCli
                     tracked.Name = game.Name;
                     tracked.ManifestKey = manifestKey;
                     tracked.SaveDirectory = dir!;
+                    tracked.Source ??= GameSources.Manual(GameSources.AddedFromCli);
                     if (opts.TryGetValue("appid", out var appId) && !string.IsNullOrWhiteSpace(appId))
                         tracked.SteamAppId = appId.Trim();
                     if (opts.TryGetValue("proc", out var proc) && !string.IsNullOrWhiteSpace(proc))

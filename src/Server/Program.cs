@@ -216,9 +216,10 @@ agent.MapGet("/games", async (HttpContext http, SyncService sync, IConfiguration
     var games = await sync.ListGamesAsync();
     var pathMap = await sync.GetMachinePathMapAsync(machine.Id);
     var extras = await sync.GetExtraSavePathsAsync();
+    var sources = await sync.GetMachineSourceMapAsync(machine.Id);
     // Agents receive the effective exclude set (global defaults ∪ per-game) to apply.
     return Results.Ok(games.Select(g => g.ToDtoWithPaths(pathMap.GetValueOrDefault(g.Id), extras[g.Id])
-        with { ExcludeGlobs = GlobConfig.Effective(cfg, g.ExcludeGlobs) }));
+        with { ExcludeGlobs = GlobConfig.Effective(cfg, g.ExcludeGlobs), MachineSource = sources.GetValueOrDefault(g.Id) }));
 }).Produces<List<GameDto>>();
 
 // ---- Leases (agent) ----
@@ -391,6 +392,25 @@ agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http,
     return Results.Ok();
 });
 
+// How this machine found the game (display only): set at enrollment, re-sent by the poller when it differs.
+agent.MapPut("/agent/source/{gameId:guid}", async (Guid gameId, GameSourceDto source, HttpContext http, SyncService sync) =>
+{
+    if (string.IsNullOrWhiteSpace(source.Kind) || string.IsNullOrWhiteSpace(source.Detail))
+        return Results.BadRequest("kind and detail are required");
+    // Display text, stored per machine and shown on every game page — bounded like any other text a
+    // machine key can write. A newline is refused rather than stored: tags are kept newline-separated.
+    var tags = GameSourceDto.CleanTags(source.Tags).ToList();
+    if (source.Kind.Trim().Length > GameSourceDto.MaxKindLength || source.Detail.Trim().Length > GameSourceDto.MaxDetailLength ||
+        tags.Count > GameSourceDto.MaxTags || tags.Any(t => t.Length > GameSourceDto.MaxTagLength))
+        return Results.BadRequest($"kind, detail or tags too long (at most {GameSourceDto.MaxKindLength}, " +
+                                  $"{GameSourceDto.MaxDetailLength}, and {GameSourceDto.MaxTags} tags of {GameSourceDto.MaxTagLength})");
+    if (new[] { source.Kind, source.Detail }.Concat(tags).Any(s => s.Contains('\n') || s.Contains('\r')))
+        return Results.BadRequest("kind, detail and tags are one line each");
+    return await sync.SetMachineSourceAsync(http.CurrentMachine().Id, gameId, source)
+        ? Results.NoContent() : Results.NotFound();
+}).Produces(StatusCodes.Status204NoContent).Produces<string>(StatusCodes.Status400BadRequest)
+  .Produces(StatusCodes.Status404NotFound);
+
 // The same game state the console reads, but reachable with a MACHINE key.
 //
 // `savelocker status` used to call the admin-filtered /games/{id}/state with only X-Api-Key, so it
@@ -531,6 +551,11 @@ admin.MapPost("/games/{id:guid}/versions/{versionId:guid}/protected", async (
 admin.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
     Results.Ok(await sync.GetGameMachinePathsAsync(id)))
     .Produces<List<MachineSavePathDto>>();
+
+// How each machine found the game ("Emulator › RetroArch", "Steam › Installed game"), per machine.
+admin.MapGet("/games/{id:guid}/sources", async (Guid id, SyncService sync) =>
+    Results.Ok(await sync.GetGameSourcesAsync(id)))
+    .Produces<List<MachineGameSourceDto>>();
 
 admin.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, string? path, SyncService sync) =>
 {

@@ -301,13 +301,14 @@ internal sealed class TrayContext : ApplicationContext
 
     // ─── Enrollment (called by AgentApiServer) ──────────────────────────────────
 
-    private async Task<(int enrolled, int skipped)> EnrollAsync(
+    private async Task<(int enrolled, int skipped, IReadOnlyList<string> notes)> EnrollAsync(
         IReadOnlyList<ScanCandidate> candidates, int[] ids, IReadOnlyDictionary<int, string[]>? alsoSync)
     {
-        var result = await Enroller.EnrollAsync(_config, candidates, ids, alsoSync: alsoSync);
-        if (result.enrolled > 0)
+        var notes = new List<string>();
+        var (enrolled, skipped) = await Enroller.EnrollAsync(_config, candidates, ids, alsoSync: alsoSync, notes: notes);
+        if (enrolled > 0)
             _ui.Post(() => { RebuildMenu(); StartFolderWatchers(); });
-        return result;
+        return (enrolled, skipped, notes);
     }
 
     // ─── Tray actions ────────────────────────────────────────────────────────────

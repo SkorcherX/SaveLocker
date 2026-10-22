@@ -67,7 +67,7 @@ public static class SavePathEditor
         if (!check.Ok) return new SavePathChange(false, $"Can't use that folder: {check.Reason}");
         var canonical = check.Canonical!;
 
-        var problems = SaveDirSanity.Inspect(canonical, game.ExcludeGlobs);
+        var problems = SaveDirSanity.Inspect(canonical, game.ExcludeGlobs, existing?.IncludeGlobs ?? scope);
         if (problems.Count > 0 && !confirm)
             return new SavePathChange(false, "That folder looks wrong: " + string.Join(" ", problems),
                 NeedsConfirm: true, Problems: problems);

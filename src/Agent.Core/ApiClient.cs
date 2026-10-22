@@ -127,6 +127,13 @@ public sealed class ApiClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>Tell the server how this machine found a game.</summary>
+    public async Task SetGameSourceAsync(Guid gameId, GameSourceDto source)
+    {
+        var resp = await _http.PutAsJsonAsync($"/api/agent/source/{gameId}", source);
+        resp.EnsureSuccessStatusCode();
+    }
+
     /// <summary>The primary folder is the absent key, which is what an older server understands.</summary>
     private static string PathQuery(string key) =>
         key == SaveRoot.PrimaryKey ? "" : $"&path={Uri.EscapeDataString(key)}";

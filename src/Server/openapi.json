@@ -736,6 +736,52 @@
         }
       }
     },
+    "/api/agent/source/{gameId}": {
+      "put": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "gameId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GameSourceDto"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/agent/games/{id}/state": {
       "get": {
         "tags": [
@@ -1294,6 +1340,39 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/MachineSavePathDto"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}/sources": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/MachineGameSourceDto"
                   }
                 }
               }
@@ -3882,6 +3961,40 @@
             "items": {
               "$ref": "#/components/schemas/SavePathDto"
             }
+          },
+          "machineSource": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GameSourceDto"
+              }
+            ]
+          }
+        }
+      },
+      "GameSourceDto": {
+        "required": [
+          "kind",
+          "detail"
+        ],
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "tags": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
           }
         }
       },
@@ -4042,6 +4155,31 @@
             "format": "date-time"
           },
           "lastSeen": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "MachineGameSourceDto": {
+        "required": [
+          "machineId",
+          "machineName",
+          "source",
+          "updatedAt"
+        ],
+        "type": "object",
+        "properties": {
+          "machineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "machineName": {
+            "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/GameSourceDto"
+          },
+          "updatedAt": {
             "type": "string",
             "format": "date-time"
           }

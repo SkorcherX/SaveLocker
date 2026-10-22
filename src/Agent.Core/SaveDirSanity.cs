@@ -17,7 +17,8 @@ public static class SaveDirSanity
     public const long UploadCapBytes = 200L * 1024 * 1024;
 
     /// <summary>Problems with this save path, worst first. Empty means it looks like a save folder.</summary>
-    public static IReadOnlyList<string> Inspect(string? saveDir, IEnumerable<string>? excludeGlobs = null)
+    public static IReadOnlyList<string> Inspect(string? saveDir, IEnumerable<string>? excludeGlobs = null,
+        IEnumerable<string>? includeGlobs = null)
     {
         var problems = new List<string>();
         if (string.IsNullOrWhiteSpace(saveDir) || !Directory.Exists(saveDir)) return problems;
@@ -66,7 +67,7 @@ public static class SaveDirSanity
         }
 
         // Size is the backstop: the path may be wrong in a way no name check anticipates.
-        var (bytes, count) = Measure(saveDir, excludeGlobs);
+        var (bytes, count) = Measure(saveDir, excludeGlobs, includeGlobs);
         if (bytes > UploadCapBytes)
         {
             problems.Add($"this folder holds {Mb(bytes)} across {count} files, over the {Mb(UploadCapBytes)} " +
@@ -103,10 +104,11 @@ public static class SaveDirSanity
     }
 
     /// <summary>Total bytes and file count of exactly what would be archived (excludes + no symlinks).</summary>
-    public static (long Bytes, int Files) Measure(string dir, IEnumerable<string>? excludeGlobs = null)
+    public static (long Bytes, int Files) Measure(string dir, IEnumerable<string>? excludeGlobs = null,
+        IEnumerable<string>? includeGlobs = null)
     {
         long bytes = 0;
-        var files = SaveArchive.ListFiles(dir, excludeGlobs);
+        var files = SaveArchive.ListFiles(dir, excludeGlobs, includeGlobs);
         foreach (var rel in files)
         {
             try { bytes += new FileInfo(Path.Combine(dir, rel.Replace('/', Path.DirectorySeparatorChar))).Length; }

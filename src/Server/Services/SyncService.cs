@@ -357,6 +357,54 @@ public sealed class SyncService
         await _db.SaveChangesAsync();
     }
 
+    // ----- Machine game sources -----
+
+    /// <summary>How each machine found a game, one row per machine that has said.</summary>
+    public async Task<List<MachineGameSourceDto>> GetGameSourcesAsync(Guid gameId)
+    {
+        var rows = await (from s in _db.MachineGameSources
+                          join m in _db.Machines on s.MachineId equals m.Id
+                          where s.GameId == gameId
+                          select new { s, m.Name })
+            .ToListAsync();
+        return rows
+            .OrderBy(r => r.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(r => new MachineGameSourceDto(r.s.MachineId, r.Name, ToDto(r.s), r.s.UpdatedAt))
+            .ToList();
+    }
+
+    /// <summary>Every game's source as one machine reported it: game ID → source.</summary>
+    public async Task<Dictionary<Guid, GameSourceDto>> GetMachineSourceMapAsync(Guid machineId) =>
+        (await _db.MachineGameSources.Where(s => s.MachineId == machineId).ToListAsync())
+        .ToDictionary(s => s.GameId, ToDto);
+
+    /// <summary>Upsert how a machine found a game. False, storing nothing, for a game that does not exist.</summary>
+    public async Task<bool> SetMachineSourceAsync(Guid machineId, Guid gameId, GameSourceDto source)
+    {
+        if (!await _db.Games.AnyAsync(g => g.Id == gameId)) return false;
+        var kind = source.Kind.Trim();
+        var detail = source.Detail.Trim();
+        var tags = string.Join('\n', GameSourceDto.CleanTags(source.Tags));
+        var stored = tags.Length == 0 ? null : tags;
+        var row = await _db.MachineGameSources.FindAsync(machineId, gameId);
+        if (row is null)
+        {
+            row = new MachineGameSource { MachineId = machineId, GameId = gameId };
+            _db.MachineGameSources.Add(row);
+        }
+        else if (row.Kind == kind && row.Detail == detail && row.Tags == stored) return true;
+
+        row.Kind = kind;
+        row.Detail = detail;
+        row.Tags = stored;
+        row.UpdatedAt = DateTime.UtcNow;
+        await _db.SaveChangesAsync();
+        return true;
+    }
+
+    private static GameSourceDto ToDto(MachineGameSource s) =>
+        new(s.Kind, s.Detail, s.Tags is null ? null : s.Tags.Split('\n'));
+
     // ----- Games -----
 
     public async Task<List<Game>> ListGamesAsync() =>

@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
-import type { GameSummary, Machine, Command, Conflict, Version, VersionStats, MachineSavePath, MachineScanCandidate } from '../types';
+import type { GameSummary, Machine, Command, Conflict, Version, VersionStats, MachineSavePath, MachineScanCandidate, MachineGameSource, GameSource } from '../types';
 import { SaveFoldersSection } from './SaveFoldersSection';
 import { toTemplate, isTemplate } from '../savePathTemplate';
+
+// "Emulator · RetroArch · SNES" — the agent's two levels plus tags. An unknown kind shows as itself.
+const SOURCE_KINDS: Record<string, string> = {
+  emulator: 'Emulator', steam: 'Steam', heroic: 'Heroic', 'save-folder': 'Save-folder scan', manual: 'Added by hand',
+};
+const sourceLine = (s: GameSource) =>
+  [SOURCE_KINDS[s.kind] ?? s.kind, s.detail, ...(s.tags ?? [])].filter(Boolean).join(' · ');
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
 const asUtc = (t: string) => /[Z+]/.test(t.slice(-6)) ? t : t + 'Z';
@@ -42,6 +49,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
   const [loadingVersions, setLoadingVersions] = useState(true);
   const [machinePaths, setMachinePaths] = useState<MachineSavePath[]>([]);
   const [pathCandidates, setPathCandidates] = useState<MachineScanCandidate[]>([]);
+  const [sources, setSources] = useState<MachineGameSource[]>([]);
   const [editingPathFor, setEditingPathFor] = useState<string | null>(null);
   const [pathDraft, setPathDraft] = useState('');
   const [excludeText, setExcludeText] = useState((summary.game.excludeGlobs ?? []).join('\n'));
@@ -94,6 +102,7 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
     api.versions(game.id).then(vs => { setVersions(vs); setLoadingVersions(false); });
     api.getGamePaths(game.id).then(setMachinePaths).catch(() => {});
     api.getGamePathCandidates(game.id).then(setPathCandidates).catch(() => {});
+    api.getGameSources(game.id).then(setSources).catch(() => setSources([]));
     setEditingPathFor(null);
   }, [game.id]);
 
@@ -621,10 +630,18 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
               : machines.map(m => {
                   const stored = machinePaths.find(p => p.machineId === m.id);
                   const candidate = pathCandidates.find(c => c.machineId === m.id);
+                  const source = sources.find(s => s.machineId === m.id);
                   const editing = editingPathFor === m.id;
                   return (
                     <tr key={m.id} style={rowSep}>
-                      <td style={tdStyle}>{m.name}</td>
+                      <td style={tdStyle}>
+                        {m.name}
+                        {source && (
+                          <div style={{ color: '#9CA3AF', fontSize: 11, marginTop: 2 }} title="How this machine found the game">
+                            {sourceLine(source.source)}
+                          </div>
+                        )}
+                      </td>
                       <td style={tdMono}>
                         {editing ? (
                           // The label names the machine explicitly. The old prompt() said "Save

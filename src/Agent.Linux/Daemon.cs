@@ -118,9 +118,10 @@ public sealed class Daemon : IAsyncDisposable
             doScan: () => _scanner.ScanAsync(),
             enroll: async (candidates, ids, alsoSync) =>
             {
-                var result = await Enroller.EnrollAsync(_config, candidates, ids, ct, alsoSync);
-                if (result.enrolled > 0) StartFolderWatchers();
-                return result;
+                var notes = new List<string>();
+                var (enrolled, skipped) = await Enroller.EnrollAsync(_config, candidates, ids, ct, alsoSync, notes);
+                if (enrolled > 0) StartFolderWatchers();
+                return (enrolled, skipped, (IReadOnlyList<string>)notes);
             },
             autoStart: new SystemdAutoStart(),
             pickFolder: null, // headless: no native dialog — the UI browses via /api/browse instead
