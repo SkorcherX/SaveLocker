@@ -1,4 +1,12 @@
+using SaveLocker.Shared;
+
 namespace SaveLocker.Agent;
+
+/// <summary>One normalized name's shortcuts that disagree on AppID (see
+/// <see cref="SteamShortcuts.DuplicateNameGroups"/>): the same game under two or more ids, which a
+/// launcher (Steam ROM Manager, MoonDeck) leaves behind when it re-creates a shortcut instead of
+/// updating the original.</summary>
+public sealed record SameNameShortcuts(string Name, IReadOnlyList<SteamShortcut> Entries);
 
 /// <summary>
 /// A non-Steam game the user added to Steam ("Add a Non-Steam Game"), read from
@@ -157,4 +165,29 @@ public static class SteamShortcuts
 
     private static string? Unquote(string? s) =>
         string.IsNullOrWhiteSpace(s) ? null : s.Trim().Trim('"');
+
+    /// <summary>
+    /// Same-named shortcuts that carry different AppIDs. Steam only ever launches ONE of them, so a
+    /// scan resolved through the wrong one silently watches a prefix that never receives the game's
+    /// saves. One rule, shared by <c>Doctor</c>'s note and both scanners' Add-games warning so the
+    /// two can never disagree.
+    /// </summary>
+    public static List<SameNameShortcuts> DuplicateNameGroups(IEnumerable<SteamShortcut> shortcuts) =>
+        shortcuts
+            .GroupBy(s => ManifestLoader.NormalizeName(s.AppName), StringComparer.Ordinal)
+            .Where(g => g.Key.Length > 0 && g.Select(s => s.AppId).Distinct().Count() > 1)
+            .Select(g => new SameNameShortcuts(g.First().AppName, g.ToList()))
+            .ToList();
+
+    /// <summary>
+    /// Wire-ready entries for one duplicate group: one per distinct AppID (the first name wins), in
+    /// file order. <paramref name="trackedAppId"/> marks the entry the caller's scan is using; a
+    /// shortcut with no AppID is kept as its own entry, because "none" is exactly the dead case.
+    /// </summary>
+    public static List<DuplicateShortcut> DuplicatesFor(
+        IReadOnlyList<SteamShortcut> sameName, string? trackedAppId) =>
+        sameName
+            .GroupBy(s => s.AppId, StringComparer.Ordinal)
+            .Select(g => new DuplicateShortcut(g.Key, g.First().AppName, Tracked: g.Key == trackedAppId))
+            .ToList();
 }

@@ -66,9 +66,22 @@ public sealed class GameScanner : IGameScanner
         // listed it twice, once with a path and once without.
         return all
             .GroupBy(c => ManifestLoader.NormalizeName(c.Name), StringComparer.Ordinal)
-            .Select(g => g.OrderByDescending(c => c.SuggestedSaveDir is not null).First())
+            .Select(MergeGroup)
             .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
+    }
+
+    private static ScanCandidate MergeGroup(IEnumerable<ScanCandidate> group)
+    {
+        var ordered = group.OrderByDescending(c => c.SuggestedSaveDir is not null).ToList();
+        var winner = ordered[0];
+        if (winner.DuplicateShortcuts is not null) return winner;
+        // A common-save-root candidate with the same name can win the merge, and the shortcut is the
+        // only source that knows the ids. No entry is tracked then: the scan follows the winner's
+        // save folder, not either shortcut, and a marker would name an AppID the tracked game lacks.
+        var duplicates = ordered.Select(c => c.DuplicateShortcuts).FirstOrDefault(d => d is not null)
+            ?.Select(d => d with { Tracked = false }).ToList();
+        return duplicates is null ? winner : winner with { DuplicateShortcuts = duplicates };
     }
 
     // ----- Steam location -----
@@ -114,7 +127,15 @@ public sealed class GameScanner : IGameScanner
         string steamPath, CancellationToken ct)
     {
         var results = new List<ScanCandidate>();
-        foreach (var s in await SteamShortcuts.ReadAllAsync(steamPath, ct))
+        var shortcuts = await SteamShortcuts.ReadAllAsync(steamPath, ct);
+
+        // Same-named shortcuts under different AppIDs never collapse inside this source (they are
+        // one row only after ScanAsync's dedupe), so each shortcut's candidate carries the group.
+        var duplicateShortcuts = new Dictionary<string, IReadOnlyList<SteamShortcut>>(StringComparer.Ordinal);
+        foreach (var g in SteamShortcuts.DuplicateNameGroups(shortcuts))
+            duplicateShortcuts[ManifestLoader.NormalizeName(g.Name)] = g.Entries;
+
+        foreach (var s in shortcuts)
         {
             var save = await SuggestSaveDirAsync(s.AppName, ct, NullIfMissing(s.StartDir), steamPath);
             results.Add(new ScanCandidate(
@@ -125,7 +146,10 @@ public sealed class GameScanner : IGameScanner
                 // Steam recorded the exact executable the user picked, so this is the one source
                 // where the process name is known rather than guessed. It was being discarded,
                 // which is why every GUI-enrolled game had an empty watcher mapping. WA-08.
-                SuggestedProcessName: GameActivity.ProcessNameFromExe(s.Exe)));
+                SuggestedProcessName: GameActivity.ProcessNameFromExe(s.Exe),
+                DuplicateShortcuts: duplicateShortcuts.TryGetValue(ManifestLoader.NormalizeName(s.AppName), out var sameName)
+                    ? SteamShortcuts.DuplicatesFor(sameName, s.AppId)
+                    : null));
         }
         return results;
     }

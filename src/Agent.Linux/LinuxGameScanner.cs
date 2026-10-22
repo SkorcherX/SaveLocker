@@ -35,7 +35,23 @@ public sealed class LinuxGameScanner : IGameScanner
         // downstream of the dedupe needs to know how a survivor was found, only that it was.
         var results = new List<(ScanCandidate Candidate, bool ViaMoonDeck)>();
 
-        foreach (var root in SteamRoots.Find())
+        // Every root's shortcuts are read up front so duplicate detection sees them all together —
+        // the same game can straddle roots (an old entry in the native root, a fresh one in
+        // Flatpak's). The per-root loop below then walks this list rather than re-reading each root.
+        var roots = SteamRoots.Find();
+        var shortcutsByRoot = new Dictionary<string, IReadOnlyList<SteamShortcut>>(StringComparer.Ordinal);
+        var allShortcuts = new List<SteamShortcut>();
+        foreach (var root in roots)
+        {
+            var list = await SteamShortcuts.ReadAllAsync(root, ct);
+            shortcutsByRoot[root] = list;
+            allShortcuts.AddRange(list);
+        }
+        var duplicateShortcuts = new Dictionary<string, IReadOnlyList<SteamShortcut>>(StringComparer.Ordinal);
+        foreach (var g in SteamShortcuts.DuplicateNameGroups(allShortcuts))
+            duplicateShortcuts[ManifestLoader.NormalizeName(g.Name)] = g.Entries;
+
+        foreach (var root in roots)
         {
             // Steam's own record of what is installed where, across every configured library —
             // mounted or not (SteamRoots.AllKnownInstalledAppIds). A MoonDeck shortcut whose real
@@ -44,7 +60,7 @@ public sealed class LinuxGameScanner : IGameScanner
             // media is not currently connected. Computed once per root, reused for every shortcut.
             var knownInstalled = SteamRoots.AllKnownInstalledAppIds(root);
 
-            foreach (var s in await SteamShortcuts.ReadAllAsync(root, ct))
+            foreach (var s in shortcutsByRoot[root])
             {
                 ct.ThrowIfCancellationRequested();
                 var prefix = s.AppId is null ? null : SteamRoots.CompatDataPath(root, s.AppId);
@@ -91,7 +107,13 @@ public sealed class LinuxGameScanner : IGameScanner
                     // name is not the game's process name any more than a folder's is.
                     SuggestedProcessName: confirmedInstalled
                         ? null
-                        : GameActivity.ProcessNameFromExe(s.Exe)),
+                        : GameActivity.ProcessNameFromExe(s.Exe),
+                    // The marker follows the id this candidate actually carries: a confirmed install
+                    // follows the real AppID, which is not one of the shortcut ids, so no duplicate
+                    // is marked tracked then — claiming one would name an id Steam never launches.
+                    DuplicateShortcuts: duplicateShortcuts.TryGetValue(ManifestLoader.NormalizeName(s.AppName), out var sameName)
+                        ? SteamShortcuts.DuplicatesFor(sameName, confirmedInstalled ? realAppId : s.AppId)
+                        : null),
                     // Still tracked even once reclassified: if the real ACF ever becomes reachable
                     // too (the library gets mounted), that direct read is more authoritative than
                     // this inferred stand-in, and should keep winning the dedupe below.

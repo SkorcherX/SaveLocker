@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, FolderOpen, FolderSearch } from 'lucide-react'
-import type { Candidate } from '../types'
+import type { Candidate, DuplicateShortcut } from '../types'
 import { api } from '../api'
 import { useFolderPicker } from '../useFolderPicker'
 import { PathBrowserModal } from './PathBrowserModal'
@@ -296,7 +296,25 @@ export function AddGamesView({ onEnrolled }: Props) {
                     Steam Cloud
                   </span>
                 )}
+                {c.duplicateShortcuts && c.duplicateShortcuts.length > 0 && (
+                  <span
+                    title={c.duplicateShortcuts
+                      .map(d => `${d.name} — AppID ${d.appId ?? 'none'}${d.tracked ? ' (will be tracked)' : ''}`)
+                      .join('\n')}
+                    style={{
+                      color: '#f4a60d', fontSize: 10,
+                      background: 'rgba(244,166,13,0.12)',
+                      border: '1px solid rgba(244,166,13,0.45)',
+                      padding: '1px 6px', borderRadius: 3, cursor: 'help',
+                    }}
+                  >
+                    {c.duplicateShortcuts.length} duplicate AppIDs
+                  </span>
+                )}
               </div>
+              {c.duplicateShortcuts && c.duplicateShortcuts.length > 0 && (
+                <DuplicateNote shortcuts={c.duplicateShortcuts} />
+              )}
               {c.path ? (
                 <div style={{
                   color: '#9CA3AF', fontSize: 10, marginTop: 3,
@@ -366,6 +384,21 @@ export function AddGamesView({ onEnrolled }: Props) {
           onCancel={picker.cancel}
         />
       )}
+    </div>
+  )
+}
+
+// Steam has this game under several AppIDs and only ever launches one: name the one this scan follows.
+function DuplicateNote({ shortcuts }: { shortcuts: DuplicateShortcut[] }) {
+  const tracked = shortcuts.find(s => s.tracked)
+  return (
+    <div style={{ color: '#f4a60d', fontSize: 11, marginTop: 3, lineHeight: 1.4 }}>
+      {tracked
+        ? <>Steam launches only one of these shortcuts. SaveLocker will track AppID {tracked.appId ?? 'none'} —
+            if that is the stale one, its saves are never backed up. Remove the stale shortcut in Steam, or
+            set the save folder by hand.</>
+        : <>Steam launches only one of these shortcuts, but SaveLocker found this game&apos;s saves another way,
+            so none of them is followed.</>}
     </div>
   )
 }

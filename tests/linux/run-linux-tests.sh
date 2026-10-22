@@ -1306,6 +1306,16 @@ check "the row carries the wrapper invocation"        "$(contains "${rows}" 'run
 # could report. Saying "not applied" here would make the signal worthless.
 check "an unreported game is unknown, not failed"    "$(contains "${rows}" '"appliedAt":null')"
 
+# The duplicate-shortcut warning reaches Add games — the same shape doctor notes above, on the wire
+# agent-ui's chip reads: each entry's own name and AppID, the shortcut this scan resolved marked
+# tracked and the dead duplicate not. Asserted by value, not just field presence: the wrong AppID
+# marked tracked would send the user to the stale shortcut, which is the whole failure this warns about.
+dup_json="$(get "http://localhost:5187/api/candidates")"
+check "duplicate shortcut: the resolved AppID is tracked" \
+  "$(contains "${dup_json}" "\"appId\":\"${MOONDECK_SHORTCUT_APPID}\",\"name\":\"MoonDeck Streamed Game\",\"tracked\":true")"
+check "duplicate shortcut: the dead duplicate is not tracked" \
+  "$(contains "${dup_json}" "\"appId\":\"${MOONDECK_DUP_APPID}\",\"name\":\"MoonDeck Streamed Game\",\"tracked\":false")"
+
 # The management API hands out control of this machine; these two are the whole reason a browser
 # tab cannot drive it (LocalAuth). Asserted here because a new route is a new chance to forget.
 code="$(curl -s -o /dev/null -w '%{http_code}' "${lo_api}")"

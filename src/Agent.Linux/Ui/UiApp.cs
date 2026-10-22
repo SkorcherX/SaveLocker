@@ -1182,6 +1182,8 @@ sealed class UiApp
         var c = _candidates[i];
         bool alreadyTracked = _config.FindGame(c.Name) is not null;
         bool hasFolder = !string.IsNullOrEmpty(c.SuggestedSaveDir);
+        // Steam has this game under more than one AppID: the caption names the one this scan follows.
+        var duplicates = c.DuplicateShortcuts is { Count: > 0 } d ? d : null;
 
         ImGui.PushID(i);
         bool ticked = _selected.Contains(i);
@@ -1209,6 +1211,11 @@ sealed class UiApp
             ImGui.SameLine(0, Theme.Space.Sm);
             Widgets.Badge("no save folder", Theme.AccentAmber, Icons.AlertTriangle);
         }
+        else if (duplicates is not null)
+        {
+            ImGui.SameLine(0, Theme.Space.Sm);
+            Widgets.Badge($"{duplicates.Count} AppIDs", Theme.AccentAmber, Icons.AlertTriangle);
+        }
 
         if (!alreadyTracked)
         {
@@ -1217,6 +1224,16 @@ sealed class UiApp
             if (Widgets.PillButton(hasFolder ? "Change folder" : "Set save folder",
                     hasFolder ? Widgets.ButtonKind.Ghost : Widgets.ButtonKind.Secondary, Icons.Folder))
                 EnterSetFolder(i);
+            if (duplicates is not null)
+            {
+                var tracked = duplicates.FirstOrDefault(x => x.Tracked);
+                Widgets.TextWrapped(
+                    tracked is null
+                        ? $"Steam has {duplicates.Count} AppIDs for this game, but this scan resolved its save folder another way; none of them is followed."
+                        : $"Steam has {duplicates.Count} AppIDs for this game; this scan follows AppID {tracked.AppId ?? "none"}. " +
+                          "Its saves sync only if that is the one Steam launches.",
+                    Theme.AccentAmberLt, Theme.Caption);
+            }
         }
         ImGui.EndGroup();
         ImGui.EndGroup();
