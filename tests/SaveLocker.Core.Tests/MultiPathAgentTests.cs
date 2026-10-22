@@ -376,12 +376,29 @@ public sealed class MultiPathAgentTests : IDisposable
         var b = Dir("wb");
         var fired = 0;
         using var watcher = new FolderWatcher(new[] { a, b, Path.Combine(_dir, "missing") },
-            () => Interlocked.Increment(ref fired), debounceMs: 300);
+            () => Interlocked.Increment(ref fired), debounceMs: 1000);
 
         Write(a, "x.sav", "1");
         Write(b, "y.state", "2");
-        await Task.Delay(1500);
+        // The watcher's events and the delay's callback both run on the thread pool, which the rest of the suite
+        // keeps busy: a fixed wait read 0 under load. Wait for the fire, then a quiet spell for a second one.
+        Assert.True(await Eventually(() => Volatile.Read(ref fired) > 0), "the delay never fired");
+        await Task.Delay(2000);
+        Assert.Equal(1, Volatile.Read(ref fired));
 
-        Assert.Equal(1, fired);
+        // The second folder is watched too, not merely written alongside the first.
+        Write(b, "y.state", "3");
+        Assert.True(await Eventually(() => Volatile.Read(ref fired) > 1), "a change in the second folder never fired");
+    }
+
+    private static async Task<bool> Eventually(Func<bool> condition)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (!condition())
+        {
+            if (clock.Elapsed > TimeSpan.FromSeconds(15)) return false;
+            await Task.Delay(50);
+        }
+        return true;
     }
 }

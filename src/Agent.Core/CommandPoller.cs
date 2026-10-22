@@ -100,6 +100,7 @@ public sealed class CommandPoller : IDisposable
     {
         var serverGames = await _api().ListGamesAsync();
         var serverById = serverGames.ToDictionary(g => g.Id);
+        _serverGames = serverById;
         var changed = false;
 
         // Drop local games that were deleted on the server. Copy-on-write for the same reason as
@@ -122,6 +123,13 @@ public sealed class CommandPoller : IDisposable
                 if (!serverGlobs.SequenceEqual(local.ExcludeGlobs))
                 {
                     local.ExcludeGlobs = serverGlobs.ToList();
+                    changed = true;
+                }
+
+                // Which release it is — region, game IDs — as the server keeps it, for the Games pages.
+                if (!GameReleaseDto.Same(local.Release, sg.Release))
+                {
+                    local.Release = sg.Release;
                     changed = true;
                 }
 
@@ -210,6 +218,7 @@ public sealed class CommandPoller : IDisposable
                 GameId = sg.Id,
                 Name = sg.Name,
                 ManifestKey = sg.ManifestKey,
+                Release = sg.Release,
                 SaveDirectory = dir ?? "",
                 ExcludeGlobs = (sg.ExcludeGlobs ?? Array.Empty<string>()).ToList()
             };
@@ -487,6 +496,22 @@ public sealed class CommandPoller : IDisposable
 
     private readonly HashSet<string> _claimReported = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The server's games as the last reconcile read them, for what the scan may suggest.</summary>
+    private IReadOnlyDictionary<Guid, GameDto> _serverGames = new Dictionary<Guid, GameDto>();
+
+    /// <summary>
+    /// The scan's guess at an unmapped game's folder: a same-named row that is a save of its own (not a seed, not a
+    /// shared memory card) and, for an emulator save, the same save — the same files, written by an emulator the
+    /// game was found through (<see cref="Enroller.SameFiles"/>). PrimeHack's and Dolphin's Metroid Prime Trilogy
+    /// share a name and a scope and are still two games, and another ROM of the title is not the game at all.
+    /// </summary>
+    internal static ScanCandidate? PathCandidateFor(TrackedGame game, GameDto? serverGame, IEnumerable<ScanCandidate> found) =>
+        found.FirstOrDefault(c =>
+            !c.UntouchedSeed && c.NotSyncable is null && string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
+            !string.IsNullOrWhiteSpace(c.SuggestedSaveDir) &&
+            (c.IncludeGlobs is not { Count: > 0 } ||
+             (serverGame is not null ? Enroller.SameFiles(serverGame, c) : Enroller.SameScope(game.IncludeGlobs, c.IncludeGlobs))));
+
     /// <summary>
     /// Tell the console what this machine's scan <b>guesses</b> the save folder is, for every game
     /// still unmapped after reconcile. Reconcile has already tried manifest detection and reported
@@ -529,9 +554,7 @@ public sealed class CommandPoller : IDisposable
         var reports = new List<ScanPathCandidate>();
         foreach (var game in unmapped)
         {
-            var match = found.FirstOrDefault(c =>
-                !c.UntouchedSeed && string.Equals(c.Name, game.Name, StringComparison.OrdinalIgnoreCase) &&
-                !string.IsNullOrWhiteSpace(c.SuggestedSaveDir));
+            var match = PathCandidateFor(game, _serverGames.GetValueOrDefault(game.GameId), found);
 
             // Offering a path that is not there wastes the one click this exists to save.
             if (match?.SuggestedSaveDir is { } dir && Directory.Exists(dir))

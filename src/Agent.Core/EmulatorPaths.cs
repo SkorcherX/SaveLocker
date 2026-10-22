@@ -28,4 +28,40 @@ public static class EmulatorPaths
     public static string LocalAppData => HomeOverride is { } h
         ? Path.Combine(h, "AppData", "Local")
         : Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+
+    /// <summary>Documents (where PCSX2, DuckStation and Dolphin keep their folders on Windows by default, wherever
+    /// the user moved it); under a fixture home, <c>&lt;home&gt;/Documents</c>.</summary>
+    public static string Documents => HomeOverride is { } h
+        ? Path.Combine(h, "Documents")
+        : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+
+    /// <summary><c>$XDG_CONFIG_HOME</c>, else <c>~/.config</c> — never the real one under a fixture home.</summary>
+    public static string XdgConfig =>
+        Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") is { Length: > 0 } x && HomeOverride is null
+            ? x : Path.Combine(Home, ".config");
+
+    /// <summary><c>$XDG_DATA_HOME</c>, else <c>~/.local/share</c> — never the real one under a fixture home.</summary>
+    public static string XdgData =>
+        Environment.GetEnvironmentVariable("XDG_DATA_HOME") is { Length: > 0 } x && HomeOverride is null
+            ? x : Path.Combine(Home, ".local", "share");
+
+    /// <summary>A Flatpak app's own home: <c>~/.var/app/&lt;id&gt;</c>.</summary>
+    public static string Flatpak(string appId) => Path.Combine(Home, ".var", "app", appId);
+
+    /// <summary>An emulator's INI file as section → key → value (keys ignore case), or empty when it cannot be read.</summary>
+    public static Dictionary<string, Dictionary<string, string>> ReadIni(string path)
+    {
+        try { return File.Exists(path) ? ScummVmSaves.ParseIni(File.ReadAllText(path)) : new(StringComparer.OrdinalIgnoreCase); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return new(StringComparer.OrdinalIgnoreCase); }
+    }
+
+    /// <summary>A folder an emulator's INI names: absolute as given, else under <paramref name="baseDir"/>; null when unset.</summary>
+    public static string? IniFolder(string? value, string baseDir)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        var v = value.Trim().Trim('"');
+        if (v == "~" || v.StartsWith("~/", StringComparison.Ordinal)) v = Path.Combine(Home, v.Length > 2 ? v[2..] : "");
+        try { return Path.GetFullPath(Path.IsPathRooted(v) ? v : Path.Combine(baseDir, v)); }
+        catch { return null; }
+    }
 }

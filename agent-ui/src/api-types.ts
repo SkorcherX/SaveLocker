@@ -1501,6 +1501,9 @@ export interface components {
             emulatorRom?: null | string;
             /** @default false */
             untouchedSeed: boolean;
+            notSyncable?: null | string;
+            emulatorConsole?: null | string;
+            region?: null | string;
         };
         CandidateLinksDto: {
             /** Format: int32 */
@@ -1606,6 +1609,13 @@ export interface components {
             path: string;
             deferred: boolean;
         };
+        GameReleaseDto: {
+            console: string;
+            region?: null | string;
+            gameIds?: null | string[];
+            languages?: null | string[];
+            namedBy?: null | string;
+        };
         GameSourceDto: {
             kind: string;
             detail: string;
@@ -1701,6 +1711,8 @@ export interface components {
             hasSteamCloud: null | boolean;
             paths?: null | components["schemas"]["SaveFolderDto"][];
             source?: null | components["schemas"]["GameSourceDto"];
+            release?: null | components["schemas"]["GameReleaseDto"];
+            saveFiles?: null | string;
         };
     };
     responses: never;

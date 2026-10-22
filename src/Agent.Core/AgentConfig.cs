@@ -600,6 +600,9 @@ public sealed class TrackedGame
     /// <summary>How this machine found the game ("Emulator › RetroArch"), set when it was enrolled here.
     /// Null for a game enrolled before sources were recorded, or picked up from the server.</summary>
     public GameSourceDto? Source { get; set; }
+    /// <summary>Which release of a console game it is (region, game IDs), as the server keeps it; null for any
+    /// other game, or one created before releases were recorded.</summary>
+    public GameReleaseDto? Release { get; set; }
     /// <summary>Process names (without .exe) that, when running, mean the game is in use.</summary>
     public List<string> ProcessNames { get; set; } = new();
     /// <summary>

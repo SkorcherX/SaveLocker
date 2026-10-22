@@ -21,6 +21,7 @@ export type Settings = Schemas['ServerSettingsDto'];
 export type MachineSavePath = Schemas['MachineSavePathDto'];
 export type MachineGameSource = Schemas['MachineGameSourceDto'];
 export type GameSource = Schemas['GameSourceDto'];
+export type GameRelease = Schemas['GameReleaseDto'];
 export type MachineScanCandidate = Schemas['MachineScanCandidateDto'];
 export type AuditEntry = Schemas['AuditEntryDto'];
 export type SavePath = Schemas['SavePathDto'];

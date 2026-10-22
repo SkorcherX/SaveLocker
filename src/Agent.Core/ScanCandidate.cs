@@ -127,7 +127,16 @@ public sealed record ScanCandidate(
     /// the game was never played here. Listed only where a server game already keeps the same file, so a fresh
     /// machine can take the fleet's save over it (<see cref="EnrollLinks"/>); never a game of its own.
     /// </summary>
-    bool UntouchedSeed = false)
+    bool UntouchedSeed = false,
+    /// <summary>
+    /// Why this cannot be added, and what to change so it can — a memory card every game of a console saves to
+    /// (<see cref="MemoryCards.Shared"/>), where restoring one game's version restores them all. Listed so the user
+    /// learns why their PS2 saves are not offered; never enrolled. Null for everything that can be added.
+    /// </summary>
+    string? NotSyncable = null,
+    /// <summary>Which release of a console game the save is (<see cref="ConsoleTitles.Release"/>): its region and
+    /// game IDs, kept out of <see cref="Name"/>. Null for anything but a disc console's save.</summary>
+    GameReleaseDto? Release = null)
 {
     /// <summary>
     /// What a scanner merges duplicates on: the normalised name, so one game found by two sources is one

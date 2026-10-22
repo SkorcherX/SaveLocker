@@ -31,6 +31,11 @@ public sealed class GamelistXml
     /// <summary>No gamelists at all.</summary>
     public static GamelistXml None { get; } = new(Array.Empty<string>());
 
+    /// <summary>Only the gamelists inside these EmuDeck <c>Emulation</c> folders — never ES-DE's own in the user's
+    /// home, so a reader given explicit folders (a test) never reads the developer's real ones.</summary>
+    public static GamelistXml In(IEnumerable<string> emuDeckRoots) =>
+        new(emuDeckRoots.Select(r => Path.Combine(r, "storage", "es-de", "gamelists")));
+
     /// <summary>This machine's gamelist folders: inside each EmuDeck <c>Emulation</c> folder, and — unless the
     /// test rig pinned the scan to one fixture — ES-DE's own.</summary>
     public static GamelistXml Find(IEnumerable<string> emuDeckRoots)

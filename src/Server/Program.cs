@@ -217,9 +217,15 @@ agent.MapGet("/games", async (HttpContext http, SyncService sync, IConfiguration
     var pathMap = await sync.GetMachinePathMapAsync(machine.Id);
     var extras = await sync.GetExtraSavePathsAsync();
     var sources = await sync.GetMachineSourceMapAsync(machine.Id);
+    var emulators = await sync.GetEmulatorMapAsync();
     // Agents receive the effective exclude set (global defaults ∪ per-game) to apply.
     return Results.Ok(games.Select(g => g.ToDtoWithPaths(pathMap.GetValueOrDefault(g.Id), extras[g.Id])
-        with { ExcludeGlobs = GlobConfig.Effective(cfg, g.ExcludeGlobs), MachineSource = sources.GetValueOrDefault(g.Id) }));
+        with
+        {
+            ExcludeGlobs = GlobConfig.Effective(cfg, g.ExcludeGlobs),
+            MachineSource = sources.GetValueOrDefault(g.Id),
+            Emulators = emulators.GetValueOrDefault(g.Id),
+        }));
 }).Produces<List<GameDto>>();
 
 // ---- Leases (agent) ----
@@ -1039,7 +1045,7 @@ static string PathKeyOf(string? path) =>
 // refuses the request instead of creating a half-defined game. An agent's extra folders must be templates
 // (SyncService.AgentTemplateError): it is defining them for every machine.
 static string? ValidateNewGameFolders(CreateGameRequest req, bool fromAgent = false) =>
-    GlobConfig.ValidateIncludes(req.IncludeGlobs) ?? GlobConfig.ValidateExtraPaths(req.ExtraPaths) ??
+    GameReleaseDto.Validate(req.Release) ?? GlobConfig.ValidateIncludes(req.IncludeGlobs) ?? GlobConfig.ValidateExtraPaths(req.ExtraPaths) ??
     (fromAgent ? req.ExtraPaths?.Select(SyncService.AgentTemplateError).FirstOrDefault(e => e is not null) : null);
 
 // A refusal the caller can act on (a key taken or retired, the same folder already there) is a 409 with a

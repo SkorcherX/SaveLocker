@@ -264,10 +264,7 @@ internal sealed class TrayContext : ApplicationContext
 
     private ProcessWatcher BuildProcessWatcher()
     {
-        var pw = new ProcessWatcher(() =>
-            _config.Games
-                .Where(g => g.ProcessNames.Count > 0)
-                .ToDictionary(g => g.Name, g => (IReadOnlyList<string>)g.ProcessNames));
+        var pw = new ProcessWatcher(() => ProcessWatcher.ByGameId(_config.Games));
         pw.GameLaunched += OnLaunched;
         pw.GameExited += OnExited;
         return pw;
@@ -469,9 +466,12 @@ internal sealed class TrayContext : ApplicationContext
     // it — exactly the case the WA-01 baseline creates.
     private static bool IsRunning(TrackedGame g) => GameActivity.IsActive(g);
 
-    private void OnLaunched(string gameName)
+    private TrackedGame? WatchedGame(string gameId) =>
+        Guid.TryParse(gameId, out var id) ? _config.Games.FirstOrDefault(g => g.GameId == id) : null;
+
+    private void OnLaunched(string gameId)
     {
-        var game = _config.FindGame(gameName);
+        var game = WatchedGame(gameId);
         if (game is not null) FireAndForget(async () =>
         {
             // preLaunch: false — ProcessWatcher observed the game up to a poll interval AFTER it
@@ -485,11 +485,11 @@ internal sealed class TrayContext : ApplicationContext
         });
     }
 
-    private void OnExited(string gameName)
+    private void OnExited(string gameId)
     {
-        _apiServer.ClearLeaseWarning(gameName);
-        var game = _config.FindGame(gameName);
-        if (game is not null) FireAndForget(() => _engine.OnGameExitAsync(game));
+        if (WatchedGame(gameId) is not { } game) return;
+        _apiServer.ClearLeaseWarning(game.Name);
+        FireAndForget(() => _engine.OnGameExitAsync(game));
     }
 
     // ─── Infrastructure ──────────────────────────────────────────────────────────

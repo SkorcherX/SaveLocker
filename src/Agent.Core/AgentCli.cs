@@ -172,6 +172,7 @@ public static class AgentCli
                         var appid = c.SteamAppId is null ? "" : $" appid={c.SteamAppId}";
                         Console.WriteLine($"  {c.Name}  <{c.Source}>{cloud}{appid}");
                         Console.WriteLine($"      save: {save}");
+                        if (c.NotSyncable is { } why) Console.WriteLine($"      cannot be added: {why}");
                         foreach (var also in c.AlternateSaveDirs ?? Array.Empty<DeclaredSavePath>())
                             Console.WriteLine($"      also found: {also.Dir}  (once enrolled: add-path \"{c.Name}\" --key {also.Key} --dir \"{also.Dir}\")");
                     }

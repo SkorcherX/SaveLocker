@@ -88,6 +88,12 @@ export function GamesSidebar({ games, selectedId, onSelect, onAddGame, onRefresh
                   ? <span style={{ fontSize: 9, padding: '1px 5px', border: '1px solid #f4a60d', color: '#f4a60d', borderRadius: 3 }}>conflict</span>
                   : <span style={{ fontSize: 9, padding: '1px 5px', border: '1px solid #129271', color: '#129271', borderRadius: 3 }}>in sync</span>
                 }
+                {/* Two releases of one game share its name; the region tells them apart. */}
+                {game.release?.region && (
+                  <span style={{ fontSize: 9, padding: '1px 5px', border: '1px solid #494949', color: '#8b9aaa', borderRadius: 3 }}>
+                    {game.release.region}
+                  </span>
+                )}
                 {lease?.holderMachineName
                   ? <span style={{ fontSize: 9, padding: '1px 5px', border: '1px solid #494949', color: '#8b9aaa', borderRadius: 3 }}>leased</span>
                   : null
