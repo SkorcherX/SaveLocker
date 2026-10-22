@@ -51,14 +51,17 @@ verification that did not happen before the tag. Write-ups:
   the Game Mode filter row's gamepad navigation. Nothing drives the agent-ui React chips in any
   suite either.
 
-- **Emulator saves.** Not implemented at all: RetroArch, Dolphin, PCSX2, DuckStation and friends
-  keep saves and save-states in their own per-emulator trees, and the Ludusavi manifest does not
-  describe them, so nothing in discovery can find them today. On a Deck this is a large share of
-  what people actually play. Once it lands, add an **Emulator** filter to the Add Games chip row
-  (`agent-ui/src/components/AddGamesView.tsx` → `FILTERS`, and the Game Mode mirror in
-  `Ui/UiApp.cs` → `AddFilter`) — the row is built to take another entry. Note the save-variant
-  problem from Decisions.md §1 applies here too: an emulator save is platform-neutral, so it is
-  the first candidate that could sync between a Deck and a Windows PC without Proton involved.
+- **Emulator saves — what is left of the fork port (item 10).** Groups A–E's readers are ported (RetroArch,
+  melonDS, Supermodel, Model 2, ScummVM, PCSX2, DuckStation, Dolphin, PrimeHack, PPSSPP, RPCS3, Vita3K,
+  shadPS4, Cemu, Azahar, Xenia). Remaining, one branch each: **F** Switch (Marwanello #73, with a server
+  title key), **G/I/J** own file names + merge, SRM shortcuts, states-only games, icons (#78), the merge
+  picker (#80), **H** real-game checks and emulator pull safety (#81).
+- **Xbox 360 profile and DLC hand-over (fork "Phase 5c", left out of the Group E port on 2026-10-22).** The
+  Xenia profile carried per game and checked at launch (launch questions), a DLC check that holds a pull
+  of a save made with DLC missing here, and a server-brokered DLC hand-over between machines
+  (`ContentTransferService`, 4 migrations, `dlc` CLI). It is in Marwanello `4290a2a` (#68) alongside the
+  readers; its UI is built on the fork's redesigned game pages, so it needs this repo's own screens.
+  Until then each machine syncs a Xenia game into its own profile's folder.
 
 - **File-level saves — the 24 games the install-root guard now refuses.** A save location is a
   DIRECTORY throughout, so a manifest entry like `<base>/Save.dat` can only resolve to the whole

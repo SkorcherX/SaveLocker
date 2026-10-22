@@ -86,6 +86,7 @@ public static class GameSources
         ["wii"] = "Wii", ["wiiu"] = "Wii U", ["switch"] = "Switch", ["virtualboy"] = "Virtual Boy",
         ["gb"] = "Game Boy", ["gbc"] = "Game Boy Color", ["gba"] = "GBA", ["nds"] = "DS",
         ["n3ds"] = "3DS", ["3ds"] = "3DS",
+        ["xbox360"] = "Xbox 360",
         ["psx"] = "PS1", ["ps2"] = "PS2", ["ps3"] = "PS3", ["ps4"] = "PS4", ["psp"] = "PSP", ["psvita"] = "PS Vita",
         ["genesis"] = "Genesis", ["megadrive"] = "Mega Drive", ["mastersystem"] = "Master System",
         ["gamegear"] = "Game Gear", ["segacd"] = "Sega CD", ["sega32x"] = "32X", ["saturn"] = "Saturn",
