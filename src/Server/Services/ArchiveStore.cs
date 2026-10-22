@@ -75,6 +75,9 @@ public sealed class ArchiveStore
         Directory.CreateDirectory(_root);
     }
 
+    /// <summary>Where archives live: the volume a restore puts saves back on.</summary>
+    public string Root => _root;
+
     private string IncomingDir => Path.Combine(_root, IncomingDirName);
 
     // ----- Chunked upload sessions -----

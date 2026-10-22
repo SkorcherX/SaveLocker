@@ -25,25 +25,26 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
-**Fork port, item 9 — multiple save folders (2026-10-21, branch `port/multiple-save-folders`, off `main`,
-awaiting review; the backups branch is separate).** Marwanello #56–#58: a game can sync several folders
-(extra ones under `.savelocker/paths/<key>/` in the archive; the primary stays at the root, so old
-versions and hashes are unchanged). Unmapped folders sync through shadow copies; `add-path` /
-`remove-path`; "Also found" manifest suggestions in Add games and on Overview; an Extra save folders
-section on the console's game page. New migration `AddMultipleSavePaths`. New `tests/SaveLocker.Core.Tests`
-(xUnit, net10.0, 75/75) and `tests/run-multipath-tests.ps1` (39/39); local-api 36, Linux 239, the rest
-unchanged. **Not done:** the Deck Game Mode (ImGui) folder screens, an OS notice for suggestions (log
-only), the agent UI's new card checked by eye (needs a running agent), any Deck/real-game run.
+**Fork port, item 9 — multiple save folders (2026-10-21, merged to `main` at `d2a8410`).** Marwanello
+#56–#58: a game can sync several folders (extra ones under `.savelocker/paths/<key>/` in the archive; the
+primary stays at the root, so old versions and hashes are unchanged). Unmapped folders sync through shadow
+copies; `add-path` / `remove-path`; "Also found" manifest suggestions in Add games and on Overview; an Extra
+save folders section on the console's game page. New migration `AddMultipleSavePaths`. New
+`tests/SaveLocker.Core.Tests` (xUnit, 75/75) and `tests/run-multipath-tests.ps1` (39/39). **Not done:** the
+Deck Game Mode (ImGui) folder screens, an OS notice for suggestions (log only), the agent UI's new card
+checked by eye, any Deck/real-game run.
 
-**Fork port, round 2 (2026-10-21).** Save safety (item 11, Marwanello `3f28f71`) is merged to `main`:
-a pull keeps this machine's excluded files, and a save folder emptied all at once is held (no
-push/pull) until *Delete everywhere* or *Restore here*; the server 409s an unforced empty upload over
-a head with files. Not done: a console bell surface, the Decky plugin, a Deck run.
-Duplicate-shortcut warnings (item 19, `da6d118`) are on branch `port/duplicate-shortcuts`, awaiting
-review: Add games and Game Mode say which AppID a duplicated Steam shortcut will track. Verified:
-Linux 239/239, local-api 30/30. The fork's C# unit tests were not ported (this repo has no unit-test
-project). Remaining, one branch each: 12 backups + encryption at rest, 9 multiple save folders,
-10 emulator saves.
+**Fork port, round 2 (2026-10-21).** Merged to `main`: save safety (item 11, Marwanello `3f28f71`:
+excluded files kept on pull, an emptied folder held until *Delete everywhere* / *Restore here*, server
+409s an unforced empty upload) and duplicate-shortcut warnings (item 19, `da6d118`).
+Backups + encryption at rest (item 12, backend of `82ab5c8`) are on branch `port/backups-encryption`,
+rebased onto `main` after multiple save folders, awaiting review: zip backups (database + latest saves), a
+UTC daily/weekly schedule, restore with a safety backup, a before-upgrade snapshot, ticketed downloads, a
+plain console Backups tab, and the SteamGridDB key encrypted with Data Protection. **Deploy note: the key
+ring is `/data/keys` — keep it with the database; a backup restored elsewhere reads the SteamGridDB key as
+unset.** Verified after the rebase: backups 86, multipath 39, Core.Tests 75, server bug bounty 194, delta 29,
+health 38, hardening 41, local-api 36, concurrency 23, enrollment 18 and agent 47 (both against a :5179
+server; agent needs `.verify/` cleared), Linux 239. Remaining: 10 emulator saves.
 
 **Fork port (2026-10-21, merged to `main` at `0552155`, not yet released).** Cherry-picked
 from Marwanello/SaveLocker (`-x` keeps the source SHAs): chunked upload that is all-or-nothing, Linux/Deck

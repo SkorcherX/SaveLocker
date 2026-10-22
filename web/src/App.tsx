@@ -5,11 +5,12 @@ import { NavBar } from './components/NavBar';
 import { GamesView } from './components/GamesView';
 import { ConfigView } from './components/ConfigView';
 import { AuditView } from './components/AuditView';
+import { BackupsView } from './components/BackupsView';
 import { HelpView } from './components/HelpView';
 import { WhatsNewView } from './components/WhatsNewView';
 import { hasUnreadNotes, markNotesSeen } from './releaseSeen';
 
-type View = 'games' | 'config' | 'audit' | 'help' | 'whats-new';
+type View = 'games' | 'config' | 'audit' | 'backups' | 'help' | 'whats-new';
 
 interface AppData {
   games: GameSummary[];
@@ -29,6 +30,7 @@ interface AppData {
 function viewFromHash(): View {
   if (location.hash === '#config') return 'config';
   if (location.hash === '#audit') return 'audit';
+  if (location.hash === '#backups') return 'backups';
   if (location.hash.startsWith('#help')) return 'help';
   if (location.hash.startsWith('#whats-new')) return 'whats-new';
   return 'games';
@@ -90,6 +92,7 @@ export default function App() {
   useEffect(() => {
     if (view === 'config') location.hash = 'config';
     else if (view === 'audit') location.hash = 'audit';
+    else if (view === 'backups') location.hash = 'backups';
     else if (view === 'help') { if (!location.hash.startsWith('#help')) location.hash = 'help'; }
     else if (view === 'whats-new') { if (!location.hash.startsWith('#whats-new')) location.hash = 'whats-new'; }
     else location.hash = '';
@@ -188,6 +191,8 @@ export default function App() {
               />
             : view === 'audit'
             ? <AuditView />
+            : view === 'backups'
+            ? <BackupsView />
             : <ConfigView
                 games={data.games}
                 machines={data.machines}

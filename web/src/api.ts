@@ -1,4 +1,4 @@
-import type { GameSummary, Machine, Command, Conflict, Settings, Version, VersionStats, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, InstallerHashVerification, AgentPlatform, Enrollment, CreateEnrollmentResponse, EffectiveServerUrl, AgentHealth, AdminStatus, AutoFetchSchedule } from './types';
+import type { GameSummary, Machine, Command, Conflict, Settings, Version, VersionStats, MachineSavePath, MachineScanCandidate, AuditEntry, AgentInstallerStatus, InstallerHashVerification, AgentPlatform, Enrollment, CreateEnrollmentResponse, EffectiveServerUrl, AgentHealth, AdminStatus, AutoFetchSchedule, BackupStatus, BackupResult, BackupRestoreResult, BackupDownloadTicket } from './types';
 
 let adminPassword = localStorage.getItem('sl_password') || '';
 
@@ -152,6 +152,16 @@ export const api = {
       .then(res => { if (!res.ok) throw new Error(`${res.status}`); }),
 
   audit: (limit = 200) => request<AuditEntry[]>(`/audit?limit=${limit}`),
+  backupStatus: () => request<BackupStatus>('/admin/backups/status'),
+  backupNow: () => request<BackupResult>('/admin/backup', { method: 'POST' }),
+  setBackupSettings: (s: { enabled: boolean; retentionCount: number; hourOfDay: number; frequency: string; dayOfWeek: number }) =>
+    request<void>('/admin/backups/settings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(s) }),
+  /** A single-use link: the browser follows it to stream the file, since a plain link cannot carry the password header. */
+  backupDownloadTicket: (file: string) =>
+    request<BackupDownloadTicket>(`/admin/backups/${encodeURIComponent(file)}/download-ticket`, { method: 'POST' }),
+  restoreBackup: (file: string) =>
+    request<BackupRestoreResult>(`/admin/backups/${encodeURIComponent(file)}/restore`, { method: 'POST' }),
+  deleteBackup: (file: string) => request<void>(`/admin/backups/${encodeURIComponent(file)}`, { method: 'DELETE' }),
 
   setAdminPassword: (password: string | null) =>
     request<{ ok: boolean; message: string }>('/admin/password', {
