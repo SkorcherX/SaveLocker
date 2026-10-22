@@ -1,5 +1,6 @@
 ﻿using SaveLocker.Server.Data;
 using SaveLocker.Shared;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
 
 namespace SaveLocker.Server.Services;
@@ -30,20 +31,37 @@ public sealed class SettingsService
     public const string AgentUpdateScheduleDayOfMonth = "AgentUpdate:Schedule:DayOfMonth";
     public const string AgentUpdateScheduleTimeOfDay = "AgentUpdate:Schedule:TimeOfDay";
 
+    /// <summary>
+    /// Settings that are secrets the server must be able to USE (so they cannot be hashed like the admin
+    /// password or machine keys): stored encrypted with ASP.NET Data Protection. Its key ring lives in
+    /// <c>{data}/keys</c>, outside the database — so the database file and every backup of it carry only
+    /// ciphertext. A backup restored onto a different server cannot decrypt them: the key reads as unset.
+    /// </summary>
+    private static readonly HashSet<string> Secrets = new(StringComparer.Ordinal) { SteamGridDbApiKey };
+    private const string EncryptedPrefix = "enc:v1:";
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte> UndecryptableWarned = new();
+
     private readonly AppDbContext _db;
     private readonly IConfiguration _cfg;
+    private readonly IDataProtector _protector;
+    private readonly ILogger<SettingsService> _log;
 
-    public SettingsService(AppDbContext db, IConfiguration cfg)
+    public SettingsService(AppDbContext db, IConfiguration cfg, IDataProtectionProvider protection, ILogger<SettingsService> log)
     {
         _db = db;
         _cfg = cfg;
+        _protector = protection.CreateProtector("SaveLocker.Settings.v1");
+        _log = log;
     }
 
-    /// <summary>The DB value if set, else the configuration value, else null.</summary>
+    /// <summary>The DB value if set, else the configuration value, else null. Secrets come back decrypted; one
+    /// this server cannot decrypt counts as unset, so the configuration's value (if any) applies.</summary>
     public async Task<string?> GetEffectiveAsync(string key, CancellationToken ct = default)
     {
         var row = await _db.Settings.FindAsync(new object?[] { key }, ct);
-        if (!string.IsNullOrWhiteSpace(row?.Value)) return row!.Value;
+        if (!string.IsNullOrWhiteSpace(row?.Value)
+            && (Secrets.Contains(key) ? Reveal(key, row!.Value) : row!.Value) is { } stored)
+            return stored;
         var fromCfg = _cfg[key];
         return string.IsNullOrWhiteSpace(fromCfg) ? null : fromCfg;
     }
@@ -60,9 +78,42 @@ public sealed class SettingsService
             return;
         }
 
+        if (Secrets.Contains(key)) value = EncryptedPrefix + _protector.Protect(value);
         if (row is null) _db.Settings.Add(new AppSetting { Key = key, Value = value });
         else row.Value = value;
         await _db.SaveChangesAsync(ct);
+    }
+
+    private string? Reveal(string key, string stored)
+    {
+        if (!stored.StartsWith(EncryptedPrefix, StringComparison.Ordinal)) return stored; // written before encryption
+        try { return _protector.Unprotect(stored[EncryptedPrefix.Length..]); }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            // A database from another server (a restored backup) or a lost key ring: unusable, so unset. Said once
+            // per key per process — this is read on every settings load and art fetch.
+            if (UndecryptableWarned.TryAdd(key, 0))
+                _log.LogWarning("The stored {Key} cannot be decrypted with this server's keys; treating it as unset. Enter it again under Configuration.", key);
+            return null;
+        }
+    }
+
+    /// <summary>Encrypt any secret still stored in plain text (written before encryption existed). Run at startup
+    /// and after a restore.</summary>
+    public async Task EncryptPlaintextSecretsAsync(CancellationToken ct = default)
+    {
+        var rows = await _db.Settings.Where(s => Secrets.Contains(s.Key)).ToListAsync(ct);
+        var changed = 0;
+        foreach (var row in rows.Where(r => r.Value.Length > 0 && !r.Value.StartsWith(EncryptedPrefix, StringComparison.Ordinal)))
+        {
+            row.Value = EncryptedPrefix + _protector.Protect(row.Value);
+            changed++;
+        }
+        if (changed > 0)
+        {
+            await _db.SaveChangesAsync(ct);
+            _log.LogInformation("Encrypted {Count} stored secret(s) that predate encryption at rest.", changed);
+        }
     }
 
     public async Task<bool> HasAdminPasswordAsync(CancellationToken ct = default) =>

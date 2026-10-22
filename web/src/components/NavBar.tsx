@@ -3,7 +3,7 @@ import { getPassword, setPassword as persistPassword } from '../api';
 import type { AgentEvent, Conflict, ServerBuildInfo } from '../types';
 import logoUrl from '../assets/SaveLocker_Logo_crop.png';
 
-type View = 'games' | 'config' | 'audit' | 'help' | 'whats-new';
+type View = 'games' | 'config' | 'audit' | 'backups' | 'help' | 'whats-new';
 
 /**
  * `AgentEventCodes.Conflict` on the server. The one reported condition that never self-heals: every
@@ -151,6 +151,7 @@ export function NavBar({
         <button style={navBtnStyle(view === 'games')} onClick={() => onViewChange('games')}>Games</button>
         <button style={navBtnStyle(view === 'config')} onClick={() => onViewChange('config')}>Configuration</button>
         <button style={navBtnStyle(view === 'audit')} onClick={() => onViewChange('audit')}>Audit Log</button>
+        <button style={navBtnStyle(view === 'backups')} onClick={() => onViewChange('backups')}>Backups</button>
         <button style={navBtnStyle(view === 'help')} onClick={() => onViewChange('help')}>Help</button>
         <button style={navBtnStyle(view === 'whats-new')} onClick={() => onViewChange('whats-new')}>What's New</button>
 

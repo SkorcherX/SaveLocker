@@ -662,11 +662,45 @@ public record AdminStatus(bool PasswordRequired, ServerBuildInfo Build);
 
 // ----- Server backups (admin) -----
 
-/// <summary>One on-box SQLite snapshot file. <paramref name="CreatedAt"/> is UTC.</summary>
-public record BackupInfo(string FileName, long SizeBytes, DateTime CreatedAt);
+/// <summary>One backup file. <paramref name="CreatedAt"/> is UTC. <paramref name="IncludesSaves"/> is true for a
+/// <c>.zip</c> backup (the database plus every game's latest save); a legacy <c>.db</c> is the database alone.</summary>
+public record BackupInfo(string FileName, long SizeBytes, DateTime CreatedAt, BackupReason Reason, bool IncludesSaves = false);
+
+/// <summary>Why a backup was taken. Carried in the file name after the timestamp, so a name with no
+/// suffix reads as <see cref="Scheduled"/> (every snapshot from before reasons existed was nightly).</summary>
+public enum BackupReason { Scheduled, Manual, BeforeUpgrade, BeforeRestore }
+
+/// <summary>Everything the console's Backups page shows. Times are UTC. <c>NextRunAt</c> is null while
+/// scheduled backups are off. <c>ArchivesBytes</c> is every stored version; a backup holds only each game's latest.</summary>
+public record BackupStatusDto(
+    bool Enabled,
+    int RetentionCount,
+    int HourOfDay,
+    DateTime? NextRunAt,
+    string BackupRoot,
+    string? LastError,
+    DateTime? LastErrorAt,
+    long ArchivesBytes,
+    int ArchivesCount,
+    List<BackupInfo> Backups,
+    string Frequency = "weekly",
+    int DayOfWeek = 0);
+
+/// <summary>The backup schedule (DB-backed; each overrides <c>Backup:*</c> in config). <c>HourOfDay</c> is UTC;
+/// <c>Frequency</c> is "daily" or "weekly"; <c>DayOfWeek</c> (0 = Sunday) applies to weekly.</summary>
+public record SetBackupSettingsRequest(bool Enabled, int RetentionCount, int HourOfDay, string Frequency = "weekly", int DayOfWeek = 0);
 
 /// <summary>Outcome of a manual/scheduled backup run and the resulting retained count.</summary>
 public record BackupResult(bool Ok, string? Message, BackupInfo? Backup, int TotalBackups);
+
+/// <summary>A restore that went through: what it came from, the safety backup taken just before it, and how many
+/// save archives it put back (the rest were already on disk — archives never change once written).</summary>
+/// <paramref name="Warning"/> is set when the database was restored but putting the saves back stopped part-way.
+public record BackupRestoreResult(string RestoredFrom, string SafetyBackup, int SavesRestored, int SavesAlreadyPresent, string? Warning = null);
+
+/// <summary>A single-use link to one backup, valid until <paramref name="ExpiresAt"/> (UTC, about a minute). The console
+/// follows it with a plain link so the browser streams the file to disk instead of buffering it.</summary>
+public record BackupDownloadTicket(string Url, DateTime ExpiresAt);
 
 // ----- Audit log -----
 

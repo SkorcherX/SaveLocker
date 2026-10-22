@@ -120,6 +120,28 @@
         }
       }
     },
+    "/api/backup-download/{ticket}": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "ticket",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/api/games": {
       "get": {
         "tags": [
@@ -2000,6 +2022,25 @@
         }
       }
     },
+    "/api/admin/backups/status": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupStatusDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/admin/backup": {
       "post": {
         "tags": [
@@ -2012,6 +2053,138 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BackupResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/backups/settings": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetBackupSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/admin/backups/{file}": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/backups/{file}/download-ticket": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupDownloadTicket"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/backups/{file}/restore": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "file",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BackupRestoreResult"
                 }
               }
             }
@@ -2848,11 +3021,28 @@
           }
         }
       },
+      "BackupDownloadTicket": {
+        "required": [
+          "url",
+          "expiresAt"
+        ],
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "BackupInfo": {
         "required": [
           "fileName",
           "sizeBytes",
-          "createdAt"
+          "createdAt",
+          "reason"
         ],
         "type": "object",
         "properties": {
@@ -2866,6 +3056,52 @@
           "createdAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/BackupReason"
+          },
+          "includesSaves": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      },
+      "BackupReason": {
+        "enum": [
+          "Scheduled",
+          "Manual",
+          "BeforeUpgrade",
+          "BeforeRestore"
+        ]
+      },
+      "BackupRestoreResult": {
+        "required": [
+          "restoredFrom",
+          "safetyBackup",
+          "savesRestored",
+          "savesAlreadyPresent"
+        ],
+        "type": "object",
+        "properties": {
+          "restoredFrom": {
+            "type": "string"
+          },
+          "safetyBackup": {
+            "type": "string"
+          },
+          "savesRestored": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "savesAlreadyPresent": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "warning": {
+            "type": [
+              "null",
+              "string"
+            ]
           }
         }
       },
@@ -2900,6 +3136,80 @@
           "totalBackups": {
             "type": "integer",
             "format": "int32"
+          }
+        }
+      },
+      "BackupStatusDto": {
+        "required": [
+          "enabled",
+          "retentionCount",
+          "hourOfDay",
+          "nextRunAt",
+          "backupRoot",
+          "lastError",
+          "lastErrorAt",
+          "archivesBytes",
+          "archivesCount",
+          "backups"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "retentionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "hourOfDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "nextRunAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "backupRoot": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "lastErrorAt": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          },
+          "archivesBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "archivesCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "backups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BackupInfo"
+            }
+          },
+          "frequency": {
+            "type": "string",
+            "default": "weekly"
+          },
+          "dayOfWeek": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },
@@ -4082,6 +4392,36 @@
               "null",
               "string"
             ]
+          }
+        }
+      },
+      "SetBackupSettingsRequest": {
+        "required": [
+          "enabled",
+          "retentionCount",
+          "hourOfDay"
+        ],
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "retentionCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "hourOfDay": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "frequency": {
+            "type": "string",
+            "default": "weekly"
+          },
+          "dayOfWeek": {
+            "type": "integer",
+            "format": "int32",
+            "default": 0
           }
         }
       },

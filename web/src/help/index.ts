@@ -14,6 +14,7 @@ import troubleshooting from './troubleshooting.md?raw';
 import restoreSafety from './restore-safety.md?raw';
 import steamLibraryArtwork from './steam-library-artwork.md?raw';
 import deckyPlugin from './decky-plugin.md?raw';
+import databaseBackups from './database-backups.md?raw';
 
 export interface Article {
   slug: string;
@@ -36,6 +37,7 @@ export const articles: Article[] = [
   { slug: 'steam-library-artwork', title: 'Steam Library artwork (Steam Deck)', category: 'Configuration', content: steamLibraryArtwork },
   { slug: 'decky-plugin',    title: 'The Decky plugin (Steam Deck)',           category: 'Configuration',  content: deckyPlugin },
   { slug: 'save-retention',  title: 'Save retention',                         category: 'Configuration',  content: saveRetention },
+  { slug: 'database-backups', title: 'Backups and restoring',                category: 'Maintenance',    content: databaseBackups },
   { slug: 'agent-update',    title: 'Agent auto-update & fetching from GitHub','category': 'Maintenance', content: agentUpdate },
   { slug: 'cli-reference',   title: 'Agent CLI reference',                    category: 'Reference',      content: cliReference },
   { slug: 'troubleshooting', title: 'Troubleshooting',                        category: 'Troubleshooting',content: troubleshooting },
