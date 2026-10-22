@@ -523,7 +523,7 @@ public sealed class SyncEngine : IAsyncDisposable, IDisposable
 
             try
             {
-                SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir, game.ExcludeGlobs);
+                SaveArchive.RestoreArchive(archive, game.SaveDirectory, _tempDir, excludeGlobs: game.ExcludeGlobs);
             }
             catch (SaveArchive.UnsafeArchiveException ex)
             {

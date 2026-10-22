@@ -44,6 +44,11 @@ public class Game
     /// of the server global defaults when agents hash + archive this game's saves.</summary>
     public string? ExcludeGlobs { get; set; }
 
+    /// <summary>Newline-separated include globs for the PRIMARY save folder, or null for "the whole
+    /// folder". Narrows it to this game's own files when other games share it (an emulator's saves
+    /// folder). Set when the game is created; extra folders carry their own on <see cref="GameSavePath"/>.</summary>
+    public string? IncludeGlobs { get; set; }
+
     /// <summary>What the server does when an upload diverges from the current head.</summary>
     public ConflictPolicy ConflictPolicy { get; set; } = ConflictPolicy.Manual;
 
@@ -220,7 +225,33 @@ public class MachineSavePath
 {
     public Guid MachineId { get; set; }
     public Guid GameId { get; set; }
+    /// <summary>Which of the game's save folders: <see cref="SaveRoot.PrimaryKey"/> or a
+    /// <see cref="GameSavePath.Key"/>.</summary>
+    public string PathKey { get; set; } = SaveRoot.PrimaryKey;
     public string SavePath { get; set; } = "";
+}
+
+/// <summary>
+/// An EXTRA save folder of a game (tasks/multiple-save-paths). The primary folder lives on
+/// <see cref="Game"/> itself (<see cref="Game.SuggestedSaveDir"/>, <see cref="Game.IncludeGlobs"/>), so
+/// a single-folder game and every older agent are untouched. The key names the folder's slice of
+/// every archive and is identical on every machine; it is never renamed.
+/// </summary>
+public class GameSavePath
+{
+    public Guid GameId { get; set; }
+    public string Key { get; set; } = "";
+    /// <summary>What the console and agent UIs call it ("Save states").</summary>
+    public string? Label { get; set; }
+    /// <summary>Portable template every machine expands for itself — the extra folder's
+    /// <see cref="Game.SuggestedSaveDir"/>.</summary>
+    public string? Template { get; set; }
+    /// <summary>Newline-separated include globs, or null for the whole folder.</summary>
+    public string? IncludeGlobs { get; set; }
+    public int SortOrder { get; set; }
+    /// <summary>When the folder was removed. A retired row is hidden from every query (a filter on
+    /// the context) and kept only so its key is never reused: stored versions may still hold its files.</summary>
+    public DateTime? RetiredAt { get; set; }
 }
 
 /// <summary>

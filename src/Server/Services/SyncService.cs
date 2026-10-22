@@ -143,24 +143,128 @@ public sealed class SyncService
 
     // ----- Machine save paths -----
 
-    /// <summary>All stored save paths for a game, one row per machine that has one.</summary>
+    /// <summary>All stored save paths for a game, one row per machine per save folder it has mapped —
+    /// the primary folder's rows first.</summary>
     public async Task<List<MachineSavePathDto>> GetGameMachinePathsAsync(Guid gameId)
     {
-        return await (from p in _db.MachineSavePaths
-                      join m in _db.Machines on p.MachineId equals m.Id
-                      where p.GameId == gameId
-                      orderby m.Name
-                      select new MachineSavePathDto(p.MachineId, m.Name, p.SavePath))
+        var rows = await (from p in _db.MachineSavePaths
+                          join m in _db.Machines on p.MachineId equals m.Id
+                          where p.GameId == gameId
+                          select new MachineSavePathDto(p.MachineId, m.Name, p.SavePath, p.PathKey))
             .ToListAsync();
+        return rows
+            .OrderBy(r => r.PathKey == SaveRoot.PrimaryKey ? 0 : 1)
+            .ThenBy(r => r.PathKey, StringComparer.Ordinal)
+            .ThenBy(r => r.MachineName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
 
-    /// <summary>All stored save paths for one machine, keyed by game ID (for reconcile injection).</summary>
-    public async Task<Dictionary<Guid, string>> GetMachinePathMapAsync(Guid machineId)
+    /// <summary>All stored save paths for one machine: game ID → path key → folder (for reconcile
+    /// injection). A game with extra folders has several rows, so this is never a flat map.</summary>
+    public async Task<Dictionary<Guid, Dictionary<string, string>>> GetMachinePathMapAsync(Guid machineId)
     {
-        return await _db.MachineSavePaths
+        var rows = await _db.MachineSavePaths
             .Where(p => p.MachineId == machineId)
-            .ToDictionaryAsync(p => p.GameId, p => p.SavePath);
+            .ToListAsync();
+        return rows
+            .GroupBy(p => p.GameId)
+            .ToDictionary(g => g.Key, g => g.ToDictionary(p => p.PathKey, p => p.SavePath, StringComparer.Ordinal));
     }
+
+    /// <summary>Every game's extra save folders, grouped by game (one query for a whole game list).</summary>
+    public async Task<ILookup<Guid, GameSavePath>> GetExtraSavePathsAsync() =>
+        (await _db.GameSavePaths.ToListAsync()).ToLookup(p => p.GameId);
+
+    /// <summary>One game's extra save folders.</summary>
+    public async Task<List<GameSavePath>> GetExtraSavePathsAsync(Guid gameId) =>
+        await _db.GameSavePaths.Where(p => p.GameId == gameId).ToListAsync();
+
+    /// <summary>
+    /// Add an extra save folder to a game. The key is checked here as well as at the route, because it
+    /// becomes a path segment in every archive on every machine and can never be renamed afterwards.
+    /// Returns the stored folder, or why it was refused (<c>not_found</c> for an unknown game).
+    /// <para>
+    /// <paramref name="machineId"/> is the agent asking, null for the console. An agent defines the
+    /// folder for EVERY machine that tracks the game, so it may only describe it generically — a
+    /// template each machine expands for itself, as <see cref="TrySetSaveTemplateAsync"/> requires —
+    /// never a literal path of its own choosing.
+    /// </para>
+    /// </summary>
+    public async Task<(GameSavePath? Path, string? Error)> AddSavePathAsync(Guid gameId, AddSavePathRequest req,
+        Guid? machineId = null)
+    {
+        var dto = new SavePathDto(req.Key?.Trim() ?? "", req.Label, req.Template, req.IncludeGlobs);
+        if (GlobConfig.ValidateExtraPaths(new[] { dto }) is { } why) return (null, why);
+        if (machineId is not null && AgentTemplateError(dto) is { } notTemplate) return (null, notTemplate);
+        if (!await _db.Games.AnyAsync(g => g.Id == gameId)) return (null, "not_found");
+
+        // Retired folders included: a key is never reused (RemoveSavePathAsync).
+        var existing = await _db.GameSavePaths.IgnoreQueryFilters().Where(p => p.GameId == gameId).ToListAsync();
+        if (existing.FirstOrDefault(p => p.Key == dto.Key) is { } taken)
+            return (null, taken.RetiredAt is null
+                ? $"This game already has a save folder called '{dto.Key}'."
+                : $"'{dto.Key}' was a save folder of this game before. Stored versions can still hold its " +
+                  "files, and restoring one would put them in whatever folder the key names now — pick another key.");
+        if (existing.Count(p => p.RetiredAt is null) >= GlobConfig.MaxExtraPaths)
+            return (null, $"At most {GlobConfig.MaxExtraPaths} extra save folders are allowed per game.");
+
+        var path = NewSavePath(gameId, dto, existing.Count == 0 ? 0 : existing.Max(p => p.SortOrder) + 1);
+        _db.GameSavePaths.Add(path);
+        await Audit(machineId, gameId, "game.save_path.add",
+            path.Template is null ? path.Key : $"{path.Key} ({path.Template})");
+        await _db.SaveChangesAsync();
+        return (path, null);
+    }
+
+    /// <summary>
+    /// Remove an extra save folder from a game, with every machine's mapping of it. Versions already
+    /// stored keep that folder's files; a restore of one skips a key the game no longer has. The
+    /// primary folder cannot be removed.
+    /// <para>
+    /// The row is RETIRED, not deleted, so the key can never be added again: a later folder under the
+    /// same key would receive the old folder's files from any stored version rolled back to.
+    /// </para>
+    /// </summary>
+    public async Task<(bool Ok, string? Error)> RemoveSavePathAsync(Guid gameId, string key)
+    {
+        if (key == SaveRoot.PrimaryKey) return (false, "The primary save folder cannot be removed.");
+        var path = await FindSavePathAsync(gameId, key);
+        if (path is null) return (false, "not_found");
+
+        _db.MachineSavePaths.RemoveRange(
+            await _db.MachineSavePaths.Where(p => p.GameId == gameId && p.PathKey == key).ToListAsync());
+        path.RetiredAt = DateTime.UtcNow;
+        await Audit(null, gameId, "game.save_path.remove", key);
+        await _db.SaveChangesAsync();
+        return (true, null);
+    }
+
+    /// <summary>Why an agent may not define <paramref name="dto"/>, or null: its template, when it has
+    /// one, must be one (<see cref="PathResolver.IsTemplate"/>).</summary>
+    public static string? AgentTemplateError(SavePathDto dto) =>
+        string.IsNullOrWhiteSpace(dto.Template) || PathResolver.IsTemplate(dto.Template.Trim())
+            ? null
+            : $"'{dto.Template}' is not a template. An agent describes a save folder generically " +
+              "(e.g. <winAppData>/Game) so every machine can expand it for itself; set a literal path from the console.";
+
+    /// <summary>One of a game's current extra save folders (retired ones are filtered out).</summary>
+    private Task<GameSavePath?> FindSavePathAsync(Guid gameId, string key) =>
+        _db.GameSavePaths.FirstOrDefaultAsync(p => p.GameId == gameId && p.Key == key);
+
+    private static GameSavePath NewSavePath(Guid gameId, SavePathDto dto, int sortOrder) => new()
+    {
+        GameId = gameId,
+        Key = dto.Key.Trim(),
+        Label = string.IsNullOrWhiteSpace(dto.Label) ? null : dto.Label.Trim(),
+        Template = string.IsNullOrWhiteSpace(dto.Template) ? null : dto.Template.Trim(),
+        IncludeGlobs = dto.IncludeGlobs is null ? null : GlobConfig.Join(dto.IncludeGlobs),
+        SortOrder = sortOrder,
+    };
+
+    /// <summary>True when <paramref name="pathKey"/> names a save folder <paramref name="gameId"/> has.</summary>
+    private async Task<bool> HasSavePathAsync(Guid gameId, string pathKey) =>
+        pathKey == SaveRoot.PrimaryKey ||
+        await _db.GameSavePaths.AnyAsync(p => p.GameId == gameId && p.Key == pathKey);
 
     /// <summary>
     /// Unconfirmed scan guesses for a game, one row per machine that reported one. These are
@@ -176,36 +280,52 @@ public sealed class SyncService
             .ToListAsync();
     }
 
-    /// <summary>Upsert a machine's save path for a game (agent-reported or dashboard-set).</summary>
-    public async Task SetMachinePathAsync(Guid machineId, Guid gameId, string path)
+    /// <summary>
+    /// Upsert a machine's save path for one of a game's save folders (agent-reported or dashboard-set).
+    /// Returns false, storing nothing, for a machine, game or folder key that does not exist: a row for a
+    /// folder the game lacks would be handed back to the agent as authority on its next poll.
+    /// </summary>
+    public async Task<bool> SetMachinePathAsync(Guid machineId, Guid gameId, string path,
+        string pathKey = SaveRoot.PrimaryKey)
     {
-        var existing = await _db.MachineSavePaths.FindAsync(machineId, gameId);
+        if (!await _db.Games.AnyAsync(g => g.Id == gameId) || !await HasSavePathAsync(gameId, pathKey) ||
+            !await _db.Machines.AnyAsync(m => m.Id == machineId))
+            return false;
+
+        var existing = await _db.MachineSavePaths.FindAsync(machineId, gameId, pathKey);
         var unchanged = existing is not null && existing.SavePath == path;
 
         if (existing is null)
-            _db.MachineSavePaths.Add(new MachineSavePath { MachineId = machineId, GameId = gameId, SavePath = path });
+            _db.MachineSavePaths.Add(new MachineSavePath
+                { MachineId = machineId, GameId = gameId, PathKey = pathKey, SavePath = path });
         else
             existing.SavePath = path;
 
         // The guess has served its purpose once a real path exists — leaving it would make the
-        // console keep offering to "apply" a path for a game that is now mapped.
-        var guess = await _db.MachineScanCandidates.FindAsync(machineId, gameId);
-        if (guess is not null) _db.MachineScanCandidates.Remove(guess);
+        // console keep offering to "apply" a path for a game that is now mapped. Guesses are only
+        // ever about the primary folder.
+        if (pathKey == SaveRoot.PrimaryKey)
+        {
+            var guess = await _db.MachineScanCandidates.FindAsync(machineId, gameId);
+            if (guess is not null) _db.MachineScanCandidates.Remove(guess);
+        }
 
         // Audit only a real change. Agents re-assert their current path on every poll, so auditing
         // unconditionally writes a row every 20 s per machine per game — ~4,300 a day from one idle
         // Deck, burying the changes anyone actually wants to find. This is the same reasoning that
         // makes health events deduplicate rather than append (HealthService).
         if (!unchanged)
-            await Audit(machineId, gameId, "machine_path.set", path);
+            await Audit(machineId, gameId, "machine_path.set",
+                pathKey == SaveRoot.PrimaryKey ? path : $"[{pathKey}] {path}");
 
         await _db.SaveChangesAsync();
+        return true;
     }
 
-    /// <summary>Remove a machine's stored save path for a game.</summary>
-    public async Task ClearMachinePathAsync(Guid machineId, Guid gameId)
+    /// <summary>Remove a machine's stored save path for one of a game's save folders.</summary>
+    public async Task ClearMachinePathAsync(Guid machineId, Guid gameId, string pathKey = SaveRoot.PrimaryKey)
     {
-        var existing = await _db.MachineSavePaths.FindAsync(machineId, gameId);
+        var existing = await _db.MachineSavePaths.FindAsync(machineId, gameId, pathKey);
         if (existing is null) return;
         _db.MachineSavePaths.Remove(existing);
         await _db.SaveChangesAsync();
@@ -216,13 +336,25 @@ public sealed class SyncService
     public async Task<List<Game>> ListGamesAsync() =>
         await _db.Games.OrderBy(g => g.Name).ToListAsync();
 
-    /// <summary>Set/clear the suggested save folder propagated to agents.</summary>
-    public async Task<bool> SetSuggestedSaveDirAsync(Guid gameId, string? dir)
+    /// <summary>Set/clear the suggested save folder (or template) propagated to agents, for the primary
+    /// folder or one extra folder. False when the game or folder does not exist.</summary>
+    public async Task<bool> SetSuggestedSaveDirAsync(Guid gameId, string? dir, string pathKey = SaveRoot.PrimaryKey)
     {
-        var game = await _db.Games.FindAsync(gameId);
-        if (game is null) return false;
-        game.SuggestedSaveDir = string.IsNullOrWhiteSpace(dir) ? null : dir.Trim();
-        await Audit(null, gameId, "game.save_dir", game.SuggestedSaveDir);
+        var value = string.IsNullOrWhiteSpace(dir) ? null : dir.Trim();
+        if (pathKey == SaveRoot.PrimaryKey)
+        {
+            var game = await _db.Games.FindAsync(gameId);
+            if (game is null) return false;
+            game.SuggestedSaveDir = value;
+            await Audit(null, gameId, "game.save_dir", value);
+        }
+        else
+        {
+            var path = await FindSavePathAsync(gameId, pathKey);
+            if (path is null) return false;
+            path.Template = value;
+            await Audit(null, gameId, "game.save_dir", $"[{pathKey}] {value}");
+        }
         await _db.SaveChangesAsync();
         return true;
     }
@@ -239,15 +371,24 @@ public sealed class SyncService
     /// always overrides.
     /// </para>
     /// </summary>
-    public async Task<bool> TrySetSaveTemplateAsync(Guid gameId, string template)
+    public async Task<bool> TrySetSaveTemplateAsync(Guid gameId, string template, string pathKey = SaveRoot.PrimaryKey)
     {
         if (!PathResolver.IsTemplate(template)) return false;
 
-        var game = await _db.Games.FindAsync(gameId);
-        if (game is null || !string.IsNullOrWhiteSpace(game.SuggestedSaveDir)) return false;
-
-        game.SuggestedSaveDir = template.Trim();
-        await Audit(null, gameId, "game.save_template", game.SuggestedSaveDir);
+        if (pathKey == SaveRoot.PrimaryKey)
+        {
+            var game = await _db.Games.FindAsync(gameId);
+            if (game is null || !string.IsNullOrWhiteSpace(game.SuggestedSaveDir)) return false;
+            game.SuggestedSaveDir = template.Trim();
+            await Audit(null, gameId, "game.save_template", game.SuggestedSaveDir);
+        }
+        else
+        {
+            var path = await FindSavePathAsync(gameId, pathKey);
+            if (path is null || !string.IsNullOrWhiteSpace(path.Template)) return false;
+            path.Template = template.Trim();
+            await Audit(null, gameId, "game.save_template", $"[{pathKey}] {path.Template}");
+        }
         await _db.SaveChangesAsync();
         return true;
     }
@@ -279,9 +420,13 @@ public sealed class SyncService
             ManifestKey = req.ManifestKey,
             CustomPathsJson = req.CustomPathsJson,
             SuggestedSaveDir = string.IsNullOrWhiteSpace(req.SuggestedSaveDir) ? null : req.SuggestedSaveDir.Trim(),
+            IncludeGlobs = req.IncludeGlobs is null ? null : GlobConfig.Join(req.IncludeGlobs),
             Enabled = true
         };
         _db.Games.Add(game);
+        var order = 0;
+        foreach (var extra in req.ExtraPaths ?? Array.Empty<SavePathDto>())
+            _db.GameSavePaths.Add(NewSavePath(game.Id, extra, order++));
         await Audit(null, game.Id, "game.create", req.Name);
         await _db.SaveChangesAsync();
         return game;
@@ -299,6 +444,8 @@ public sealed class SyncService
         _db.Conflicts.RemoveRange(await _db.Conflicts.Where(c => c.GameId == gameId).ToListAsync());
         _db.MachineSavePaths.RemoveRange(
             await _db.MachineSavePaths.Where(p => p.GameId == gameId).ToListAsync());
+        _db.GameSavePaths.RemoveRange(
+            await _db.GameSavePaths.IgnoreQueryFilters().Where(p => p.GameId == gameId).ToListAsync());
         _db.MachineScanCandidates.RemoveRange(
             await _db.MachineScanCandidates.Where(c => c.GameId == gameId).ToListAsync());
         _db.Games.Remove(game);
@@ -326,16 +473,19 @@ public sealed class SyncService
             .Select(g => new { GameId = g.Key, Total = g.Sum(v => v.Size) })
             .ToDictionaryAsync(x => x.GameId, x => x.Total);
 
+        var extras = await GetExtraSavePathsAsync();
+
         var result = new List<GameStateDto>(games.Count);
         foreach (var g in games)
         {
-            var state = await GetGameStateAsync(g.Id, storageTotals.GetValueOrDefault(g.Id));
+            var state = await GetGameStateAsync(g.Id, storageTotals.GetValueOrDefault(g.Id), extras[g.Id]);
             if (state is not null) result.Add(state);
         }
         return result;
     }
 
-    public async Task<GameStateDto?> GetGameStateAsync(Guid gameId, long? precomputedStorage = null)
+    public async Task<GameStateDto?> GetGameStateAsync(Guid gameId, long? precomputedStorage = null,
+        IEnumerable<GameSavePath>? precomputedExtras = null)
     {
         var game = await _db.Games.FindAsync(gameId);
         if (game is null) return null;
@@ -352,7 +502,8 @@ public sealed class SyncService
         var totalStorage = precomputedStorage
             ?? await _db.SaveVersions.Where(v => v.GameId == gameId).SumAsync(v => v.Size);
 
-        return new GameStateDto(game.ToDto(), head?.ToDto(), lease.ToDto(gameId), hasConflict, totalStorage);
+        var extras = precomputedExtras ?? await GetExtraSavePathsAsync(gameId);
+        return new GameStateDto(game.ToDto(extras), head?.ToDto(), lease.ToDto(gameId), hasConflict, totalStorage);
     }
 
     // ----- Leases -----
@@ -1150,6 +1301,38 @@ public sealed class SyncService
         await Audit(null, gameId, "game.retention", retain?.ToString() ?? "default");
         await _db.SaveChangesAsync();
         return true;
+    }
+
+    /// <summary>
+    /// Replace one save folder's include scope (<paramref name="pathKey"/>: <c>main</c> or an extra
+    /// folder's key); an empty list means the whole folder. Every machine applies it from its next poll.
+    /// Files that leave the scope stop syncing and are left where they are, never deleted.
+    /// </summary>
+    public async Task<(bool found, string? error)> SetIncludeGlobsAsync(Guid gameId, IEnumerable<string?> patterns,
+        string pathKey = SaveRoot.PrimaryKey)
+    {
+        var list = patterns.ToList();
+        if (pathKey == SaveRoot.PrimaryKey)
+        {
+            var game = await _db.Games.FindAsync(gameId);
+            if (game is null) return (false, null);
+            if (GlobConfig.ValidateIncludes(list) is { } refused) return (true, refused);
+            game.IncludeGlobs = GlobConfig.Join(list);
+            await Audit(null, gameId, "game.include_globs", ScopeText(game.IncludeGlobs));
+        }
+        else
+        {
+            var path = await FindSavePathAsync(gameId, pathKey);
+            if (path is null) return (false, null);
+            if (GlobConfig.ValidateIncludes(list) is { } refused) return (true, refused);
+            path.IncludeGlobs = GlobConfig.Join(list);
+            await Audit(null, gameId, "game.include_globs", $"[{pathKey}] {ScopeText(path.IncludeGlobs)}");
+        }
+        await _db.SaveChangesAsync();
+        return (true, null);
+
+        static string ScopeText(string? joined) =>
+            joined is null ? "whole folder" : string.Join(", ", GlobConfig.Parse(joined));
     }
 
     /// <summary>Set (or clear) a game's per-game exclude globs. Takes effect on agents' next reconcile.</summary>

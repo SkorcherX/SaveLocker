@@ -34,10 +34,34 @@ public record GameDto(
     // carries the effective set (global defaults ∪ per-game) that agents apply.
     string[]? ExcludeGlobs = null,
     ConflictPolicy ConflictPolicy = ConflictPolicy.Manual,
-    Guid? PreferredMachineId = null);
+    Guid? PreferredMachineId = null,
+    // The PRIMARY save folder's include scope. Null/empty: the whole folder is the game's. Otherwise
+    // only files matching one of these belong to it — one ROM's save inside a folder every other
+    // ROM's save shares. Set once, by whoever creates the game; every machine applies it.
+    string[]? IncludeGlobs = null,
+    // The game's EXTRA save folders (tasks/multiple-save-paths), null when it has none. The primary
+    // folder stays in SuggestedSaveDir / MachineSavePath / IncludeGlobs, so an older agent keeps
+    // working on it unchanged.
+    SavePathDto[]? ExtraPaths = null);
 
-/// <summary>A specific machine's stored save path for one game.</summary>
-public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);
+/// <summary>
+/// One extra save folder of a game. <see cref="Key"/> is the same on every machine and names the
+/// folder's slice of every archive; <see cref="Template"/> is what each machine expands for itself;
+/// <see cref="MachinePath"/> is the calling machine's stored folder (agent routes only).
+/// </summary>
+public record SavePathDto(
+    string Key,
+    string? Label,
+    string? Template,
+    string[]? IncludeGlobs,
+    string? MachinePath = null);
+
+/// <summary>A new extra save folder for a game. The key is a short slug and is never renamed.</summary>
+public record AddSavePathRequest(string Key, string? Label, string? Template, string[]? IncludeGlobs);
+
+/// <summary>A specific machine's stored save path for one of a game's save folders
+/// (<see cref="PathKey"/> is <c>main</c> for the primary folder).</summary>
+public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath, string PathKey = SaveRoot.PrimaryKey);
 
 /// <summary>
 /// A save folder a machine's <c>scan</c> <b>found but has not adopted</b> — the game is tracked
@@ -55,7 +79,11 @@ public record CreateGameRequest(
     string Name,
     string? ManifestKey,
     string? CustomPathsJson,
-    string? SuggestedSaveDir = null);
+    string? SuggestedSaveDir = null,
+    // Both applied only when this request creates the game; an existing game keeps its own folders
+    // and scopes, and the caller compares what comes back with what it asked for.
+    string[]? IncludeGlobs = null,
+    SavePathDto[]? ExtraPaths = null);
 
 // ----- Server settings (dashboard-managed) -----
 

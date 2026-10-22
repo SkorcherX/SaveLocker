@@ -9,15 +9,37 @@ public static class Mapping
     public static MachineDto ToDto(this Machine m) =>
         new(m.Id, m.Name, m.CreatedAt, m.LastSeen);
 
-    public static GameDto ToDto(this Game g) =>
-        new(g.Id, g.Name, g.ManifestKey, g.CustomPathsJson, g.Enabled, g.SuggestedSaveDir,
-            null, g.GridUrl, g.HeroUrl, g.LogoUrl, g.IconUrl, g.RetainVersions,
-            GlobConfig.Parse(g.ExcludeGlobs), g.ConflictPolicy, g.PreferredMachineId);
+    /// <summary>The game as the console sees it. <paramref name="extraPaths"/> are its extra save
+    /// folders (<see cref="SyncService.GetExtraSavePathsAsync"/>); omitted, the DTO carries none.</summary>
+    public static GameDto ToDto(this Game g, IEnumerable<GameSavePath>? extraPaths = null) =>
+        g.ToDtoWithPaths(null, extraPaths);
 
-    public static GameDto ToDtoWithPath(this Game g, string? machineSavePath) =>
+    /// <summary>
+    /// The game as one machine sees it: <paramref name="machinePaths"/> is that machine's stored folder
+    /// per path key (<see cref="SyncService.GetMachinePathMapAsync"/>). The primary folder's goes in
+    /// <see cref="GameDto.MachineSavePath"/>, where an older agent reads it.
+    /// </summary>
+    public static GameDto ToDtoWithPaths(this Game g, IReadOnlyDictionary<string, string>? machinePaths,
+        IEnumerable<GameSavePath>? extraPaths) =>
         new(g.Id, g.Name, g.ManifestKey, g.CustomPathsJson, g.Enabled, g.SuggestedSaveDir,
-            machineSavePath, g.GridUrl, g.HeroUrl, g.LogoUrl, g.IconUrl, g.RetainVersions,
-            GlobConfig.Parse(g.ExcludeGlobs), g.ConflictPolicy, g.PreferredMachineId);
+            machinePaths?.GetValueOrDefault(SaveRoot.PrimaryKey), g.GridUrl, g.HeroUrl, g.LogoUrl, g.IconUrl,
+            g.RetainVersions, GlobConfig.Parse(g.ExcludeGlobs), g.ConflictPolicy, g.PreferredMachineId,
+            NullIfEmpty(GlobConfig.Parse(g.IncludeGlobs)),
+            ToDtos(extraPaths, machinePaths));
+
+    public static SavePathDto ToDto(this GameSavePath p, string? machinePath = null) =>
+        new(p.Key, p.Label, p.Template, NullIfEmpty(GlobConfig.Parse(p.IncludeGlobs)), machinePath);
+
+    private static SavePathDto[]? ToDtos(IEnumerable<GameSavePath>? paths, IReadOnlyDictionary<string, string>? machinePaths)
+    {
+        var list = paths?
+            .OrderBy(p => p.SortOrder).ThenBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => p.ToDto(machinePaths?.GetValueOrDefault(p.Key)))
+            .ToArray();
+        return list is { Length: > 0 } ? list : null;
+    }
+
+    private static string[]? NullIfEmpty(string[] globs) => globs.Length == 0 ? null : globs;
 
     public static SaveVersionDto ToDto(this SaveVersion v) =>
         new(v.Id, v.GameId, v.MachineId, UploaderName(v), v.CreatedAt,
