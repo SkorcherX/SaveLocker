@@ -83,6 +83,11 @@ here.
   intended and asserted, but `Remove-Item` on it only works as the same account (or elevated). If a
   suite ever runs as a different user than the one that created `.verify-*`, clean up elevated.
 
+- **`{data}/keys` is the Data Protection key ring, and it must travel with the database.** The
+  SteamGridDB key is stored encrypted (`enc:v1:`); lose `keys/` or restore a backup onto another server
+  and it reads as unset (a warning, not a crash) until re-entered. No backup contains `keys/`, by design.
+  `Security:KeyRingPath` overrides the location.
+
 ## Ludusavi manifest
 - **The manifest never writes `false` — absence IS the negative.** A `cloud:` block lists only the
   stores whose PCGamingWiki "Save game cloud syncing" row is ticked, and the whole block is omitted
