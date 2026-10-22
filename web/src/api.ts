@@ -137,6 +137,12 @@ export const api = {
 
   getGamePaths: (gameId: string) =>
     request<MachineSavePath[]>(`/games/${gameId}/paths`),
+  /** Another save folder for a game, defined for every machine. */
+  addSavePath: (gameId: string, body: { key: string; label: string | null; template: string | null; includeGlobs: string[] | null }) =>
+    request<unknown>(`/games/${gameId}/save-paths`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+  /** Stop syncing one extra folder on every machine; the key is retired, never reused. */
+  removeSavePath: (gameId: string, key: string) =>
+    request<void>(`/games/${gameId}/save-paths/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   getGamePathCandidates: (gameId: string) =>
     request<MachineScanCandidate[]>(`/games/${gameId}/path-candidates`),
   setMachinePath: (gameId: string, machineId: string, path: string) =>

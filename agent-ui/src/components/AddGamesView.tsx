@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { RefreshCw, FolderOpen, FolderSearch } from 'lucide-react'
-import type { Candidate, DuplicateShortcut } from '../types'
+import type { Candidate, DuplicateShortcut, SaveFolder } from '../types'
 import { api } from '../api'
 import { useFolderPicker } from '../useFolderPicker'
 import { PathBrowserModal } from './PathBrowserModal'
@@ -64,6 +64,8 @@ function chipStyle(active: boolean): React.CSSProperties {
 export function AddGamesView({ onEnrolled }: Props) {
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [checked, setChecked] = useState<Set<number>>(new Set())
+  // "Also found" folders the user unticked, per candidate id. Every offered folder is ticked by default.
+  const [unticked, setUnticked] = useState<Map<number, Set<string>>>(new Map())
   const [filter, setFilter] = useState<FilterId>('suggested')
   const [store, setStore] = useState<string | null>(null)
   const [scanning, setScanning] = useState(false)
@@ -131,7 +133,12 @@ export function AddGamesView({ onEnrolled }: Props) {
     setEnrolling(true)
     setStatus('Enrolling…')
     try {
-      const result = await api.enroll([...checked])
+      const alsoSync = [...checked]
+        .map(id => candidates.find(c => c.id === id))
+        .filter((c): c is Candidate => !!c && !!c.alsoFound?.length)
+        .map(c => ({ id: c.id, paths: c.alsoFound!.map(f => f.path).filter(p => !unticked.get(c.id)?.has(p)) }))
+        .filter(choice => choice.paths.length > 0)
+      const result = await api.enroll([...checked], alsoSync)
       setStatus(
         `Enrolled ${result.enrolled} game(s).` +
         (result.skipped > 0 ? ` Skipped ${result.skipped} already tracked.` : '')
@@ -315,6 +322,19 @@ export function AddGamesView({ onEnrolled }: Props) {
               {c.duplicateShortcuts && c.duplicateShortcuts.length > 0 && (
                 <DuplicateNote shortcuts={c.duplicateShortcuts} />
               )}
+              {!c.enrolled && c.alsoFound && c.alsoFound.length > 0 && (
+                <AlsoFound
+                  folders={c.alsoFound}
+                  unticked={unticked.get(c.id) ?? new Set()}
+                  onToggle={path => setUnticked(prev => {
+                    const next = new Map(prev)
+                    const set = new Set(next.get(c.id) ?? [])
+                    if (set.has(path)) set.delete(path); else set.add(path)
+                    next.set(c.id, set)
+                    return next
+                  })}
+                />
+              )}
               {c.path ? (
                 <div style={{
                   color: '#9CA3AF', fontSize: 10, marginTop: 3,
@@ -399,6 +419,29 @@ function DuplicateNote({ shortcuts }: { shortcuts: DuplicateShortcut[] }) {
             set the save folder by hand.</>
         : <>Steam launches only one of these shortcuts, but SaveLocker found this game&apos;s saves another way,
             so none of them is followed.</>}
+    </div>
+  )
+}
+
+// The manifest's other locations for this game that exist here. Ticked ones are added as extra save folders
+// on enroll; nothing is adopted unasked, since a second location may be an alternative install, not a companion.
+function AlsoFound({ folders, unticked, onToggle }: {
+  folders: SaveFolder[]
+  unticked: Set<string>
+  onToggle: (path: string) => void
+}) {
+  return (
+    <div style={{ marginTop: 4 }} onClick={e => e.stopPropagation()}>
+      <div style={{ color: '#9CA3AF', fontSize: 11 }}>Also found — sync these folders too:</div>
+      {folders.map(f => (
+        <label key={f.path} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#ECEFF1', marginTop: 2 }}>
+          <input type="checkbox" checked={!unticked.has(f.path)} onChange={() => onToggle(f.path)} />
+          <span style={{
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            fontFamily: "ui-monospace, 'Cascadia Code', Consolas, monospace", fontSize: 10, color: '#9CA3AF',
+          }} title={f.path}>{f.path}</span>
+        </label>
+      ))}
     </div>
   )
 }

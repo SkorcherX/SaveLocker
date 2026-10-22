@@ -6,7 +6,7 @@
   },
   "servers": [
     {
-      "url": "http://localhost:5179/"
+      "url": "http://localhost:5196/"
     }
   ],
   "paths": {
@@ -528,6 +528,100 @@
         }
       }
     },
+    "/api/agent/games/{id}/save-paths": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSavePathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePathDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePathRefusalDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/games/{id}/save-paths/{key}": {
+      "delete": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "description": "Bad Request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not Found"
+          }
+        }
+      }
+    },
     "/api/agent/commands": {
       "get": {
         "tags": [
@@ -604,6 +698,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -660,6 +761,13 @@
           },
           {
             "name": "value",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
             "in": "query",
             "schema": {
               "type": "string"
@@ -827,6 +935,94 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/games/{id}/save-paths": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddSavePathRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePathDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavePathRefusalDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}/save-paths/{key}": {
+      "delete": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -860,6 +1056,49 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/games/{id}/include-globs": {
+      "post": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "required": true
+        },
         "responses": {
           "200": {
             "description": "OK"
@@ -1071,6 +1310,13 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -1100,6 +1346,13 @@
             "schema": {
               "type": "string",
               "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "schema": {
+              "type": "string"
             }
           }
         ],
@@ -1423,6 +1676,48 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VersionStatsDto"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/games/{id}/versions/{versionId}/folders": {
+      "get": {
+        "tags": [
+          "SaveLocker.Server"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "versionId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VersionFolderDto"
+                  }
                 }
               }
             }
@@ -2014,6 +2309,41 @@
   },
   "components": {
     "schemas": {
+      "AddSavePathRequest": {
+        "required": [
+          "key",
+          "label",
+          "template",
+          "includeGlobs"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "template": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "includeGlobs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "AdminStatus": {
         "required": [
           "passwordRequired",
@@ -2908,6 +3238,24 @@
               "null",
               "string"
             ]
+          },
+          "includeGlobs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "extraPaths": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SavePathDto"
+            }
           }
         }
       },
@@ -3206,6 +3554,24 @@
               "string"
             ],
             "format": "uuid"
+          },
+          "includeGlobs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "extraPaths": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/SavePathDto"
+            }
           }
         }
       },
@@ -3415,6 +3781,10 @@
           },
           "savePath": {
             "type": "string"
+          },
+          "pathKey": {
+            "type": "string",
+            "default": "main"
           }
         }
       },
@@ -3477,6 +3847,72 @@
           },
           "machineName": {
             "type": "string"
+          }
+        }
+      },
+      "SavePathDto": {
+        "required": [
+          "key",
+          "label",
+          "template",
+          "includeGlobs"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "template": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "includeGlobs": {
+            "type": [
+              "null",
+              "array"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "machinePath": {
+            "type": [
+              "null",
+              "string"
+            ]
+          }
+        }
+      },
+      "SavePathRefusalDto": {
+        "required": [
+          "error",
+          "code"
+        ],
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string"
+          },
+          "existing": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SavePathDto"
+              }
+            ]
           }
         }
       },
@@ -3721,6 +4157,58 @@
           "Conflict",
           "RetryFull"
         ]
+      },
+      "VersionFileDto": {
+        "required": [
+          "path",
+          "size",
+          "modifiedUtc"
+        ],
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "modifiedUtc": {
+            "type": [
+              "null",
+              "string"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "VersionFolderDto": {
+        "required": [
+          "key",
+          "fileCount",
+          "totalBytes",
+          "files"
+        ],
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "fileCount": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "totalBytes": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VersionFileDto"
+            }
+          }
+        }
       },
       "VersionStatsDto": {
         "required": [

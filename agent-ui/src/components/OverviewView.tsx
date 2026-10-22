@@ -5,6 +5,7 @@ import { LaunchSetupCard } from './LaunchSetupCard'
 import { DeckyPluginCard } from './DeckyPluginCard'
 import { ActivityCard } from './ActivityCard'
 import { EmptiedHoldsBanner } from './EmptiedHoldsBanner'
+import { FolderSuggestionsCard } from './FolderSuggestionsCard'
 
 interface Props {
   state: AgentState | null
@@ -26,6 +27,7 @@ export function OverviewView({ state, onWarningDismissed }: Props) {
       overflow: 'hidden',
     }}>
       <EmptiedHoldsBanner />
+      <FolderSuggestionsCard />
 
       {/* Lease conflict banners */}
       {warnings.length > 0 && (

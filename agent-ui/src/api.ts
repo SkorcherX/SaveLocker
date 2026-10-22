@@ -1,4 +1,4 @@
-import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, EmptiedHold, TrackedGame } from './types'
+import type { Activity, AgentState, AgentVersion, BrowseListing, Candidate, DeckyStatus, EmptiedHold, FolderSuggestion, TrackedGame } from './types'
 
 // The agent injects the local API token into index.html when it serves the page; the same-origin
 // policy is what keeps any other page from reading it. Left as the literal placeholder under
@@ -33,7 +33,9 @@ export const api = {
   state: () => req<AgentState>('/api/state'),
   candidates: () => req<Candidate[]>('/api/candidates'),
   rescan: () => post<Candidate[]>('/api/candidates/rescan'),
-  enroll: (ids: number[]) => post<{ enrolled: number; skipped: number }>('/api/enroll', { ids }),
+  // alsoSync: per candidate, which of its "Also found" folders to add with it.
+  enroll: (ids: number[], alsoSync?: { id: number; paths: string[] }[]) =>
+    post<{ enrolled: number; skipped: number }>('/api/enroll', { ids, alsoSync }),
   // identityCleared is true when the server URL moved to a different origin: the machine key, id
   // and TLS pin were issued by the old server and have been dropped, so this agent must register
   // or enroll again before it can sync.
@@ -79,6 +81,14 @@ export const api = {
   syncNow: () => post<{ message: string }>('/api/sync'),
   // Games held because every save file vanished here; nothing syncs for them until one is answered.
   emptiedHolds: () => req<EmptiedHold[]>('/api/holds/emptied'),
+  // "Also found": folders the manifest knows for tracked games that exist here and are not synced yet.
+  folderSuggestions: () => req<FolderSuggestion[]>('/api/folder-suggestions'),
+  answerFolderSuggestions: (gameId: string, answer: { ignore?: string[]; defer?: string[] }) =>
+    post('/api/folder-suggestions/answer', { gameId, ...answer }),
+  // Adds a save folder for every machine. freeKey: the key is only a preference (a suggestion's).
+  addSaveFolder: (gameId: string, path: string, key?: string) =>
+    post<{ key: string; path: string; template: string | null; joined: boolean }>(
+      `/api/games/${gameId}/paths`, { path, key, freeKey: true }),
   answerEmptiedHold: (id: string, action: 'delete-everywhere' | 'restore-here') =>
     post<{ message: string }>(`/api/games/${id}/emptied-hold`, { action }),
 }
