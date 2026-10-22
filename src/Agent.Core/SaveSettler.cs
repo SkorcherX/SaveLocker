@@ -38,11 +38,26 @@ public static class SaveSettler
     /// over every real folder of a game at once: a save that writes two folders is quiet only when
     /// both are. Pass real folders only — a shadow is the agent's own copy and nothing else writes it.
     /// </summary>
-    public static async Task<bool> WaitForQuietAsync(
+    public static Task<bool> WaitForQuietAsync(
         IReadOnlyList<SaveRoot> roots,
         IEnumerable<string>? excludeGlobs,
         TimeSpan quietPeriod,
         TimeSpan maxWait,
+        Action<string>? log = null,
+        CancellationToken ct = default) =>
+        WaitForQuietAsync(roots, excludeGlobs, quietPeriod, maxWait, FileLockProbe.FirstWriter, log, ct);
+
+    /// <summary>
+    /// The gate with its lock probe supplied. Tests pin the probe: on a CI runner an antivirus or
+    /// indexer holding a just-written file without sharing reads looks exactly like a writer (see
+    /// <see cref="FileLockProbe"/>), which says nothing about whether the fingerprint half works.
+    /// </summary>
+    internal static async Task<bool> WaitForQuietAsync(
+        IReadOnlyList<SaveRoot> roots,
+        IEnumerable<string>? excludeGlobs,
+        TimeSpan quietPeriod,
+        TimeSpan maxWait,
+        Func<IReadOnlyList<SaveRoot>, IReadOnlyList<SaveArchive.SaveFile>, FileLockProbe.LockProbeResult> probeWriters,
         Action<string>? log = null,
         CancellationToken ct = default)
     {
@@ -73,7 +88,7 @@ public static class SaveSettler
 
             var files = SaveArchive.ListSaveFiles(roots, globs);
             var print = Fingerprint(files);
-            var probe = FileLockProbe.FirstWriter(roots, files);
+            var probe = probeWriters(roots, files);
             var locked = probe.LockedFile;
 
             // A probe that cannot answer must not read as "quiet" — say so once, then lean on the

@@ -19,6 +19,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Agent.Core\SaveLocker.Agent.Core.csproj" />
+    <!-- Build order only: ServerProcess (EnrollDeclaredFoldersTests.cs) starts the server's own build output. -->
+    <ProjectReference Include="..\..\src\Server\SaveLocker.Server.csproj"
+                      ReferenceOutputAssembly="false" SkipGetTargetFrameworkProperties="true" />
   </ItemGroup>
 
 </Project>

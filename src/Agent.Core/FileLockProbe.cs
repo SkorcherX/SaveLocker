@@ -9,7 +9,10 @@ namespace SaveLocker.Agent;
 /// The two platforms answer this in completely different ways:
 /// <list type="bullet">
 ///   <item><b>Windows</b> — ask the kernel to deny writers (<c>FileShare.Read</c>). If a writer
-///   holds the file, the open fails.</item>
+///   holds the file, the open fails. A reader that shares reads does not; one that denies them
+///   (an antivirus or indexer opening exclusively) fails it just the same, and the sharing
+///   violation cannot say which it was — so an exclusive reader reads as a writer for as long as
+///   it holds the file. Not narrowed: a game writing with <c>FileShare.None</c> looks identical.</item>
 ///   <item><b>Linux</b> — <c>FileShare</c> is <b>not enforced</b>: the open always succeeds, so
 ///   that probe would report "nothing is locked" every single time. We instead walk
 ///   <c>/proc/*/fd</c> for descriptors pointing into the directory and check whether any was

@@ -37,14 +37,23 @@ public sealed class Detection
     /// be worse than admitting we cannot resolve it.
     /// </summary>
     public async Task<IReadOnlyList<string>> ResolveSaveDirectoriesAsync(
+        string gameName, PathResolver? resolver = null, CancellationToken ct = default) =>
+        Dirs(await ResolveSaveLocationsAsync(gameName, resolver, ct));
+
+    /// <summary><see cref="ResolveSaveDirectoriesAsync"/> with each folder's manifest template: the first
+    /// is the primary folder, the rest are only ever suggested (tasks/multiple-save-paths plan §8).</summary>
+    public async Task<IReadOnlyList<ResolvedSaveLocation>> ResolveSaveLocationsAsync(
         string gameName, PathResolver? resolver = null, CancellationToken ct = default)
     {
         resolver ??= HostResolver();
-        if (resolver is null) return Array.Empty<string>();
+        if (resolver is null) return Array.Empty<ResolvedSaveLocation>();
 
         var manifest = await GetManifestAsync(ct: ct);
-        return manifest.ResolveSaveDirectories(gameName, resolver);
+        return manifest.ResolveSaveLocations(gameName, resolver);
     }
+
+    private static IReadOnlyList<string> Dirs(IReadOnlyList<ResolvedSaveLocation> locations) =>
+        locations.Select(l => l.Directory).ToList();
 
     /// <summary>
     /// Resolve a Proton game's save directories, supplying the three per-game placeholders.
@@ -65,10 +74,16 @@ public sealed class Detection
     /// </remarks>
     public async Task<IReadOnlyList<string>> ResolveProtonAsync(
         string gameName, string compatDataPath, string? installDir = null,
+        CancellationToken ct = default) =>
+        Dirs(await ResolveProtonLocationsAsync(gameName, compatDataPath, installDir, ct));
+
+    /// <inheritdoc cref="ResolveProtonAsync"/>
+    public async Task<IReadOnlyList<ResolvedSaveLocation>> ResolveProtonLocationsAsync(
+        string gameName, string compatDataPath, string? installDir = null,
         CancellationToken ct = default)
     {
         var storeRoot = SteamLayout.RootFromCompatData(compatDataPath);
-        return await ResolveSaveDirectoriesAsync(
+        return await ResolveSaveLocationsAsync(
             gameName, PathResolver.Proton(compatDataPath, installDir, storeRoot), ct);
     }
 
@@ -83,12 +98,18 @@ public sealed class Detection
     /// </summary>
     public async Task<IReadOnlyList<string>> ResolveWineAsync(
         string gameName, string prefixRoot, string? installDir = null,
+        CancellationToken ct = default) =>
+        Dirs(await ResolveWineLocationsAsync(gameName, prefixRoot, installDir, ct));
+
+    /// <inheritdoc cref="ResolveWineAsync"/>
+    public async Task<IReadOnlyList<ResolvedSaveLocation>> ResolveWineLocationsAsync(
+        string gameName, string prefixRoot, string? installDir = null,
         CancellationToken ct = default)
     {
         var resolver = WinePrefix.ResolverFor(prefixRoot, installDir);
         return resolver is null
-            ? Array.Empty<string>()
-            : await ResolveSaveDirectoriesAsync(gameName, resolver, ct);
+            ? Array.Empty<ResolvedSaveLocation>()
+            : await ResolveSaveLocationsAsync(gameName, resolver, ct);
     }
 
     /// <summary>
@@ -97,10 +118,16 @@ public sealed class Detection
     /// </summary>
     public async Task<IReadOnlyList<string>> ResolveWindowsAsync(
         string gameName, string? installDir = null, string? storeRoot = null,
+        CancellationToken ct = default) =>
+        Dirs(await ResolveWindowsLocationsAsync(gameName, installDir, storeRoot, ct));
+
+    /// <inheritdoc cref="ResolveWindowsAsync"/>
+    public async Task<IReadOnlyList<ResolvedSaveLocation>> ResolveWindowsLocationsAsync(
+        string gameName, string? installDir = null, string? storeRoot = null,
         CancellationToken ct = default)
     {
-        if (!OperatingSystem.IsWindows()) return Array.Empty<string>();
-        return await ResolveSaveDirectoriesAsync(
+        if (!OperatingSystem.IsWindows()) return Array.Empty<ResolvedSaveLocation>();
+        return await ResolveSaveLocationsAsync(
             gameName, PathResolver.Windows(installDir, storeRoot), ct);
     }
 

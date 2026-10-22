@@ -93,7 +93,13 @@ public sealed record ScanCandidate(
     /// saves. Adopted at enrollment without asking — unlike a manifest's extra locations, which may
     /// just as well be alternatives as companions.
     /// </summary>
-    IReadOnlyList<DeclaredSavePath>? ExtraSaveDirs = null);
+    IReadOnlyList<DeclaredSavePath>? ExtraSaveDirs = null,
+    /// <summary>
+    /// The manifest's other locations for this game that exist here (plan §8): offered as "Also found",
+    /// never adopted until the user says so — the manifest cannot tell a second save folder from an
+    /// alternative install's, or from a settings folder beside the saves. Null when there are none.
+    /// </summary>
+    IReadOnlyList<DeclaredSavePath>? AlternateSaveDirs = null);
 
 /// <summary>
 /// One extra save folder a scanner declares for a candidate. <see cref="Key"/> names the folder on

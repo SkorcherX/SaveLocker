@@ -166,6 +166,8 @@ public static class AgentCli
                         var appid = c.SteamAppId is null ? "" : $" appid={c.SteamAppId}";
                         Console.WriteLine($"  {c.Name}  <{c.Source}>{cloud}{appid}");
                         Console.WriteLine($"      save: {save}");
+                        foreach (var also in c.AlternateSaveDirs ?? Array.Empty<DeclaredSavePath>())
+                            Console.WriteLine($"      also found: {also.Dir}  (once enrolled: add-path \"{c.Name}\" --key {also.Key} --dir \"{also.Dir}\")");
                     }
 
                     await OfferUnmappedPathsAsync(candidates, config, opts);
@@ -290,21 +292,17 @@ public static class AgentCli
                     if (game.ExtraPaths.All(p => p.Key != key))
                         throw new InvalidOperationException($"'{game.Name}' has no save folder called '{key}' here.");
 
-                    if (await Api().RemoveSavePathAsync(game.GameId, key) is { } refused)
+                    var removed = await SavePathEditor.RemoveAsync(config, Api(), (g, k) => Engine().ForgetSavePathAsync(g, k), game, key);
+                    if (!removed.Ok)
                     {
-                        Console.Error.WriteLine($"Could not remove: {refused}");
+                        Console.Error.WriteLine(removed.Error);
                         return 1;
                     }
-                    var dir = game.ExtraPaths.First(p => p.Key == key).Directory;
-                    if (!await Engine().ForgetSavePathAsync(game, key))
-                    {
-                        Console.WriteLine($"Removed on the server. '{game.Name}' is busy here, so this machine drops " +
-                                          $"the '{key}' folder on the agent's next poll.");
-                        break;
-                    }
-                    config.SaveGameFolders(game);
-                    Console.WriteLine($"'{game.Name}' no longer syncs its '{key}' save folder, on any machine." +
-                                      (dir is null ? "" : $" Its files stay where they are ({dir})."));
+                    Console.WriteLine(removed.Deferred
+                        ? $"Removed on the server. '{game.Name}' is busy here, so this machine drops the '{key}' " +
+                          "folder on the agent's next poll."
+                        : $"'{game.Name}' no longer syncs its '{key}' save folder, on any machine." +
+                          (removed.Directory is null ? "" : $" Its files stay where they are ({removed.Directory})."));
                     break;
                 }
 
@@ -320,6 +318,7 @@ public static class AgentCli
                 case "status":
                 {
                     var api = Api();
+                    var suggestions = new FolderSuggestions(config, detection);
                     foreach (var g in config.Games)
                     {
                         var s = await api.GetStateAsync(g.GameId);
@@ -329,9 +328,15 @@ public static class AgentCli
                         var lease = s?.Lease?.HolderMachineName is { } h ? $"leased by {h}" : "free";
                         var conflict = s?.HasOpenConflict == true ? "  *** CONFLICT ***" : "";
                         Console.WriteLine($"  {g.Name}: head={head}, {lease}{conflict}");
-                        if (g.ExtraPaths.Count == 0) continue;
-                        Console.WriteLine($"      main: {(g.IsEnrolledHere ? g.SaveDirectory : "(not mapped here)")}");
-                        foreach (var line in FolderLines(g, config.StateDir)) Console.WriteLine("      " + line);
+                        if (g.ExtraPaths.Count > 0)
+                        {
+                            Console.WriteLine($"      main: {(g.IsEnrolledHere ? g.SaveDirectory : "(not mapped here)")}");
+                            foreach (var line in FolderLines(g, config.StateDir)) Console.WriteLine("      " + line);
+                        }
+                        // The manifest's other locations that exist here, never synced until someone says so.
+                        foreach (var also in await suggestions.ForGameAsync(g))
+                            Console.WriteLine($"      also found: {also.Directory}  " +
+                                              $"(add-path \"{g.Name}\" --key {also.Key} --dir \"{also.Directory}\")");
                     }
                     break;
                 }
@@ -790,95 +795,35 @@ public static class AgentCli
             Console.WriteLine($"Note: '{key}' already exists; its include patterns are set in the console, " +
                               "so --include is ignored.");
 
-        // Every check that needs no server first, against the game as it would be: a refused folder
-        // must not leave a new key behind on the server.
-        var draft = existing ?? new TrackedSavePath { Key = key, IncludeGlobs = include };
-        if (existing is null) game.ExtraPaths.Add(draft);
-        var check = SavePathGuard.CheckFolder(game, key, dir, config.StateDir);
-        if (existing is null) game.ExtraPaths.Remove(draft);
-        if (!check.Ok)
-        {
-            Console.Error.WriteLine($"Refusing '{dir}': {check.Reason}");
-            return 1;
-        }
-        var sanity = SaveDirSanity.Inspect(check.Canonical, game.ExcludeGlobs);
-        if (sanity.Count > 0 && !opts.ContainsKey("force-path"))
+        var result = await SavePathEditor.AddAsync(config, api, (g, k, d, side) => engine.MapSavePathAsync(g, k, d, side), game, key, dir, include,
+            opts.GetValueOrDefault("label"), keep, confirm: opts.ContainsKey("force-path"), resolver: ResolverFor(opts));
+        if (result.NeedsConfirm)
         {
             Console.Error.WriteLine($"'{dir}' does not look like a save folder:");
-            foreach (var p in sanity) Console.Error.WriteLine("  - " + p);
+            foreach (var p in result.Problems ?? Array.Empty<string>()) Console.Error.WriteLine("  - " + p);
             Console.Error.WriteLine("Pass --force-path to use it anyway.");
             return 1;
         }
-        var canonical = check.Canonical!;
-
-        if (existing is null)
-        {
-            var template = TemplateFor(game, canonical, opts);
-            var (added, refused) = await api.AddSavePathAsync(game.GameId,
-                new AddSavePathRequest(key, opts.GetValueOrDefault("label"), template, include.Count > 0 ? include.ToArray() : null));
-            if (added is null)
-            {
-                Console.Error.WriteLine($"Could not add the save folder: {refused}");
-                return 1;
-            }
-            game.ExtraPaths.Add(new TrackedSavePath
-            {
-                Key = added.Key, Label = added.Label, Template = added.Template,
-                IncludeGlobs = (added.IncludeGlobs ?? Array.Empty<string>()).ToList(),
-            });
-            game.RemovedPathKeys.Remove(key);
-            config.SaveGameFolders(game);
-            Console.WriteLine(template is null
-                ? $"Added save folder '{key}' to '{game.Name}'. No template describes {canonical}, so other " +
+        // A joined folder has the key another machine gave it, not the one asked for.
+        key = result.Key ?? key;
+        if (result.Joined)
+            Console.WriteLine($"'{game.Name}' already syncs that folder as '{key}' (another machine added it); joined it.");
+        if (result.Added)
+            Console.WriteLine(result.Template is null
+                ? $"Added save folder '{key}' to '{game.Name}'. No template describes {result.Directory}, so other " +
                   "machines keep a copy of it until their own folder is set."
-                : $"Added save folder '{key}' to '{game.Name}' for every machine: {template}");
-        }
-
-        // A folder this command just created on the server has no copy anywhere but here: its files
-        // are the folder's content by definition, so there is nothing to choose between.
-        var result = await engine.MapSavePathAsync(game, key, canonical, existing is null ? keep ?? KeepSide.Local : keep);
+                : $"Added save folder '{key}' to '{game.Name}' for every machine: {result.Template}");
         if (!result.Ok)
         {
             Console.Error.WriteLine(result.NeedsChoice
-                ? result.Error + $"\nRe-run with --keep local or --keep cloud."
-                : $"Could not map '{key}': {result.Error}");
+                ? result.Error + $"\nRe-run with --key {key} --keep local or --keep cloud."
+                : result.Directory is null ? result.Error : $"Could not map '{key}': {result.Error}");
             return 1;
         }
-        try
-        {
-            await api.SetMachinePathAsync(game.GameId, canonical, key);
-            game.ExtraPaths.First(p => p.Key == key).PathUnreported = false;
-            config.SaveGameFolders(game);
-        }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException)
-        {
-            Console.WriteLine($"Note: could not tell the server yet ({ex.Message}); the agent does on its next poll.");
-        }
-        Console.WriteLine($"'{game.Name}' save folder '{key}' -> {canonical}");
+        if (!result.Reported)
+            Console.WriteLine("Note: could not tell the server yet; the agent does on its next poll.");
+        Console.WriteLine($"'{game.Name}' save folder '{key}' -> {result.Directory}");
         return 0;
-    }
-
-    /// <summary>
-    /// The folder as a template every machine can expand, or null when no token describes it. Under
-    /// Proton the game's own prefix is what <c>&lt;winDocuments&gt;</c> and the rest mean, so a folder
-    /// inside one is tokenized against that prefix, never against this Linux host.
-    /// </summary>
-    private static string? TemplateFor(TrackedGame game, string dir, Dictionary<string, string> opts)
-    {
-        var resolver = ResolverFor(opts);
-        if (resolver is null && PrefixRootOf(dir) is { } prefix)
-            resolver = WinePrefix.ResolverFor(prefix, game.InstallDir, SteamLayout.RootFromCompatData(prefix))
-                       ?? PathResolver.Proton(prefix, game.InstallDir, SteamLayout.RootFromCompatData(prefix));
-        if (resolver is null && OperatingSystem.IsWindows()) resolver = PathResolver.Windows(game.InstallDir);
-        return resolver?.Tokenize(dir) is { } t && PathResolver.IsTemplate(t) ? t : null;
-    }
-
-    /// <summary><c>…/compatdata/&lt;appid&gt;</c> when <paramref name="dir"/> is inside a Steam prefix.</summary>
-    private static string? PrefixRootOf(string dir)
-    {
-        var parts = dir.Replace('\\', '/').Split('/');
-        var i = Array.FindLastIndex(parts, p => p == "compatdata");
-        return i >= 0 && i + 1 < parts.Length ? string.Join('/', parts[..(i + 2)]) : null;
     }
 
     private static TrackedGame GameArg(Dictionary<string, string> opts, List<string> positionals, AgentConfig config,

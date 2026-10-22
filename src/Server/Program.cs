@@ -404,7 +404,8 @@ agent.MapPost("/agent/games", async (HttpContext http, CreateGameRequest req, Sy
 // fleet-wide definition; each machine still reports its own folder for it through /agent/path.
 agent.MapPost("/agent/games/{id:guid}/save-paths", async (Guid id, HttpContext http, AddSavePathRequest req, SyncService sync) =>
     SavePathResult(await sync.AddSavePathAsync(id, req, http.CurrentMachine().Id)))
-    .Produces<SavePathDto>();
+    .Produces<SavePathDto>()
+    .Produces<SavePathRefusalDto>(StatusCodes.Status409Conflict);
 
 // And removing one, for every machine — the CLI's `remove-path`, mirroring `add-path` above. The key
 // is retired, never reused, exactly as when the console removes it.
@@ -529,7 +530,8 @@ admin.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, string
 // A game's extra save folders (tasks/multiple-save-paths). The primary folder is the game itself.
 admin.MapPost("/games/{id:guid}/save-paths", async (Guid id, AddSavePathRequest req, SyncService sync) =>
     SavePathResult(await sync.AddSavePathAsync(id, req)))
-    .Produces<SavePathDto>();
+    .Produces<SavePathDto>()
+    .Produces<SavePathRefusalDto>(StatusCodes.Status409Conflict);
 
 admin.MapDelete("/games/{id:guid}/save-paths/{key}", async (Guid id, string key, SyncService sync) =>
 {
@@ -708,6 +710,12 @@ admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/stats", async (
     Guid id, Guid versionId, SyncService sync) =>
     await sync.GetVersionStatsAsync(id, versionId) is { } stats ? Results.Ok(stats) : Results.NotFound())
     .Produces<VersionStatsDto>();
+
+// Which files each save folder holds in a version — the console lists them under each folder.
+admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/folders", async (
+    Guid id, Guid versionId, SyncService sync) =>
+    await sync.GetVersionFoldersAsync(id, versionId) is { } folders ? Results.Ok(folders) : Results.NotFound())
+    .Produces<VersionFolderDto[]>();
 
 // Apply retention immediately, instead of only as a side effect of the next upload.
 admin.MapPost("/games/{id:guid}/prune", async (Guid id, SyncService sync) =>
@@ -961,8 +969,11 @@ static string? ValidateNewGameFolders(CreateGameRequest req, bool fromAgent = fa
     GlobConfig.ValidateIncludes(req.IncludeGlobs) ?? GlobConfig.ValidateExtraPaths(req.ExtraPaths) ??
     (fromAgent ? req.ExtraPaths?.Select(SyncService.AgentTemplateError).FirstOrDefault(e => e is not null) : null);
 
-static IResult SavePathResult((GameSavePath? Path, string? Error) added) =>
+// A refusal the caller can act on (a key taken or retired, the same folder already there) is a 409 with a
+// code, so an agent picks the next key or joins the folder without reading the sentence.
+static IResult SavePathResult((GameSavePath? Path, string? Error, SavePathRefusalDto? Refusal) added) =>
     added.Path is { } path ? Results.Ok(path.ToDto())
+    : added.Refusal is { } refusal ? Results.Conflict(refusal)
     : added.Error == "not_found" ? Results.NotFound()
     : Results.BadRequest(added.Error);
 

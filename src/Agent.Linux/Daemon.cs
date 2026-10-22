@@ -106,13 +106,19 @@ public sealed class Daemon : IAsyncDisposable
 
         BackfillSteamAppIds();
 
+        // Lets a templated save path expand inside the game's own Proton prefix. Core has no way to find
+        // it: only the Linux host knows where Steam keeps compatdata.
+        string? PrefixForAppId(string appId) => SteamRoots.Find()
+            .Select(root => SteamRoots.CompatDataPath(root, appId))
+            .FirstOrDefault(p => p is not null);
+
         _apiServer = new AgentApiServer(
             port: _apiPort,
             config: _config,
             doScan: () => _scanner.ScanAsync(),
-            enroll: async (candidates, ids) =>
+            enroll: async (candidates, ids, alsoSync) =>
             {
-                var result = await Enroller.EnrollAsync(_config, candidates, ids, ct);
+                var result = await Enroller.EnrollAsync(_config, candidates, ids, ct, alsoSync);
                 if (result.enrolled > 0) StartFolderWatchers();
                 return result;
             },
@@ -151,7 +157,9 @@ public sealed class Daemon : IAsyncDisposable
             activity: _activity,
             syncAll: () => _engine.SyncAllAsync(_config.Games),
             answerEmptied: (game, deleteEverywhere, ct) => _engine.AnswerEmptiedAsync(game, deleteEverywhere, ct),
-            mapFolder: (game, key, dir, keep) => _engine.MapSavePathAsync(game, key, dir, keep));
+            mapFolder: (game, key, dir, keep) => _engine.MapSavePathAsync(game, key, dir, keep),
+            forgetFolder: (game, key) => _engine.ForgetSavePathAsync(game, key),
+            prefixForAppId: PrefixForAppId);
         _apiServer.Start();
 
         _drainer = new OfflineQueueDrainer(_offlineQueue, _config, () => _engine, Notify);

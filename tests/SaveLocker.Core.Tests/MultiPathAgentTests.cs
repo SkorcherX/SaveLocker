@@ -320,13 +320,53 @@ public sealed class MultiPathAgentTests : IDisposable
                 Write(b, "s.state", "tick " + i);
             }
         });
+        // The probe is pinned quiet: this is the fingerprint's job, and a CI runner's scanner holding
+        // a just-written file reads as a writer for as long as it likes (FileLockProbe's doc). The
+        // real probe would also hold its own deny-writers handle mid-write and fault the writer.
+        var log = new System.Collections.Concurrent.ConcurrentQueue<string>();
         var clock = System.Diagnostics.Stopwatch.StartNew();
         var quiet = await SaveSettler.WaitForQuietAsync(roots, null,
-            TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10));
+            TimeSpan.FromMilliseconds(400), TimeSpan.FromSeconds(10),
+            (_, _) => FileLockProbe.LockProbeResult.Quiet, log.Enqueue);
         await writer;
 
-        Assert.True(quiet);
+        Assert.True(quiet, string.Join(" / ", log));
         Assert.True(clock.ElapsedMilliseconds >= 900, $"settled after {clock.ElapsedMilliseconds} ms");
+    }
+
+    [Fact]
+    public void The_lock_probe_sees_a_writer_in_any_folder_but_not_a_reader()
+    {
+        var a = Dir("pa");
+        var b = Dir("pb");
+        Write(a, "x.sav", "1");
+        Write(b, "s.state", "2");
+        var roots = new[] { SaveRoot.Primary(a), new SaveRoot("states", b) };
+        var files = SaveArchive.ListSaveFiles(roots, null);
+
+        using (new FileStream(Path.Combine(b, "s.state"), FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.Null(QuietProbe(roots, files));
+
+        using (new FileStream(Path.Combine(b, "s.state"), FileMode.Open, FileAccess.Write, FileShare.Read))
+            Assert.Equal("s.state", FileLockProbe.FirstWriter(roots, files).LockedFile);
+
+        Assert.Null(QuietProbe(roots, files));
+    }
+
+    /// <summary>
+    /// The real probe, asked until it reports no writer or 5 s pass. A CI runner's scanner or indexer can hold a
+    /// just-written file without sharing reads, which reads exactly like a writer (Gotchas → settle gate) — but
+    /// only for a moment, while a writer this test holds would be reported for the whole wait.
+    /// </summary>
+    private static string? QuietProbe(IReadOnlyList<SaveRoot> roots, IReadOnlyList<SaveArchive.SaveFile> files)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            var locked = FileLockProbe.FirstWriter(roots, files).LockedFile;
+            if (locked is null || clock.Elapsed > TimeSpan.FromSeconds(5)) return locked;
+            Thread.Sleep(100);
+        }
     }
 
     [Fact]

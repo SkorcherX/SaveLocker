@@ -64,7 +64,7 @@ public sealed class LinuxGameScanner : IGameScanner
             {
                 ct.ThrowIfCancellationRequested();
                 var prefix = s.AppId is null ? null : SteamRoots.CompatDataPath(root, s.AppId);
-                var (save, usedPrefix) = await SuggestSaveDirAsync(s, root, prefix, ct);
+                var (save, usedPrefix, also) = await SuggestSaveDirAsync(s, root, prefix, ct);
 
                 // A resolved compatdata prefix alone can never make this distinction: Steam does not
                 // clean up compatdata on uninstall, so a real prefix full of real save data proves
@@ -113,7 +113,8 @@ public sealed class LinuxGameScanner : IGameScanner
                     // is marked tracked then — claiming one would name an id Steam never launches.
                     DuplicateShortcuts: duplicateShortcuts.TryGetValue(ManifestLoader.NormalizeName(s.AppName), out var sameName)
                         ? SteamShortcuts.DuplicatesFor(sameName, confirmedInstalled ? realAppId : s.AppId)
-                        : null),
+                        : null,
+                    AlternateSaveDirs: also),
                     // Still tracked even once reclassified: if the real ACF ever becomes reachable
                     // too (the library gets mounted), that direct read is more authoritative than
                     // this inferred stand-in, and should keep winning the dedupe below.
@@ -244,14 +245,14 @@ public sealed class LinuxGameScanner : IGameScanner
                 // from a secondary library's prefix path would silently point it at a library with no
                 // userdata folder at all.
                 var prefix = Path.Combine(steamapps, "compatdata", appId);
-                var save = await ResolveInstalledAsync(name, prefix, installPath, steamRoot, ct);
+                var (save, also) = await ResolveInstalledAsync(name, prefix, installPath, steamRoot, ct);
 
                 if (save is null && !string.Equals(steamRoot, library, StringComparison.Ordinal))
                 {
                     var mainRootPrefix = Path.Combine(steamRoot, "steamapps", "compatdata", appId);
-                    var fallbackSave = await ResolveInstalledAsync(
+                    var (fallbackSave, fallbackAlso) = await ResolveInstalledAsync(
                         name, mainRootPrefix, installPath, steamRoot, ct);
-                    if (fallbackSave is not null) (save, prefix) = (fallbackSave, mainRootPrefix);
+                    if (fallbackSave is not null) (save, also, prefix) = (fallbackSave, fallbackAlso, mainRootPrefix);
                 }
 
                 results.Add(new ScanCandidate(
@@ -274,7 +275,8 @@ public sealed class LinuxGameScanner : IGameScanner
                     // The launch wrapper matches on the AppID Steam hands it, so process polling is
                     // as irrelevant here as it is for a shortcut (Decisions.md §3).
                     SuggestedProcessName: null,
-                    Store: GameStore.Steam));
+                    Store: GameStore.Steam,
+                    AlternateSaveDirs: also));
             }
         }
 
@@ -294,11 +296,19 @@ public sealed class LinuxGameScanner : IGameScanner
     /// resolve even when there is no prefix anywhere at all.
     /// </para>
     /// </summary>
-    private async Task<string?> ResolveInstalledAsync(
+    private async Task<(string? Save, IReadOnlyList<DeclaredSavePath>? Also)> ResolveInstalledAsync(
         string name, string prefix, string? installPath, string storeRoot, CancellationToken ct)
     {
         var resolver = PathResolver.Proton(prefix, installPath, storeRoot: storeRoot);
-        return (await _detection.ResolveSaveDirectoriesAsync(name, resolver, ct)).FirstOrDefault();
+        return Primary(await _detection.ResolveSaveLocationsAsync(name, resolver, ct));
+    }
+
+    /// <summary>The first location is the save folder, the rest are only offered ("Also found").</summary>
+    private static (string? Save, IReadOnlyList<DeclaredSavePath>? Also) Primary(
+        IReadOnlyList<ResolvedSaveLocation> locations)
+    {
+        var save = locations.FirstOrDefault()?.Directory;
+        return (save, FolderSuggestions.AlsoFound(locations, save));
     }
 
     /// <summary>
@@ -363,7 +373,7 @@ public sealed class LinuxGameScanner : IGameScanner
                 ct.ThrowIfCancellationRequested();
 
                 var prefix = HeroicRoots.PrefixFor(configRoot, game.AppName);
-                var save = await HeroicSaveDirAsync(game, prefix, ct);
+                var (save, also) = await HeroicSaveDirAsync(game, prefix, ct);
 
                 results.Add(new ScanCandidate(
                     Name: game.Title,
@@ -380,7 +390,8 @@ public sealed class LinuxGameScanner : IGameScanner
                     SteamAppId: null,
                     PrefixPath: prefix,
                     SuggestedProcessName: null,
-                    Store: StoreForRunner(game.Runner)));
+                    Store: StoreForRunner(game.Runner),
+                    AlternateSaveDirs: also));
             }
         }
 
@@ -407,7 +418,7 @@ public sealed class LinuxGameScanner : IGameScanner
     /// Heroic's prefix instead of Steam's — and for a sideloaded GOG game the portable case is the
     /// likelier of the two.
     /// </summary>
-    private async Task<string?> HeroicSaveDirAsync(
+    private async Task<(string? Save, IReadOnlyList<DeclaredSavePath>? Also)> HeroicSaveDirAsync(
         HeroicGame game, string? prefix, CancellationToken ct)
     {
         // ONLY the configured prefix. Heroic launches the game in whatever `winePrefix` says, so
@@ -421,12 +432,12 @@ public sealed class LinuxGameScanner : IGameScanner
         // right one — see Doctor, which reports the disagreement instead of guessing past it.
         if (prefix is not null)
         {
-            var dirs = await _detection.ResolveWineAsync(
-                game.Title, prefix, installDir: game.InstallPath, ct);
-            if (dirs.FirstOrDefault() is { } inPrefix) return inPrefix;
+            var found = Primary(await _detection.ResolveWineLocationsAsync(
+                game.Title, prefix, installDir: game.InstallPath, ct));
+            if (found.Save is not null) return found;
         }
 
-        return PortableSaveDir(game.InstallPath);
+        return (PortableSaveDir(game.InstallPath), null);
     }
 
     /// <summary>
@@ -445,7 +456,7 @@ public sealed class LinuxGameScanner : IGameScanner
     /// Null when none resolves, which on Linux is the expected case rather than a failure: most
     /// standalone builds are absent from the manifest, so <c>add-game --dir</c> is the primary path.
     /// </summary>
-    private async Task<(string? Save, string? UsedPrefix)> SuggestSaveDirAsync(
+    private async Task<(string? Save, string? UsedPrefix, IReadOnlyList<DeclaredSavePath>? Also)> SuggestSaveDirAsync(
         SteamShortcut shortcut, string steamRoot, string? compatDataPath, CancellationToken ct)
     {
         if (compatDataPath is not null)
@@ -453,9 +464,9 @@ public sealed class LinuxGameScanner : IGameScanner
             // StartDir is the game's install directory, which is exactly what <base> means — the
             // most common placeholder in the manifest by a wide margin. Passing it is most of the
             // reason a shortcut now resolves at all.
-            var dirs = await _detection.ResolveProtonAsync(
-                shortcut.AppName, compatDataPath, installDir: shortcut.StartDir, ct);
-            if (dirs.FirstOrDefault() is { } inPrefix) return (inPrefix, compatDataPath);
+            var found = Primary(await _detection.ResolveProtonLocationsAsync(
+                shortcut.AppName, compatDataPath, installDir: shortcut.StartDir, ct));
+            if (found.Save is not null) return (found.Save, compatDataPath, found.Also);
         }
 
         if (shortcut.MoonDeckAppId is { } moonDeckAppId &&
@@ -464,11 +475,12 @@ public sealed class LinuxGameScanner : IGameScanner
             // installDir is deliberately NOT shortcut.StartDir here: StartDir is MoonDeck's own
             // streaming-client script directory, not the game's — passing it as <base> would
             // resolve template paths into a directory that has nothing to do with the game.
-            var dirs = await _detection.ResolveProtonAsync(shortcut.AppName, moonDeckPrefix, installDir: null, ct);
-            if (dirs.FirstOrDefault() is { } inPrefix) return (inPrefix, moonDeckPrefix);
+            var found = Primary(await _detection.ResolveProtonLocationsAsync(
+                shortcut.AppName, moonDeckPrefix, installDir: null, ct));
+            if (found.Save is not null) return (found.Save, moonDeckPrefix, found.Also);
         }
 
-        return (PortableSaveDir(shortcut), null);
+        return (PortableSaveDir(shortcut), null, null);
     }
 
     /// <summary>

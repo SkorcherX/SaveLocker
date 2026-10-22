@@ -107,7 +107,8 @@ internal sealed class TrayContext : ApplicationContext
             activity: _activity,
             syncAll: () => _engine.SyncAllAsync(_config.Games),
             answerEmptied: (game, deleteEverywhere, ct) => _engine.AnswerEmptiedAsync(game, deleteEverywhere, ct),
-            mapFolder: (game, key, dir, keep) => _engine.MapSavePathAsync(game, key, dir, keep));
+            mapFolder: (game, key, dir, keep) => _engine.MapSavePathAsync(game, key, dir, keep),
+            forgetFolder: (game, key) => _engine.ForgetSavePathAsync(game, key));
         _apiServer.Start();
 
         _commandPoller = new CommandPoller(
@@ -301,9 +302,9 @@ internal sealed class TrayContext : ApplicationContext
     // ─── Enrollment (called by AgentApiServer) ──────────────────────────────────
 
     private async Task<(int enrolled, int skipped)> EnrollAsync(
-        IReadOnlyList<ScanCandidate> candidates, int[] ids)
+        IReadOnlyList<ScanCandidate> candidates, int[] ids, IReadOnlyDictionary<int, string[]>? alsoSync)
     {
-        var result = await Enroller.EnrollAsync(_config, candidates, ids);
+        var result = await Enroller.EnrollAsync(_config, candidates, ids, alsoSync: alsoSync);
         if (result.enrolled > 0)
             _ui.Post(() => { RebuildMenu(); StartFolderWatchers(); });
         return result;

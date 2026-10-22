@@ -135,14 +135,17 @@ public sealed class ApiClient
     /// Give a game a new extra save folder, for every machine that tracks it. Returns the stored
     /// folder, or the server's reason for refusing it (a taken or retired key, a literal template).
     /// </summary>
-    public async Task<(SavePathDto? Path, string? Error)> AddSavePathAsync(Guid gameId, AddSavePathRequest req)
+    public async Task<SavePathAddResult> AddSavePathAsync(Guid gameId, AddSavePathRequest req)
     {
         var resp = await _http.PostAsJsonAsync($"/api/agent/games/{gameId}/save-paths", req);
-        if (resp.IsSuccessStatusCode) return (await resp.Content.ReadFromJsonAsync<SavePathDto>(), null);
+        if (resp.IsSuccessStatusCode) return new(await resp.Content.ReadFromJsonAsync<SavePathDto>(), null);
+        if (resp.StatusCode == HttpStatusCode.Conflict
+            && await resp.Content.ReadFromJsonAsync<SavePathRefusalDto>() is { } refusal)
+            return new(null, refusal.Error, refusal);
         if (resp.StatusCode is HttpStatusCode.BadRequest or HttpStatusCode.NotFound)
-            return (null, await ErrorText(resp, "The server refused the save folder."));
+            return new(null, await ErrorText(resp, "The server refused the save folder."));
         resp.EnsureSuccessStatusCode();
-        return (null, null);
+        return new(null, null);
     }
 
     /// <summary>Remove an extra save folder from a game, for every machine. Its key is retired.</summary>
@@ -446,3 +449,7 @@ public sealed class ApiClient
         return (versionId, hash);
     }
 }
+
+/// <summary>What adding an extra save folder came to: the stored folder, or why not — with
+/// <see cref="Refusal"/> when the server said why in a code (a key taken or retired, the same folder there).</summary>
+public sealed record SavePathAddResult(SavePathDto? Path, string? Error, SavePathRefusalDto? Refusal = null);

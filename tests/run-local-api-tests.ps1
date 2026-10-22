@@ -178,6 +178,19 @@ try {
     $noToken = Send "/api/browse" $null $null $null
     Check "/api/browse needs the token"               ($noToken.Status -eq 401)
 
+    # The save-folder routes (multiple save paths Group C) add, remove and map folders on this machine:
+    # the same guard, and an unknown game is a 404 rather than a folder made for nothing.
+    Check "/api/folder-suggestions needs the token"   ((Send "/api/folder-suggestions" $null $null $null).Status -eq 401)
+    $sugg = Send "/api/folder-suggestions" $token $null $null
+    Check "/api/folder-suggestions lists nothing for no games" ($sugg.Status -eq 200 -and $sugg.Body.Trim() -eq "[]")
+    $fakeGame = [guid]::NewGuid()
+    Check "adding a folder needs the token"           ((SendPost "/api/games/$fakeGame/paths" $null '{"path":"x"}').Status -eq 401)
+    Check "adding a folder to an unknown game is 404" ((SendPost "/api/games/$fakeGame/paths" $token '{"path":"x"}').Status -eq 404)
+    Check "answering a suggestion needs the token"    ((SendPost "/api/folder-suggestions/answer" $null "{`"gameId`":`"$fakeGame`"}").Status -eq 401)
+    $delReq = New-Object System.Net.Http.HttpRequestMessage("DELETE", "$base/api/games/$fakeGame/paths/states")
+    $delStatus = try { [int]$http.SendAsync($delReq).GetAwaiter().GetResult().StatusCode } catch { 0 }
+    Check "removing a folder needs the token"         ($delStatus -eq 401)
+
     $roots = Send "/api/browse" $token $null $null
     $homeDir = if ($onWindows) { $env:USERPROFILE } else { $env:HOME }
     Check "/api/browse lists the roots"               ($roots.Status -eq 200 -and $roots.Body -match '"entries"')

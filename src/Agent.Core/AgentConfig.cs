@@ -535,6 +535,23 @@ public sealed class AgentConfig
             g.RemovedPathKeys = game.RemovedPathKeys.ToList();
         }, source: game);
 
+    /// <summary>
+    /// Persist the user's answers to a game's "Also found" suggestions — see
+    /// <see cref="MutateGameUnderLock"/>. A folder is in at most one of the two lists.
+    /// </summary>
+    public void SaveGameFolderChoices(Guid gameId, IEnumerable<string>? ignore = null, IEnumerable<string>? defer = null)
+    {
+        var ignored = (ignore ?? Array.Empty<string>()).ToList();
+        var deferred = (defer ?? Array.Empty<string>()).ToList();
+        if (ignored.Count == 0 && deferred.Count == 0) return;
+        MutateGameUnderLock(gameId, g =>
+        {
+            g.IgnoredFolders = g.IgnoredFolders.Union(ignored, StringComparer.Ordinal).ToList();
+            g.DeferredFolders = g.DeferredFolders.Union(deferred, StringComparer.Ordinal)
+                .Except(g.IgnoredFolders, StringComparer.Ordinal).ToList();
+        });
+    }
+
     public TrackedGame? FindGame(string name) =>
         Games.FirstOrDefault(g => string.Equals(g.Name, name, StringComparison.OrdinalIgnoreCase));
 }
@@ -636,6 +653,12 @@ public sealed class TrackedGame
     /// <summary>Extra folder keys the server removed from this game. Versions stored before the
     /// removal still carry them, and a pull must not take one back in as a new folder.</summary>
     public List<string> RemovedPathKeys { get; set; } = new();
+    /// <summary>Folders the user said this game does not sync ("Don't sync" on an "Also found"
+    /// suggestion): never suggested again. This machine's own answer, not the fleet's.</summary>
+    public List<string> IgnoredFolders { get; set; } = new();
+    /// <summary>Suggested folders the user put off ("Skip for now"): still on the game's page, never in
+    /// the start-up prompt again.</summary>
+    public List<string> DeferredFolders { get; set; } = new();
 
     /// <summary>
     /// Every save folder of this game as the archive sees it: the primary folder, then each extra

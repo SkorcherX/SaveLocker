@@ -59,6 +59,24 @@ public record SavePathDto(
 /// <summary>A new extra save folder for a game. The key is a short slug and is never renamed.</summary>
 public record AddSavePathRequest(string Key, string? Label, string? Template, string[]? IncludeGlobs);
 
+/// <summary>
+/// Why the server would not add an extra save folder, when a caller can act on the reason (HTTP 409):
+/// <see cref="SavePathRefusalCodes"/>. <paramref name="Existing"/> is the folder already holding the key,
+/// or — for <see cref="SavePathRefusalCodes.TemplateTaken"/> — the folder that is this very one.
+/// </summary>
+public record SavePathRefusalDto(string Error, string Code, SavePathDto? Existing = null);
+
+public static class SavePathRefusalCodes
+{
+    /// <summary>The game has a folder with this key: pick another.</summary>
+    public const string KeyTaken = "key_taken";
+    /// <summary>The game had a folder with this key once; a key is never reused.</summary>
+    public const string KeyRetired = "key_retired";
+    /// <summary>The game already has a folder with this template — another machine added the same folder.
+    /// Join it rather than define it twice.</summary>
+    public const string TemplateTaken = "template_taken";
+}
+
 /// <summary>A specific machine's stored save path for one of a game's save folders
 /// (<see cref="PathKey"/> is <c>main</c> for the primary folder).</summary>
 public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath, string PathKey = SaveRoot.PrimaryKey);
@@ -245,6 +263,20 @@ public record SaveVersionDto(
 /// <see cref="SaveVersionDto"/>, so fetching it costs nothing for the versions nobody is looking at.
 /// Mainly for telling apart the two sides of an open conflict.</summary>
 public record VersionStatsDto(int FileCount, DateTime? NewestFileWriteUtc);
+
+/// <summary>One save folder's files inside a version (tasks/multiple-save-paths): the primary folder is
+/// <c>main</c>, each extra folder its key. <paramref name="Files"/> holds at most the first 500 by name;
+/// <paramref name="FileCount"/> and <paramref name="TotalBytes"/> count every file.</summary>
+public record VersionFolderDto(string Key, int FileCount, long TotalBytes, VersionFileDto[] Files);
+
+/// <param name="Path">Relative to its save folder, with forward slashes.</param>
+public record VersionFileDto(string Path, long Size, DateTime? ModifiedUtc);
+
+/// <summary>How many files already tracked in a game's head version would stop being uploaded
+/// under a draft (not-yet-saved) set of exclude patterns — a dry run for the console's exclude
+/// editor. Necessarily one-directional: a file that ALREADY matches a saved pattern was never
+/// uploaded, so it cannot be counted here either way. 0 for a game with no head version yet.</summary>
+public record ExcludesPreviewDto(int WouldExclude);
 
 [JsonConverter(typeof(JsonStringEnumConverter<UploadStatus>))]
 public enum UploadStatus

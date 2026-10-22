@@ -17,10 +17,14 @@ public sealed class SyncService
     private readonly ArchiveStore _store;
     private readonly ConflictEscalationPolicy _conflictEscalation;
     private readonly TimeSpan _leaseDuration = TimeSpan.FromHours(6);
-    // A version's archive never changes once uploaded, so its stats are cached for the process
-    // lifetime the first time anyone asks — cleared only by a restart, which is fine since a
-    // pruned/deleted version's id is never reused.
-    private readonly ConcurrentDictionary<Guid, VersionStatsDto> _versionStatsCache = new();
+    // A version's archive never changes once uploaded, so what is read from it is cached for the process
+    // lifetime the first time anyone asks — a pruned/deleted version's id is never reused. Static: this
+    // service is scoped, one per request, so an instance field cached nothing past the request that filled
+    // it. Bounded by emptying when full, since nothing evicts a pruned version's entry.
+    private static readonly ConcurrentDictionary<Guid, VersionStatsDto> _versionStatsCache = new();
+    private static readonly ConcurrentDictionary<Guid, VersionFolderDto[]> _versionFoldersCache = new();
+    private const int VersionStatsCacheMax = 4096;
+    private const int VersionFoldersCacheMax = 256;
     private readonly int _retainPerGame;
     /// <summary>
     /// How long a claimed command stays invisible to other claims. It has to outlast a real
@@ -189,32 +193,54 @@ public sealed class SyncService
     /// template each machine expands for itself, as <see cref="TrySetSaveTemplateAsync"/> requires —
     /// never a literal path of its own choosing.
     /// </para>
+    /// <para>
+    /// A refusal the caller can act on comes back as <c>Refusal</c> (the endpoints answer 409): a key the game
+    /// has or had, or a template one of its folders already has. The last is how two machines answering
+    /// the same "Also found" question are kept from defining one folder twice under two keys — which would
+    /// put two save folders on one directory on every machine that expands the template.
+    /// </para>
     /// </summary>
-    public async Task<(GameSavePath? Path, string? Error)> AddSavePathAsync(Guid gameId, AddSavePathRequest req,
-        Guid? machineId = null)
+    public async Task<(GameSavePath? Path, string? Error, SavePathRefusalDto? Refusal)> AddSavePathAsync(
+        Guid gameId, AddSavePathRequest req, Guid? machineId = null)
     {
         var dto = new SavePathDto(req.Key?.Trim() ?? "", req.Label, req.Template, req.IncludeGlobs);
-        if (GlobConfig.ValidateExtraPaths(new[] { dto }) is { } why) return (null, why);
-        if (machineId is not null && AgentTemplateError(dto) is { } notTemplate) return (null, notTemplate);
-        if (!await _db.Games.AnyAsync(g => g.Id == gameId)) return (null, "not_found");
+        if (GlobConfig.ValidateExtraPaths(new[] { dto }) is { } why) return (null, why, null);
+        if (machineId is not null && AgentTemplateError(dto) is { } notTemplate) return (null, notTemplate, null);
+        if (!await _db.Games.AnyAsync(g => g.Id == gameId)) return (null, "not_found", null);
 
         // Retired folders included: a key is never reused (RemoveSavePathAsync).
         var existing = await _db.GameSavePaths.IgnoreQueryFilters().Where(p => p.GameId == gameId).ToListAsync();
+
+        // Checked before the key: the same folder under the key the caller asked for is still the same folder.
+        // Two folders may share a directory only when both are scoped, as SaveArchive's folder rules say.
+        if (SameTemplate(dto.Template) is { } template && existing.FirstOrDefault(p =>
+                p.RetiredAt is null && SameTemplate(p.Template) == template &&
+                (dto.IncludeGlobs is not { Length: > 0 } || p.ToDto().IncludeGlobs is not { Length: > 0 })) is { } same)
+            return (null, null, new SavePathRefusalDto(
+                $"This game already has that folder, as '{same.Key}'.", SavePathRefusalCodes.TemplateTaken, same.ToDto()));
+
         if (existing.FirstOrDefault(p => p.Key == dto.Key) is { } taken)
-            return (null, taken.RetiredAt is null
-                ? $"This game already has a save folder called '{dto.Key}'."
-                : $"'{dto.Key}' was a save folder of this game before. Stored versions can still hold its " +
-                  "files, and restoring one would put them in whatever folder the key names now — pick another key.");
+            return (null, null, taken.RetiredAt is null
+                ? new SavePathRefusalDto($"This game already has a save folder called '{dto.Key}'.",
+                    SavePathRefusalCodes.KeyTaken, taken.ToDto())
+                : new SavePathRefusalDto($"'{dto.Key}' was a save folder of this game before. Stored versions can still " +
+                    "hold its files, and restoring one would put them in whatever folder the key names now — pick another key.",
+                    SavePathRefusalCodes.KeyRetired));
         if (existing.Count(p => p.RetiredAt is null) >= GlobConfig.MaxExtraPaths)
-            return (null, $"At most {GlobConfig.MaxExtraPaths} extra save folders are allowed per game.");
+            return (null, $"At most {GlobConfig.MaxExtraPaths} extra save folders are allowed per game.", null);
 
         var path = NewSavePath(gameId, dto, existing.Count == 0 ? 0 : existing.Max(p => p.SortOrder) + 1);
         _db.GameSavePaths.Add(path);
         await Audit(machineId, gameId, "game.save_path.add",
             path.Template is null ? path.Key : $"{path.Key} ({path.Template})");
         await _db.SaveChangesAsync();
-        return (path, null);
+        return (path, null, null);
     }
+
+    /// <summary>A template as compared for "the same folder": separators unified, no trailing one, and case
+    /// ignored — a template names Windows locations even inside a Proton prefix. Null for none.</summary>
+    private static string? SameTemplate(string? template) =>
+        string.IsNullOrWhiteSpace(template) ? null : template.Trim().Replace('\\', '/').TrimEnd('/').ToLowerInvariant();
 
     /// <summary>
     /// Remove an extra save folder from a game, with every machine's mapping of it. Versions already
@@ -1455,8 +1481,30 @@ public sealed class SyncService
 
         var stats = SaveArchive.GetArchiveStats(_store.FullPath(version.ArchivePath));
         var dto = new VersionStatsDto(stats.FileCount, stats.NewestFileWriteUtc);
-        _versionStatsCache[versionId] = dto;
+        Remember(_versionStatsCache, versionId, dto, VersionStatsCacheMax);
         return dto;
+    }
+
+    /// <summary>A version's files grouped by save folder, for the console's Save folders card. Cached per
+    /// version id like <see cref="GetVersionStatsAsync"/>: an archive never changes once stored.</summary>
+    public async Task<VersionFolderDto[]?> GetVersionFoldersAsync(Guid gameId, Guid versionId)
+    {
+        var version = await _db.SaveVersions.FindAsync(versionId);
+        if (version is null || version.GameId != gameId || !_store.Exists(version.ArchivePath)) return null;
+        if (_versionFoldersCache.TryGetValue(versionId, out var cached)) return cached;
+
+        var dto = SaveArchive.ListArchiveFolders(_store.FullPath(version.ArchivePath))
+            .Select(f => new VersionFolderDto(f.Key, f.FileCount, f.TotalBytes,
+                f.Files.Select(x => new VersionFileDto(x.Path, x.Size, x.ModifiedUtc)).ToArray()))
+            .ToArray();
+        Remember(_versionFoldersCache, versionId, dto, VersionFoldersCacheMax);
+        return dto;
+    }
+
+    private static void Remember<T>(ConcurrentDictionary<Guid, T> cache, Guid versionId, T value, int max)
+    {
+        if (cache.Count >= max) cache.Clear();
+        cache[versionId] = value;
     }
 
     // ----- Admin: conflicts & rollback -----

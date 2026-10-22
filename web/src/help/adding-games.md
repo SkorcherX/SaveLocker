@@ -26,6 +26,8 @@ After a game is added to the server, each machine needs to map its local save di
 
 Alternatively, use the **game scanning** feature: the agent can auto-detect save paths from Steam and Ludusavi's game manifests. Check the **Add Games** tab in the agent for detected candidates.
 
+Each game in that list has a small icon before its name: a **magnifier with a tick** means its save folder was found, a **yellow warning** means you need to set one, and a **green tick** means it is already added on this machine. Games already added are hidden; turn off **Hide enrolled** (top right, beside the filters) to show them, faded green, with an **Enrolled** filter of their own. The Steam Deck's Game Mode app works the same way.
+
 ## Add the game to Steam first (this is what makes detection work)
 
 **If a game is not in Steam, the agent cannot find it.** This is the single most common reason a game
@@ -122,8 +124,29 @@ Run `savelocker doctor` afterwards to confirm the path resolved. See the [CLI re
 
 SaveLocker downloads the [Ludusavi community manifest](https://github.com/mtkennerly/ludusavi) to look up known save paths for thousands of games. If your game is in the manifest, the agent will suggest its save path automatically. You can accept or override the suggestion.
 
+## Games with more than one save folder
+
+Some games keep saves in two places — say `Documents\My Games\…` and `AppData\Local\…` — and an emulator keeps its save states beside its saves. A game can sync any number of folders. The first one is its **main** folder; every other one has a short **name** (`states`, `config`, …) that every machine knows it by. The name is also where that folder's files go inside each save, so it can never be renamed or reused.
+
+**Where SaveLocker finds them.** When the save database lists more than one location for a game and they exist on your machine, the agent offers the others as **Also found**:
+
+- **Add games** lists them under the game, **ticked**. Untick any you don't want before adding the game.
+- On a **game's page** in the agent, each one has **Add** and **Don't sync**.
+- When the agent starts and a game you already track has folders nobody has decided about, it asks once — the same one-game-at-a-time window as a sync conflict, with every folder ticked. **Skip for now** leaves them on the game's page for later; nothing is added unless you leave it ticked.
+- On a **Steam Deck in Game Mode**, the SaveLocker app does the same: **Add a game** lists them ticked under each game, a game's page has **Add** / **Don't sync**, and opening the app asks once (**More save folders found**) about games you already track.
+
+The database cannot tell a second save folder from a settings folder or another store's copy of the game, which is why SaveLocker always asks instead of adding them on its own. A folder an emulator reader *knows* belongs to the game is added without asking.
+
+**Adding one yourself.** On the game's page in the agent: **Add save folder…**, pick the folder, give it a name and — optionally — only the files that belong to the game (`*.sav`). The console's **Save folders** card does the same for every machine at once (a template such as `<winLocalAppData>/Game/States`), and the CLI has `add-path`. **Remove…** stops syncing a folder on every machine; its files stay where they are.
+
+**A machine without that folder** still syncs the game. Its agent keeps a hidden copy of the folder in its own state, so the folder is never dropped from a save, and uses it the moment you choose where the folder lives on that machine. If that machine's folder already holds different files, you are asked which copy every machine should keep.
+
+**In the console**, the Save folders card shows each folder as its own section — its template, each machine's folder, its include patterns, and what Latest holds (file count, size, and the file list). A version you **download** from the console shows the extra folders inside a `.savelocker/paths/<name>/` folder of the zip: that is where SaveLocker stores them, not a folder of the game.
+
+**Older agents** (before 0.7.0) still sync such a game without losing anything, but they keep its extra folders as that `.savelocker/` folder *inside* the main one until they update. The console marks those machines with *agent too old for several folders*.
+
 ## Tips
 
 - Point the save path at the **save folder**, not the game's install directory. Pointing at the install directory will exceed the 200 MB upload cap and archive unnecessary files.
-- If the game writes saves to multiple folders, map the primary one and exclude irrelevant subdirectories with [glob patterns](#help/glob-patterns).
+- If the game writes saves to multiple folders, add each one — see *Games with more than one save folder* above — and exclude irrelevant subdirectories with [glob patterns](#help/glob-patterns).
 - Disabling a game in the dashboard (Configuration → game toggle) pauses sync without deleting history.
