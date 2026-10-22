@@ -42,7 +42,9 @@ rebased onto `main` after multiple save folders, awaiting review: zip backups (d
 UTC daily/weekly schedule, restore with a safety backup, a before-upgrade snapshot, ticketed downloads, a
 plain console Backups tab, and the SteamGridDB key encrypted with Data Protection. **Deploy note: the key
 ring is `/data/keys` — keep it with the database; a backup restored elsewhere reads the SteamGridDB key as
-unset.** Remaining: 10 emulator saves.
+unset.** Verified after the rebase: backups 86, multipath 39, Core.Tests 75, server bug bounty 194, delta 29,
+health 38, hardening 41, local-api 36, concurrency 23, enrollment 18 and agent 47 (both against a :5179
+server; agent needs `.verify/` cleared), Linux 239. Remaining: 10 emulator saves.
 
 **Fork port (2026-10-21, merged to `main` at `0552155`, not yet released).** Cherry-picked
 from Marwanello/SaveLocker (`-x` keeps the source SHAs): chunked upload that is all-or-nothing, Linux/Deck
