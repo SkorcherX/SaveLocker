@@ -73,6 +73,12 @@ SaveLocker-Decky (`0b988c0`, released as **v0.2.2**):
 
 ## Where things stand
 
+**Security, 2026-10-21 (PR `security/emudhra-trust-refresh`):** eMudhra CA key compromise — Node pinned
+to **22.23.4** (Dockerfile + CI/release) for its compromised-intermediate denylist, and the runtime image
+upgrades `ca-certificates` on every build. Agents rely on the OS trust store (`ServerHttp.cs`), so Windows
+Update / SteamOS updates cover them. **PHP2Shell does not apply** — no PHP anywhere in the stack.
+⏳ After merge: redeploy the unRAID container so it picks up the refreshed trust store.
+
 **Shipped in v0.5.8: "Install update now"** (`logs/2026-08-15_install-update-now.md`, all three
 phases). `/api/agent-version` now distinguishes **staged** (downloaded,
 SHA-256-verified, smoke-tested, applying it is a file copy that works offline) from merely

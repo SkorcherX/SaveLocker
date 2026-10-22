@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: agent-ui/package-lock.json
       - uses: actions/setup-dotnet@v4
@@ -188,7 +188,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: web/package-lock.json
       - run: npm ci
@@ -202,7 +202,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: agent-ui/package-lock.json
       - run: npm ci
@@ -238,7 +238,7 @@ jobs:
       # (This gap was invisible locally, where dist already existed from a previous build.)
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: agent-ui/package-lock.json
       - name: Build the agent UI
@@ -322,7 +322,7 @@ jobs:
       # the UI's dependencies installed — even though these tests only drive the CLI.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: agent-ui/package-lock.json
       - run: npm ci
@@ -384,7 +384,7 @@ jobs:
       # Building the Windows agent runs `npm run build` in agent-ui/ — see crossos-author.
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '22.23.4'
           cache: npm
           cache-dependency-path: agent-ui/package-lock.json
       - run: npm ci
