@@ -20,7 +20,7 @@ public static partial class ConsoleTitles
 
     /// <summary>
     /// What Redump calls <paramref name="serial"/>'s disc on <paramref name="system"/> (<c>psx</c>, <c>ps2</c>,
-    /// <c>ps3</c>: <c>SLUS-21287</c>, <c>SLUS21287</c> or the disc's <c>SLUS_212.87</c>; <c>gc</c>, <c>wii</c>: the
+    /// <c>ps3</c>, <c>psp</c>: <c>SLUS-21287</c>, <c>SLUS21287</c> or the disc's <c>SLUS_212.87</c>; <c>gc</c>, <c>wii</c>: the
     /// game ID, of which the four-letter game code counts — <c>GALE01</c>, <c>R3ME</c>), or null for one Redump has
     /// no disc of.
     /// </summary>
@@ -29,7 +29,9 @@ public static partial class ConsoleTitles
 
     /// <summary>
     /// The release a save of <paramref name="ids"/> (its game IDs, first the one it is named by) belongs to: the
-    /// first ID Redump knows gives the region and languages. Null for a system that is no disc console's.
+    /// first ID Redump knows gives the region and languages. A PSP, PS3 or Vita game Redump has no disc of (a PSN
+    /// title, every Vita game) takes its region from its ID's prefix (<see cref="PrefixRegion"/>). Null for a system
+    /// that is no disc console's.
     /// </summary>
     public static GameReleaseDto? Release(string system, IEnumerable<string?> ids)
     {
@@ -37,7 +39,7 @@ public static partial class ConsoleTitles
         var list = ids.Where(id => !string.IsNullOrEmpty(id)).Select(id => id!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var known = list.Select(id => For(system, id)).FirstOrDefault(t => t is not null);
         return new GameReleaseDto(console,
-            Region: known?.Region,
+            Region: known?.Region ?? PrefixRegion(system, list.FirstOrDefault()),
             GameIds: list.Length == 0 ? null : list,
             Languages: known is { Languages.Length: > 0 } ? known.Languages : null,
             NamedBy: known is null ? null : "Redump");
@@ -49,10 +51,45 @@ public static partial class ConsoleTitles
         "psx" => "PlayStation",
         "ps2" => "PlayStation 2",
         "ps3" => "PlayStation 3",
+        "ps4" => "PlayStation 4",
+        "psp" => "PlayStation Portable",
+        "psvita" => "PlayStation Vita",
         "gc" => "GameCube",
         "wii" => "Wii",
         _ => null,
     };
+
+    /// <summary>
+    /// The region a PSP, PS3 or Vita game ID's prefix names, in Redump's words: the third letter of a PSP or PS3 ID
+    /// (<c>ULUS</c>, <c>BLES</c>, <c>NPJB</c>), the fourth of a Vita one (<c>PCSE</c> USA, <c>PCSB</c> Europe). Null for
+    /// any other system — a PS4 <c>CUSA</c> ID is every region's — or a prefix that says none.
+    /// </summary>
+    public static string? PrefixRegion(string system, string? id)
+    {
+        if (id is not { Length: >= 4 }) return null;
+        var letter = system switch
+        {
+            "psp" or "ps3" => char.ToUpperInvariant(id[2]),
+            "psvita" when id.StartsWith("PCS", StringComparison.OrdinalIgnoreCase) => char.ToUpperInvariant(id[3]) switch
+            {
+                'A' or 'E' => 'U',
+                'B' or 'F' => 'E',
+                'C' or 'G' => 'J',
+                'D' or 'H' => 'A',
+                _ => '\0',
+            },
+            _ => '\0',
+        };
+        return letter switch
+        {
+            'U' => "USA",
+            'E' => "Europe",
+            'J' => "Japan",
+            'A' or 'H' => "Asia",
+            'K' => "Korea",
+            _ => null,
+        };
+    }
 
     private static string? Key(string system, string? serial)
     {

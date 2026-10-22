@@ -1,6 +1,6 @@
 # console-titles.tsv.gz — data notice
 
-`console-titles.tsv.gz` (game serial → title for PlayStation, PlayStation 2, PlayStation 3, GameCube and Wii) is
+`console-titles.tsv.gz` (game serial → title for PlayStation, PlayStation 2, PlayStation 3, PSP, GameCube and Wii) is
 adapted from the Redump dats in [libretro-database](https://github.com/libretro/libretro-database/tree/fbeefcb46c2e1b20a7e2945f34a694a41b2d6f90/metadat/redump)
 (© the libretro team and contributors, data from [Redump](http://redump.org/)), licensed under
 [Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/).

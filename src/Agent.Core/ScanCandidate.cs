@@ -136,7 +136,10 @@ public sealed record ScanCandidate(
     string? NotSyncable = null,
     /// <summary>Which release of a console game the save is (<see cref="ConsoleTitles.Release"/>): its region and
     /// game IDs, kept out of <see cref="Name"/>. Null for anything but a disc console's save.</summary>
-    GameReleaseDto? Release = null)
+    GameReleaseDto? Release = null,
+    /// <summary>Found by its save states alone: the game has not saved in-game on this machine yet. Its save folder is
+    /// declared all the same, so the first in-game save syncs with the states.</summary>
+    bool StatesOnly = false)
 {
     /// <summary>
     /// What a scanner merges duplicates on: the normalised name, so one game found by two sources is one
