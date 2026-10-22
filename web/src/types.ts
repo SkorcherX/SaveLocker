@@ -21,6 +21,7 @@ export type Settings = Schemas['ServerSettingsDto'];
 export type MachineSavePath = Schemas['MachineSavePathDto'];
 export type MachineScanCandidate = Schemas['MachineScanCandidateDto'];
 export type AuditEntry = Schemas['AuditEntryDto'];
+export type SavePath = Schemas['SavePathDto'];
 export type AgentHealth = Schemas['AgentHealthDto'];
 export type AgentEvent = Schemas['AgentEventDto'];
 export type Enrollment = Schemas['EnrollmentDto'];

@@ -84,7 +84,30 @@ public sealed record ScanCandidate(
     /// one. One entry per distinct AppID; <see cref="DuplicateShortcut.Tracked"/> marks the shortcut
     /// this scan resolved. Null unless the shape was actually seen (and never an empty list).
     /// </summary>
-    IReadOnlyList<DuplicateShortcut>? DuplicateShortcuts = null);
+    IReadOnlyList<DuplicateShortcut>? DuplicateShortcuts = null,
+    /// <summary>The primary folder's include scope, when the scanner knows the game owns only some of
+    /// its files — one ROM's save in a folder every ROM shares. Null: the whole folder.</summary>
+    IReadOnlyList<string>? IncludeGlobs = null,
+    /// <summary>
+    /// More save folders the scanner KNOWS belong to this game: an emulator's save states beside its
+    /// saves. Adopted at enrollment without asking — unlike a manifest's extra locations, which may
+    /// just as well be alternatives as companions.
+    /// </summary>
+    IReadOnlyList<DeclaredSavePath>? ExtraSaveDirs = null,
+    /// <summary>
+    /// The manifest's other locations for this game that exist here (plan §8): offered as "Also found",
+    /// never adopted until the user says so — the manifest cannot tell a second save folder from an
+    /// alternative install's, or from a settings folder beside the saves. Null when there are none.
+    /// </summary>
+    IReadOnlyList<DeclaredSavePath>? AlternateSaveDirs = null);
+
+/// <summary>
+/// One extra save folder a scanner declares for a candidate. <see cref="Key"/> names the folder on
+/// every machine; <see cref="Template"/> is how other machines find theirs, when the scanner can say
+/// (otherwise enrollment tries to describe <see cref="Dir"/> itself).
+/// </summary>
+public sealed record DeclaredSavePath(
+    string Key, string Dir, IReadOnlyList<string>? IncludeGlobs = null, string? Template = null);
 
 /// <summary>
 /// One same-named Steam shortcut that carries its own AppID (see

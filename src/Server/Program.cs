@@ -258,8 +258,9 @@ agent.MapGet("/games", async (HttpContext http, SyncService sync, IConfiguration
     var machine = http.CurrentMachine();
     var games = await sync.ListGamesAsync();
     var pathMap = await sync.GetMachinePathMapAsync(machine.Id);
+    var extras = await sync.GetExtraSavePathsAsync();
     // Agents receive the effective exclude set (global defaults ∪ per-game) to apply.
-    return Results.Ok(games.Select(g => g.ToDtoWithPath(pathMap.GetValueOrDefault(g.Id))
+    return Results.Ok(games.Select(g => g.ToDtoWithPaths(pathMap.GetValueOrDefault(g.Id), extras[g.Id])
         with { ExcludeGlobs = GlobConfig.Effective(cfg, g.ExcludeGlobs) }));
 }).Produces<List<GameDto>>();
 
@@ -392,10 +393,28 @@ agent.MapPost("/agent/games", async (HttpContext http, CreateGameRequest req, Sy
 {
     if (string.IsNullOrWhiteSpace(req.Name))
         return Results.BadRequest("Game name is required.");
+    if (ValidateNewGameFolders(req, fromAgent: true) is { } folderError)
+        return Results.BadRequest(folderError);
     var game = await sync.CreateGameAsync(req);
     if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
-    return Results.Ok(game.ToDto());
+    return Results.Ok(game.ToDto(await sync.GetExtraSavePathsAsync(game.Id)));
 }).Produces<GameDto>();
+
+// An agent adding an extra save folder to a game it found more of (tasks/multiple-save-paths) — the
+// fleet-wide definition; each machine still reports its own folder for it through /agent/path.
+agent.MapPost("/agent/games/{id:guid}/save-paths", async (Guid id, HttpContext http, AddSavePathRequest req, SyncService sync) =>
+    SavePathResult(await sync.AddSavePathAsync(id, req, http.CurrentMachine().Id)))
+    .Produces<SavePathDto>()
+    .Produces<SavePathRefusalDto>(StatusCodes.Status409Conflict);
+
+// And removing one, for every machine — the CLI's `remove-path`, mirroring `add-path` above. The key
+// is retired, never reused, exactly as when the console removes it.
+agent.MapDelete("/agent/games/{id:guid}/save-paths/{key}", async (Guid id, string key, HttpContext http, SyncService sync) =>
+{
+    var (ok, error) = await sync.RemoveSavePathAsync(id, key, http.CurrentMachine().Id);
+    return ok ? Results.NoContent() : error == "not_found" ? Results.NotFound() : Results.BadRequest(error);
+}).Produces(StatusCodes.Status204NoContent).Produces<string>(StatusCodes.Status400BadRequest)
+  .Produces(StatusCodes.Status404NotFound);
 
 // ---- Agent command channel ----
 agent.MapGet("/agent/commands", async (HttpContext http, SyncService sync) =>
@@ -407,10 +426,11 @@ agent.MapPost("/agent/commands/{id:guid}/result", async (
     await sync.CompleteCommandAsync(id, http.CurrentMachine().Id, req.Status, req.Result)
         ? Results.Ok() : Results.NotFound());
 
-agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http, string? value, SyncService sync) =>
+// `path` names which of the game's save folders (absent: the primary one, as every older agent sends).
+agent.MapPost("/agent/path/{gameId:guid}", async (Guid gameId, HttpContext http, string? value, string? path, SyncService sync) =>
 {
     if (!string.IsNullOrWhiteSpace(value))
-        await sync.SetMachinePathAsync(http.CurrentMachine().Id, gameId, value.Trim());
+        await sync.SetMachinePathAsync(http.CurrentMachine().Id, gameId, value.Trim(), PathKeyOf(path));
     return Results.Ok();
 });
 
@@ -427,10 +447,10 @@ agent.MapGet("/agent/games/{id:guid}/state", async (Guid id, SyncService sync) =
 // An agent describing a game's save location GENERICALLY, so every other machine can expand it for
 // itself instead of inheriting a literal path that means nothing on their filesystem. Only fills an
 // empty value, and only accepts a template — see TrySetSaveTemplateAsync.
-agent.MapPost("/agent/games/{id:guid}/template", async (Guid id, string? value, SyncService sync) =>
+agent.MapPost("/agent/games/{id:guid}/template", async (Guid id, string? value, string? path, SyncService sync) =>
 {
     if (string.IsNullOrWhiteSpace(value)) return Results.BadRequest("A template is required.");
-    return await sync.TrySetSaveTemplateAsync(id, value.Trim()) ? Results.Ok() : Results.NoContent();
+    return await sync.TrySetSaveTemplateAsync(id, value.Trim(), PathKeyOf(path)) ? Results.Ok() : Results.NoContent();
 });
 
 // ---- Agent health (agent) ----
@@ -504,11 +524,30 @@ admin.MapDelete("/machines/{id:guid}", async (Guid id, SyncService sync) =>
 admin.MapPost("/games/{id:guid}/enabled", async (Guid id, bool value, SyncService sync) =>
     await sync.SetGameEnabledAsync(id, value) ? Results.Ok() : Results.NotFound());
 
-admin.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, SyncService sync) =>
-    await sync.SetSuggestedSaveDirAsync(id, value) ? Results.Ok() : Results.NotFound());
+admin.MapPost("/games/{id:guid}/save-dir", async (Guid id, string? value, string? path, SyncService sync) =>
+    await sync.SetSuggestedSaveDirAsync(id, value, PathKeyOf(path)) ? Results.Ok() : Results.NotFound());
+
+// A game's extra save folders (tasks/multiple-save-paths). The primary folder is the game itself.
+admin.MapPost("/games/{id:guid}/save-paths", async (Guid id, AddSavePathRequest req, SyncService sync) =>
+    SavePathResult(await sync.AddSavePathAsync(id, req)))
+    .Produces<SavePathDto>()
+    .Produces<SavePathRefusalDto>(StatusCodes.Status409Conflict);
+
+admin.MapDelete("/games/{id:guid}/save-paths/{key}", async (Guid id, string key, SyncService sync) =>
+{
+    var (ok, error) = await sync.RemoveSavePathAsync(id, key);
+    return ok ? Results.NoContent() : error == "not_found" ? Results.NotFound() : Results.BadRequest(error);
+});
 
 admin.MapPost("/games/{id:guid}/retain", async (Guid id, int? value, SyncService sync) =>
     await sync.SetGameRetentionAsync(id, value) ? Results.Ok() : Results.NotFound());
+
+// One save folder's include scope (`path`: absent means the primary one). An empty list: the whole folder.
+admin.MapPost("/games/{id:guid}/include-globs", async (Guid id, string?[] patterns, string? path, SyncService sync) =>
+{
+    var (found, error) = await sync.SetIncludeGlobsAsync(id, patterns, PathKeyOf(path));
+    return !found ? Results.NotFound() : error is not null ? Results.BadRequest(error) : Results.Ok();
+});
 
 admin.MapPost("/games/{id:guid}/excludes", async (Guid id, string[] patterns, SyncService sync) =>
     await sync.SetExcludeGlobsAsync(id, patterns) ? Results.Ok() : Results.NotFound());
@@ -536,18 +575,18 @@ admin.MapGet("/games/{id:guid}/paths", async (Guid id, SyncService sync) =>
     Results.Ok(await sync.GetGameMachinePathsAsync(id)))
     .Produces<List<MachineSavePathDto>>();
 
-admin.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, SyncService sync) =>
+admin.MapPost("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? value, string? path, SyncService sync) =>
 {
     if (string.IsNullOrWhiteSpace(value))
-        await sync.ClearMachinePathAsync(machineId, id);
-    else
-        await sync.SetMachinePathAsync(machineId, id, value.Trim());
+        await sync.ClearMachinePathAsync(machineId, id, PathKeyOf(path));
+    else if (!await sync.SetMachinePathAsync(machineId, id, value.Trim(), PathKeyOf(path)))
+        return Results.NotFound();
     return Results.Ok();
 });
 
-admin.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, SyncService sync) =>
+admin.MapDelete("/games/{id:guid}/paths/{machineId:guid}", async (Guid id, Guid machineId, string? path, SyncService sync) =>
 {
-    await sync.ClearMachinePathAsync(machineId, id);
+    await sync.ClearMachinePathAsync(machineId, id, PathKeyOf(path));
     return Results.NoContent();
 });
 
@@ -626,9 +665,11 @@ admin.MapPost("/admin/password", async (SetAdminPasswordRequest req, SettingsSer
 
 admin.MapPost("/games", async (CreateGameRequest req, SyncService sync, ArtService art) =>
 {
+    if (ValidateNewGameFolders(req) is { } folderError)
+        return Results.BadRequest(folderError);
     var game = await sync.CreateGameAsync(req);
     if (string.IsNullOrEmpty(game.GridUrl)) await art.TryRefreshOnEnrollAsync(game.Id);
-    return Results.Ok(game.ToDto());
+    return Results.Ok(game.ToDto(await sync.GetExtraSavePathsAsync(game.Id)));
 }).Produces<GameDto>();
 
 admin.MapPost("/games/{id:guid}/art/refresh", async (Guid id, ArtService art) =>
@@ -669,6 +710,12 @@ admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/stats", async (
     Guid id, Guid versionId, SyncService sync) =>
     await sync.GetVersionStatsAsync(id, versionId) is { } stats ? Results.Ok(stats) : Results.NotFound())
     .Produces<VersionStatsDto>();
+
+// Which files each save folder holds in a version — the console lists them under each folder.
+admin.MapGet("/games/{id:guid}/versions/{versionId:guid}/folders", async (
+    Guid id, Guid versionId, SyncService sync) =>
+    await sync.GetVersionFoldersAsync(id, versionId) is { } folders ? Results.Ok(folders) : Results.NotFound())
+    .Produces<VersionFolderDto[]>();
 
 // Apply retention immediately, instead of only as a side effect of the next upload.
 admin.MapPost("/games/{id:guid}/prune", async (Guid id, SyncService sync) =>
@@ -910,6 +957,26 @@ static IResult UnknownPlatform(string? requested) => Results.BadRequest(
 
 // Streams a downloaded version, exposing its id and content hash as response
 // headers so the agent can record the parent version for its next upload.
+// A route's optional `path` query: which of a game's save folders. Absent means the primary one, which is
+// all an older agent or console ever sends.
+static string PathKeyOf(string? path) =>
+    string.IsNullOrWhiteSpace(path) ? SaveRoot.PrimaryKey : path.Trim();
+
+// The folders a create request asks for are checked before the game exists, so a bad key or scope
+// refuses the request instead of creating a half-defined game. An agent's extra folders must be templates
+// (SyncService.AgentTemplateError): it is defining them for every machine.
+static string? ValidateNewGameFolders(CreateGameRequest req, bool fromAgent = false) =>
+    GlobConfig.ValidateIncludes(req.IncludeGlobs) ?? GlobConfig.ValidateExtraPaths(req.ExtraPaths) ??
+    (fromAgent ? req.ExtraPaths?.Select(SyncService.AgentTemplateError).FirstOrDefault(e => e is not null) : null);
+
+// A refusal the caller can act on (a key taken or retired, the same folder already there) is a 409 with a
+// code, so an agent picks the next key or joins the folder without reading the sentence.
+static IResult SavePathResult((GameSavePath? Path, string? Error, SavePathRefusalDto? Refusal) added) =>
+    added.Path is { } path ? Results.Ok(path.ToDto())
+    : added.Refusal is { } refusal ? Results.Conflict(refusal)
+    : added.Error == "not_found" ? Results.NotFound()
+    : Results.BadRequest(added.Error);
+
 static IResult StreamVersion(HttpContext http, (SaveVersion version, Stream content)? dl)
 {
     if (dl is null) return Results.NotFound();

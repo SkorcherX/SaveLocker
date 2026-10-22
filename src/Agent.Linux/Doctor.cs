@@ -215,6 +215,29 @@ public static class Doctor
                     Problem($"'{g.Name}': {problem}");
             }
 
+            // The game's other save folders (tasks/multiple-save-paths). One that is not mapped here, or
+            // whose folder is gone, is not a fault: it keeps syncing through its shadow, and a pull
+            // recreates a missing folder. A folder the agent could not write, or that looks like a
+            // whole prefix, is.
+            foreach (var p in g.ExtraPaths)
+            {
+                if (!p.IsMapped)
+                    Info($"    {p.Key}", $"not mapped here — synced through its shadow copy " +
+                         $"({FolderSize.Of(TrackedGame.ShadowDir(config.StateDir, g.GameId, p.Key)) / 1024.0 / 1024.0:0.#} MB)");
+                else if (!Directory.Exists(p.Directory))
+                    Info($"    {p.Key}", $"{p.Directory} (missing — the next pull recreates it)");
+                else if (!IsWritable(p.Directory!))
+                    Problem($"'{g.Name}' save folder '{p.Key}' is not writable — pull would fail: {p.Directory}");
+                else
+                {
+                    Info($"    {p.Key}", p.Directory!);
+                    foreach (var problem in SaveDirSanity.Inspect(p.Directory, g.ExcludeGlobs))
+                        Problem($"'{g.Name}' save folder '{p.Key}': {problem}");
+                }
+            }
+            if (g.ExtraPaths.Count > 0 && SaveArchive.FolderRulesError(g.Roots(config.StateDir)) is { } rules)
+                Problem($"'{g.Name}': {rules} Nothing is synced for it until that is fixed.");
+
             if (g.SteamAppId is not null && config.Games.Any(o => o != g && o.SteamAppId == g.SteamAppId))
                 Problem($"more than one tracked game claims appid {g.SteamAppId}; " +
                         "the launch wrapper would pick one arbitrarily.");

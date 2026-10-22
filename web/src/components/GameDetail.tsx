@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api';
 import type { GameSummary, Machine, Command, Conflict, Version, VersionStats, MachineSavePath, MachineScanCandidate } from '../types';
+import { SaveFoldersSection } from './SaveFoldersSection';
 import { toTemplate, isTemplate } from '../savePathTemplate';
 
 const shortId = (id: string | null | undefined) => id ? id.replace(/-/g, '').slice(0, 8) : '—';
@@ -522,6 +523,8 @@ export function GameDetail({ summary, machines, commands, conflicts, onRefresh }
           </div>
         </div>
       )}
+
+      <SaveFoldersSection gameId={game.id} extraPaths={game.extraPaths ?? []} onRefresh={onRefresh} />
 
       {/* ── Exclude Patterns (collapsible) ── */}
       <div style={card}>

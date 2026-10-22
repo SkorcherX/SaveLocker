@@ -178,10 +178,17 @@ public sealed class ManifestLoader
     /// Path templates with placeholders (e.g. &lt;winAppData&gt;/Celeste) are expanded
     /// and trimmed at the first wildcard so we return a directory to watch/archive.
     /// </summary>
-    public IReadOnlyList<string> ResolveSaveDirectories(string gameName, PathResolver? resolver = null)
+    public IReadOnlyList<string> ResolveSaveDirectories(string gameName, PathResolver? resolver = null) =>
+        ResolveSaveLocations(gameName, resolver).Select(l => l.Directory).ToList();
+
+    /// <summary>
+    /// <see cref="ResolveSaveDirectories"/>, keeping the manifest template each folder came from — what
+    /// names a suggested extra save folder (tasks/multiple-save-paths plan §8). Same order, same folders.
+    /// </summary>
+    public IReadOnlyList<ResolvedSaveLocation> ResolveSaveLocations(string gameName, PathResolver? resolver = null)
     {
         if (!TryGetGame(gameName, out var game) || game.Files is null)
-            return Array.Empty<string>();
+            return Array.Empty<ResolvedSaveLocation>();
 
         resolver ??= PathResolver.Windows();
 
@@ -201,7 +208,7 @@ public sealed class ManifestLoader
         // A result that IS the install directory is dropped — see PathResolver.IsInstallRoot. Those
         // arise from games that save as loose files beside their own executable, and the directory
         // that contains those files is the whole game.
-        var results = new List<string>();
+        var results = new List<ResolvedSaveLocation>();
         var seen = new HashSet<string>(
             OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
 
@@ -216,7 +223,7 @@ public sealed class ManifestLoader
                 if (!Directory.Exists(dir)) continue;
                 if (resolver.IsInstallRoot(dir)) continue;
                 var full = Path.GetFullPath(dir);
-                if (seen.Add(full)) results.Add(full);
+                if (seen.Add(full)) results.Add(new ResolvedSaveLocation(template, full));
             }
         }
 
@@ -283,3 +290,7 @@ public sealed class ManifestLoader
         public string? Os { get; set; }
     }
 }
+
+/// <summary>A manifest save location that exists on this machine: the template as the manifest writes
+/// it, and the folder it resolved to.</summary>
+public sealed record ResolvedSaveLocation(string Template, string Directory);

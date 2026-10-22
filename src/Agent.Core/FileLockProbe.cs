@@ -1,3 +1,5 @@
+using SaveLocker.Shared;
+
 namespace SaveLocker.Agent;
 
 /// <summary>
@@ -7,7 +9,10 @@ namespace SaveLocker.Agent;
 /// The two platforms answer this in completely different ways:
 /// <list type="bullet">
 ///   <item><b>Windows</b> — ask the kernel to deny writers (<c>FileShare.Read</c>). If a writer
-///   holds the file, the open fails.</item>
+///   holds the file, the open fails. A reader that shares reads does not; one that denies them
+///   (an antivirus or indexer opening exclusively) fails it just the same, and the sharing
+///   violation cannot say which it was — so an exclusive reader reads as a writer for as long as
+///   it holds the file. Not narrowed: a game writing with <c>FileShare.None</c> looks identical.</item>
 ///   <item><b>Linux</b> — <c>FileShare</c> is <b>not enforced</b>: the open always succeeds, so
 ///   that probe would report "nothing is locked" every single time. We instead walk
 ///   <c>/proc/*/fd</c> for descriptors pointing into the directory and check whether any was
@@ -31,6 +36,30 @@ public static class FileLockProbe
         OperatingSystem.IsWindows()
             ? WindowsProbe(directory, relativeFiles)
             : ProcFsProbe(directory);
+
+    /// <summary>
+    /// <see cref="FirstWriter(string, IEnumerable{string})"/> across every folder of a game, each
+    /// probed for its own files. Unavailable if any folder's probe cannot answer: one folder's
+    /// all-clear says nothing about the others.
+    /// </summary>
+    public static LockProbeResult FirstWriter(IReadOnlyList<SaveRoot> roots, IReadOnlyList<SaveArchive.SaveFile> files)
+    {
+        var supported = true;
+        var comparison = OperatingSystem.IsLinux() ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase;
+        foreach (var dir in roots.Select(r => r.Directory).Where(Directory.Exists)
+                     .Select(d => Path.GetFullPath(d).TrimEnd(Path.DirectorySeparatorChar))
+                     .Distinct(StringComparer.FromComparison(comparison)))
+        {
+            var prefix = dir + Path.DirectorySeparatorChar;
+            var rels = files
+                .Where(f => f.FullPath.StartsWith(prefix, comparison))
+                .Select(f => f.FullPath[prefix.Length..].Replace('\\', '/'));
+            var probe = FirstWriter(dir, rels);
+            if (probe.LockedFile is not null) return probe;
+            supported &= probe.Supported;
+        }
+        return supported ? LockProbeResult.Quiet : LockProbeResult.Unavailable;
+    }
 
     // ─── Windows: FileShare.Read denies writers, so a failed open means someone holds one ───
 

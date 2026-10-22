@@ -34,10 +34,52 @@ public record GameDto(
     // carries the effective set (global defaults ∪ per-game) that agents apply.
     string[]? ExcludeGlobs = null,
     ConflictPolicy ConflictPolicy = ConflictPolicy.Manual,
-    Guid? PreferredMachineId = null);
+    Guid? PreferredMachineId = null,
+    // The PRIMARY save folder's include scope. Null/empty: the whole folder is the game's. Otherwise
+    // only files matching one of these belong to it — one ROM's save inside a folder every other
+    // ROM's save shares. Set once, by whoever creates the game; every machine applies it.
+    string[]? IncludeGlobs = null,
+    // The game's EXTRA save folders (tasks/multiple-save-paths), null when it has none. The primary
+    // folder stays in SuggestedSaveDir / MachineSavePath / IncludeGlobs, so an older agent keeps
+    // working on it unchanged.
+    SavePathDto[]? ExtraPaths = null);
 
-/// <summary>A specific machine's stored save path for one game.</summary>
-public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath);
+/// <summary>
+/// One extra save folder of a game. <see cref="Key"/> is the same on every machine and names the
+/// folder's slice of every archive; <see cref="Template"/> is what each machine expands for itself;
+/// <see cref="MachinePath"/> is the calling machine's stored folder (agent routes only).
+/// </summary>
+public record SavePathDto(
+    string Key,
+    string? Label,
+    string? Template,
+    string[]? IncludeGlobs,
+    string? MachinePath = null);
+
+/// <summary>A new extra save folder for a game. The key is a short slug and is never renamed.</summary>
+public record AddSavePathRequest(string Key, string? Label, string? Template, string[]? IncludeGlobs);
+
+/// <summary>
+/// Why the server would not add an extra save folder, when a caller can act on the reason (HTTP 409):
+/// <see cref="SavePathRefusalCodes"/>. <paramref name="Existing"/> is the folder already holding the key,
+/// or — for <see cref="SavePathRefusalCodes.TemplateTaken"/> — the folder that is this very one.
+/// </summary>
+public record SavePathRefusalDto(string Error, string Code, SavePathDto? Existing = null);
+
+public static class SavePathRefusalCodes
+{
+    /// <summary>The game has a folder with this key: pick another.</summary>
+    public const string KeyTaken = "key_taken";
+    /// <summary>The game had a folder with this key once; a key is never reused.</summary>
+    public const string KeyRetired = "key_retired";
+    /// <summary>The game already has a folder with this template — another machine added the same folder.
+    /// Join it rather than define it twice.</summary>
+    public const string TemplateTaken = "template_taken";
+}
+
+/// <summary>A specific machine's stored save path for one of a game's save folders
+/// (<see cref="PathKey"/> is <c>main</c> for the primary folder).</summary>
+public record MachineSavePathDto(Guid MachineId, string MachineName, string SavePath, string PathKey = SaveRoot.PrimaryKey);
 
 /// <summary>
 /// A save folder a machine's <c>scan</c> <b>found but has not adopted</b> — the game is tracked
@@ -55,7 +97,11 @@ public record CreateGameRequest(
     string Name,
     string? ManifestKey,
     string? CustomPathsJson,
-    string? SuggestedSaveDir = null);
+    string? SuggestedSaveDir = null,
+    // Both applied only when this request creates the game; an existing game keeps its own folders
+    // and scopes, and the caller compares what comes back with what it asked for.
+    string[]? IncludeGlobs = null,
+    SavePathDto[]? ExtraPaths = null);
 
 // ----- Server settings (dashboard-managed) -----
 
@@ -217,6 +263,20 @@ public record SaveVersionDto(
 /// <see cref="SaveVersionDto"/>, so fetching it costs nothing for the versions nobody is looking at.
 /// Mainly for telling apart the two sides of an open conflict.</summary>
 public record VersionStatsDto(int FileCount, DateTime? NewestFileWriteUtc);
+
+/// <summary>One save folder's files inside a version (tasks/multiple-save-paths): the primary folder is
+/// <c>main</c>, each extra folder its key. <paramref name="Files"/> holds at most the first 500 by name;
+/// <paramref name="FileCount"/> and <paramref name="TotalBytes"/> count every file.</summary>
+public record VersionFolderDto(string Key, int FileCount, long TotalBytes, VersionFileDto[] Files);
+
+/// <param name="Path">Relative to its save folder, with forward slashes.</param>
+public record VersionFileDto(string Path, long Size, DateTime? ModifiedUtc);
+
+/// <summary>How many files already tracked in a game's head version would stop being uploaded
+/// under a draft (not-yet-saved) set of exclude patterns — a dry run for the console's exclude
+/// editor. Necessarily one-directional: a file that ALREADY matches a saved pattern was never
+/// uploaded, so it cannot be counted here either way. 0 for a game with no head version yet.</summary>
+public record ExcludesPreviewDto(int WouldExclude);
 
 [JsonConverter(typeof(JsonStringEnumConverter<UploadStatus>))]
 public enum UploadStatus

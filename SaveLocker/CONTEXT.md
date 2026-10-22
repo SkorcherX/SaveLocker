@@ -25,6 +25,16 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
+**Fork port, item 9 — multiple save folders (2026-10-21, branch `port/multiple-save-folders`, off `main`,
+awaiting review; the backups branch is separate).** Marwanello #56–#58: a game can sync several folders
+(extra ones under `.savelocker/paths/<key>/` in the archive; the primary stays at the root, so old
+versions and hashes are unchanged). Unmapped folders sync through shadow copies; `add-path` /
+`remove-path`; "Also found" manifest suggestions in Add games and on Overview; an Extra save folders
+section on the console's game page. New migration `AddMultipleSavePaths`. New `tests/SaveLocker.Core.Tests`
+(xUnit, net10.0, 75/75) and `tests/run-multipath-tests.ps1` (39/39); local-api 36, Linux 239, the rest
+unchanged. **Not done:** the Deck Game Mode (ImGui) folder screens, an OS notice for suggestions (log
+only), the agent UI's new card checked by eye (needs a running agent), any Deck/real-game run.
+
 **Fork port, round 2 (2026-10-21).** Save safety (item 11, Marwanello `3f28f71`) is merged to `main`:
 a pull keeps this machine's excluded files, and a save folder emptied all at once is held (no
 push/pull) until *Delete everywhere* or *Restore here*; the server 409s an unforced empty upload over

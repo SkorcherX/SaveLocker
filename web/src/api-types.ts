@@ -640,6 +640,108 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/games/{id}/save-paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddSavePathRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavePathDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavePathRefusalDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/games/{id}/save-paths/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description No Content */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description Bad Request */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": string;
+                    };
+                };
+                /** @description Not Found */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/commands": {
         parameters: {
             query?: never;
@@ -727,6 +829,7 @@ export interface paths {
             parameters: {
                 query?: {
                     value?: string;
+                    path?: string;
                 };
                 header?: never;
                 path: {
@@ -801,6 +904,7 @@ export interface paths {
             parameters: {
                 query?: {
                     value?: string;
+                    path?: string;
                 };
                 header?: never;
                 path: {
@@ -1021,6 +1125,7 @@ export interface paths {
             parameters: {
                 query?: {
                     value?: string;
+                    path?: string;
                 };
                 header?: never;
                 path: {
@@ -1040,6 +1145,92 @@ export interface paths {
             };
         };
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/save-paths": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AddSavePathRequest"];
+                };
+            };
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavePathDto"];
+                    };
+                };
+                /** @description Conflict */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavePathRefusalDto"];
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/save-paths/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    key: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
         options?: never;
         head?: never;
         patch?: never;
@@ -1066,6 +1257,47 @@ export interface paths {
                 cookie?: never;
             };
             requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/include-globs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: {
+            parameters: {
+                query?: {
+                    path?: string;
+                };
+                header?: never;
+                path: {
+                    id: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": string[];
+                };
+            };
             responses: {
                 /** @description OK */
                 200: {
@@ -1284,6 +1516,7 @@ export interface paths {
             parameters: {
                 query?: {
                     value?: string;
+                    path?: string;
                 };
                 header?: never;
                 path: {
@@ -1305,7 +1538,9 @@ export interface paths {
         };
         delete: {
             parameters: {
-                query?: never;
+                query?: {
+                    path?: string;
+                };
                 header?: never;
                 path: {
                     id: string;
@@ -1753,6 +1988,44 @@ export interface paths {
                     };
                     content: {
                         "application/json": components["schemas"]["VersionStatsDto"];
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/games/{id}/versions/{versionId}/folders": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    id: string;
+                    versionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description OK */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionFolderDto"][];
                     };
                 };
             };
@@ -2535,6 +2808,12 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AddSavePathRequest: {
+            key: string;
+            label: null | string;
+            template: null | string;
+            includeGlobs: null | string[];
+        };
         AdminStatus: {
             passwordRequired: boolean;
             build: components["schemas"]["ServerBuildInfo"];
@@ -2791,6 +3070,8 @@ export interface components {
             manifestKey: null | string;
             customPathsJson: null | string;
             suggestedSaveDir?: null | string;
+            includeGlobs?: null | string[];
+            extraPaths?: null | components["schemas"]["SavePathDto"][];
         };
         EffectiveServerUrl: {
             url: string;
@@ -2864,6 +3145,8 @@ export interface components {
             conflictPolicy?: components["schemas"]["ConflictPolicy"];
             /** Format: uuid */
             preferredMachineId?: null | string;
+            includeGlobs?: null | string[];
+            extraPaths?: null | components["schemas"]["SavePathDto"][];
         };
         GameStateDto: {
             game: components["schemas"]["GameDto"];
@@ -2920,6 +3203,8 @@ export interface components {
             machineId: string;
             machineName: string;
             savePath: string;
+            /** @default main */
+            pathKey: string;
         };
         MachineScanCandidateDto: {
             /** Format: uuid */
@@ -2938,6 +3223,18 @@ export interface components {
             machineId: string;
             apiKey: string;
             machineName: string;
+        };
+        SavePathDto: {
+            key: string;
+            label: null | string;
+            template: null | string;
+            includeGlobs: null | string[];
+            machinePath?: null | string;
+        };
+        SavePathRefusalDto: {
+            error: string;
+            code: string;
+            existing?: null | components["schemas"]["SavePathDto"];
         };
         SaveVersionDto: {
             /** Format: uuid */
@@ -3002,6 +3299,21 @@ export interface components {
         };
         /** @enum {unknown} */
         UploadStatus: "Created" | "NoChange" | "Conflict" | "RetryFull";
+        VersionFileDto: {
+            path: string;
+            /** Format: int64 */
+            size: number;
+            /** Format: date-time */
+            modifiedUtc: null | string;
+        };
+        VersionFolderDto: {
+            key: string;
+            /** Format: int32 */
+            fileCount: number;
+            /** Format: int64 */
+            totalBytes: number;
+            files: components["schemas"]["VersionFileDto"][];
+        };
         VersionStatsDto: {
             /** Format: int32 */
             fileCount: number;

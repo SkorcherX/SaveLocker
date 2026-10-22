@@ -64,6 +64,25 @@ public static class SavePathGuard
     }
 
     /// <summary>
+    /// <see cref="Check"/>, plus the rules between one game's folders: none may sit inside another,
+    /// and two may share a directory only when both have include patterns (tasks/multiple-save-paths
+    /// plan §7). <paramref name="key"/> is the folder being set — <c>main</c> for the primary one.
+    /// </summary>
+    public static Result CheckFolder(TrackedGame game, string key, string? path, string stateDir)
+    {
+        var check = Check(path, stateDir);
+        if (!check.Ok) return check;
+
+        var roots = game.Roots(stateDir)
+            .Select(r => r.Key == key ? r with { Directory = check.Canonical! } : r)
+            // An unmapped primary folder has no place in the rules yet; Path.GetFullPath("") throws.
+            .Where(r => !string.IsNullOrWhiteSpace(r.Directory))
+            .ToList();
+        if (roots.All(r => !r.IsPrimary)) return check;
+        return SaveLocker.Shared.SaveArchive.FolderRulesError(roots) is { } why ? Result.Refuse(why) : check;
+    }
+
+    /// <summary>
     /// Is this an acceptable save folder? The reason is written for the user, not the log: it has to
     /// survive being shown in a toast, a CLI line, and a command result in the console.
     /// </summary>

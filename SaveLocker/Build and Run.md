@@ -176,6 +176,13 @@ bash tests/linux/run-linux-tests.sh   # Linux agent; starts its own server (run 
 
 Scratch state written to `.verify/` (Windows) and `.verify-linux/` (Linux), both git-ignored.
 
+In-process tests and the multi-folder suite:
+
+```sh
+dotnet test tests/SaveLocker.Core.Tests   # archive + agent-core unit tests; some start the server's build output
+.	estsun-multipath-tests.ps1           # several save folders: two machines through the real CLI and server
+```
+
 **Before running any suite, read [[Gotchas]] → Testing and Test harness.** Two traps recur: clear
 `.verify/` and `src/Server/localstate/` *together*, and start the dev server with
 `ASPNETCORE_ENVIRONMENT=Development` *and* explicit `Storage__*`, or it opens `/data/savelocker.db`

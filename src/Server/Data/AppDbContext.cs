@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<AppSetting> Settings => Set<AppSetting>();
     public DbSet<MachineSavePath> MachineSavePaths => Set<MachineSavePath>();
+    public DbSet<GameSavePath> GameSavePaths => Set<GameSavePath>();
     public DbSet<MachineScanCandidate> MachineScanCandidates => Set<MachineScanCandidate>();
     public DbSet<EnrollmentToken> EnrollmentTokens => Set<EnrollmentToken>();
     public DbSet<AgentHealth> AgentHealth => Set<AgentHealth>();
@@ -53,7 +54,25 @@ public class AppDbContext : DbContext
 
         b.Entity<AppSetting>().HasKey(s => s.Key);
 
-        b.Entity<MachineSavePath>().HasKey(p => new { p.MachineId, p.GameId });
+        // One row per machine per save folder of a game. Both sides cascade: a path is meaningless
+        // once its machine or its game is gone (the hand-written RemoveRange calls stay as well).
+        b.Entity<MachineSavePath>().HasKey(p => new { p.MachineId, p.GameId, p.PathKey });
+        b.Entity<MachineSavePath>().Property(p => p.PathKey).HasDefaultValue(SaveLocker.Shared.SaveRoot.PrimaryKey);
+        b.Entity<MachineSavePath>()
+            .HasOne<Machine>().WithMany()
+            .HasForeignKey(p => p.MachineId)
+            .OnDelete(DeleteBehavior.Cascade);
+        b.Entity<MachineSavePath>()
+            .HasOne<Game>().WithMany()
+            .HasForeignKey(p => p.GameId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        b.Entity<GameSavePath>().HasKey(p => new { p.GameId, p.Key });
+        b.Entity<GameSavePath>().HasQueryFilter(p => p.RetiredAt == null);
+        b.Entity<GameSavePath>()
+            .HasOne<Game>().WithMany()
+            .HasForeignKey(p => p.GameId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         // Same key shape as the confirmed path, so a machine reports at most one guess per game.
         // Both sides cascade: a guess is meaningless once its machine or its game is gone.

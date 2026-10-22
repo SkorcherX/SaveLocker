@@ -15,7 +15,8 @@ public static class AgentCli
     public static bool Handles(string command) => command is
         "register" or "enroll" or "trust" or "set-server" or "whoami" or "search" or "scan" or
         "resolve" or "add-game" or "remove-game" or "list" or "status" or "push" or "pull" or
-        "refresh-manifest" or "log" or "hash" or "check-update" or "emptied-hold";
+        "refresh-manifest" or "log" or "hash" or "check-update" or "emptied-hold" or
+        "add-path" or "remove-path";
 
     /// <summary>Run one command. Returns the process exit code.</summary>
     public static async Task<int> RunAsync(
@@ -165,6 +166,8 @@ public static class AgentCli
                         var appid = c.SteamAppId is null ? "" : $" appid={c.SteamAppId}";
                         Console.WriteLine($"  {c.Name}  <{c.Source}>{cloud}{appid}");
                         Console.WriteLine($"      save: {save}");
+                        foreach (var also in c.AlternateSaveDirs ?? Array.Empty<DeclaredSavePath>())
+                            Console.WriteLine($"      also found: {also.Dir}  (once enrolled: add-path \"{c.Name}\" --key {also.Key} --dir \"{also.Dir}\")");
                     }
 
                     await OfferUnmappedPathsAsync(candidates, config, opts);
@@ -279,14 +282,43 @@ public static class AgentCli
                     break;
                 }
 
+                case "add-path":
+                    return await AddPathAsync(opts, positionals, config, Api(), Engine());
+
+                case "remove-path":
+                {
+                    var game = GameArg(opts, positionals, config, "remove-path SyncGame --key states");
+                    var key = (opts.GetValueOrDefault("key") ?? "").Trim();
+                    if (game.ExtraPaths.All(p => p.Key != key))
+                        throw new InvalidOperationException($"'{game.Name}' has no save folder called '{key}' here.");
+
+                    var removed = await SavePathEditor.RemoveAsync(config, Api(), (g, k) => Engine().ForgetSavePathAsync(g, k), game, key);
+                    if (!removed.Ok)
+                    {
+                        Console.Error.WriteLine(removed.Error);
+                        return 1;
+                    }
+                    Console.WriteLine(removed.Deferred
+                        ? $"Removed on the server. '{game.Name}' is busy here, so this machine drops the '{key}' " +
+                          "folder on the agent's next poll."
+                        : $"'{game.Name}' no longer syncs its '{key}' save folder, on any machine." +
+                          (removed.Directory is null ? "" : $" Its files stay where they are ({removed.Directory})."));
+                    break;
+                }
+
                 case "list":
                     foreach (var g in config.Games)
+                    {
                         Console.WriteLine($"  {g.Name}  [{g.SaveDirectory}]  procs={string.Join(",", g.ProcessNames)}");
+                        foreach (var p in g.ExtraPaths)
+                            Console.WriteLine($"      {p.Key}: {p.Directory ?? "(not mapped here)"}");
+                    }
                     break;
 
                 case "status":
                 {
                     var api = Api();
+                    var suggestions = new FolderSuggestions(config, detection);
                     foreach (var g in config.Games)
                     {
                         var s = await api.GetStateAsync(g.GameId);
@@ -296,6 +328,15 @@ public static class AgentCli
                         var lease = s?.Lease?.HolderMachineName is { } h ? $"leased by {h}" : "free";
                         var conflict = s?.HasOpenConflict == true ? "  *** CONFLICT ***" : "";
                         Console.WriteLine($"  {g.Name}: head={head}, {lease}{conflict}");
+                        if (g.ExtraPaths.Count > 0)
+                        {
+                            Console.WriteLine($"      main: {(g.IsEnrolledHere ? g.SaveDirectory : "(not mapped here)")}");
+                            foreach (var line in FolderLines(g, config.StateDir)) Console.WriteLine("      " + line);
+                        }
+                        // The manifest's other locations that exist here, never synced until someone says so.
+                        foreach (var also in await suggestions.ForGameAsync(g))
+                            Console.WriteLine($"      also found: {also.Directory}  " +
+                                              $"(add-path \"{g.Name}\" --key {also.Key} --dir \"{also.Directory}\")");
                     }
                     break;
                 }
@@ -314,7 +355,7 @@ public static class AgentCli
                     }
 
                     foreach (var g in GamesFor(positionals.FirstOrDefault(), config))
-                        Console.WriteLine($"  {g.Name}: {SaveArchive.HashDirectory(g.SaveDirectory, g.ExcludeGlobs)}");
+                        Console.WriteLine($"  {g.Name}: {g.LocalHash(config.StateDir)}");
                     break;
                 }
 
@@ -721,6 +762,84 @@ public static class AgentCli
 
     /// <summary>The server writes the policy file with ASP.NET's camelCase; read it back forgivingly.</summary>
     private static readonly JsonSerializerOptions PolicyJson = new() { PropertyNameCaseInsensitive = true };
+
+    /// <summary>
+    /// <c>add-path &lt;game&gt; --key &lt;k&gt; --dir &lt;d&gt; [--include a,b] [--label L] [--keep local|cloud]</c>:
+    /// give a game another save folder, for every machine (tasks/multiple-save-paths), or map one it
+    /// already has to a folder on this machine. The folder is described to the fleet as a template
+    /// when it can be; a folder no token describes is added without one, and other machines keep a
+    /// shadow copy of it until someone sets their folder.
+    /// </summary>
+    private static async Task<int> AddPathAsync(Dictionary<string, string> opts, List<string> positionals,
+        AgentConfig config, ApiClient api, SyncEngine engine)
+    {
+        var game = GameArg(opts, positionals, config,
+            "add-path SyncGame --key states --dir <folder> [--include \"*.state\"] [--keep local|cloud]");
+        var key = (opts.GetValueOrDefault("key") ?? "").Trim();
+        if (SaveRoot.ValidateExtraKey(key) is { } badKey) throw new ArgumentException(badKey);
+        var dir = opts.GetValueOrDefault("dir") ?? throw new ArgumentException("--dir is required.");
+        KeepSide? keep = (opts.GetValueOrDefault("keep") ?? "").Trim().ToLowerInvariant() switch
+        {
+            "" => null,
+            "local" => KeepSide.Local,
+            "cloud" => KeepSide.Cloud,
+            _ => throw new ArgumentException("Pass --keep local or --keep cloud."),
+        };
+        var include = (opts.GetValueOrDefault("include") ?? "")
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        foreach (var glob in include)
+            if (SaveArchive.ValidateIncludeGlob(glob) is { } badGlob) throw new ArgumentException(badGlob);
+
+        var existing = game.ExtraPaths.FirstOrDefault(p => p.Key == key);
+        if (existing is not null && include.Count > 0 && !include.SequenceEqual(existing.IncludeGlobs))
+            Console.WriteLine($"Note: '{key}' already exists; its include patterns are set in the console, " +
+                              "so --include is ignored.");
+
+        var result = await SavePathEditor.AddAsync(config, api, (g, k, d, side) => engine.MapSavePathAsync(g, k, d, side), game, key, dir, include,
+            opts.GetValueOrDefault("label"), keep, confirm: opts.ContainsKey("force-path"), resolver: ResolverFor(opts));
+        if (result.NeedsConfirm)
+        {
+            Console.Error.WriteLine($"'{dir}' does not look like a save folder:");
+            foreach (var p in result.Problems ?? Array.Empty<string>()) Console.Error.WriteLine("  - " + p);
+            Console.Error.WriteLine("Pass --force-path to use it anyway.");
+            return 1;
+        }
+        // A joined folder has the key another machine gave it, not the one asked for.
+        key = result.Key ?? key;
+        if (result.Joined)
+            Console.WriteLine($"'{game.Name}' already syncs that folder as '{key}' (another machine added it); joined it.");
+        if (result.Added)
+            Console.WriteLine(result.Template is null
+                ? $"Added save folder '{key}' to '{game.Name}'. No template describes {result.Directory}, so other " +
+                  "machines keep a copy of it until their own folder is set."
+                : $"Added save folder '{key}' to '{game.Name}' for every machine: {result.Template}");
+        if (!result.Ok)
+        {
+            Console.Error.WriteLine(result.NeedsChoice
+                ? result.Error + $"\nRe-run with --key {key} --keep local or --keep cloud."
+                : result.Directory is null ? result.Error : $"Could not map '{key}': {result.Error}");
+            return 1;
+        }
+        if (!result.Reported)
+            Console.WriteLine("Note: could not tell the server yet; the agent does on its next poll.");
+        Console.WriteLine($"'{game.Name}' save folder '{key}' -> {result.Directory}");
+        return 0;
+    }
+
+    private static TrackedGame GameArg(Dictionary<string, string> opts, List<string> positionals, AgentConfig config,
+        string example)
+    {
+        var name = opts.GetValueOrDefault("game") ?? positionals.FirstOrDefault()
+                   ?? throw new ArgumentException($"Pass a game name, e.g. {example}");
+        return config.FindGame(name) ?? throw new InvalidOperationException($"'{name}' is not tracked here.");
+    }
+
+    /// <summary>One line per extra folder: where it is here, or its shadow and how big that is.</summary>
+    internal static IEnumerable<string> FolderLines(TrackedGame game, string stateDir) =>
+        game.ExtraPaths.Select(p => p.IsMapped
+            ? $"{p.Key}: {p.Directory}{(Directory.Exists(p.Directory) ? "" : " (missing — the next pull recreates it)")}"
+            : $"{p.Key}: not mapped here — synced through its shadow copy " +
+              $"({FolderSize.Of(TrackedGame.ShadowDir(stateDir, game.GameId, p.Key)) / 1024.0 / 1024.0:0.#} MB)");
 
     private static IEnumerable<TrackedGame> GamesFor(string? name, AgentConfig config)
     {

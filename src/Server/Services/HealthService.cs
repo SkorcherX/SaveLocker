@@ -104,8 +104,9 @@ public sealed class HealthService
         // candidate worth keeping, so skip rather than degrade to machine-wide.
         if (!await _db.Games.AnyAsync(g => g.Id == candidate.GameId)) return;
 
+        // Scan guesses are for the primary folder only; an extra folder being mapped says nothing about it.
         var confirmed = await _db.MachineSavePaths.AnyAsync(p =>
-            p.MachineId == machineId && p.GameId == candidate.GameId);
+            p.MachineId == machineId && p.GameId == candidate.GameId && p.PathKey == SaveRoot.PrimaryKey);
         if (confirmed) return;
 
         var row = await _db.MachineScanCandidates.FirstOrDefaultAsync(c =>
