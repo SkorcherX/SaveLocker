@@ -5,6 +5,9 @@ fixed. If it's a one-time incident with no recurring workflow risk, it belongs i
 here.
 
 ## Builds
+- **This clone holds the fork's tags (`v0.6.0`–`v0.8.0`, from `git fetch marwan`).** They were never this
+  repo's releases. Push a release tag by name (`git push origin v1.0.0`), never `git push --tags`, or
+  they publish and trigger release CI. Before `v1.0.0` exists locally, MinVer stamps local builds 0.8.x.
 - **Always `--no-incremental`.** Stale DLL reuse has masked changes before (new endpoints 404
   at runtime). Stop the running agent/server first — they lock the DLLs.
 - **`dotnet build a.csproj b.csproj` does not build both** — the second is silently skipped.

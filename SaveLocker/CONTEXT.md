@@ -25,6 +25,11 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
+**v1.0.0 prepared (2026-10-22, not yet tagged).** Notes in `web/src/releases/1.0.0.md` (no fork mention, by
+the maintainer's call). New KBs: `emulator-saves`, `multiple-save-folders`, `save-folder-emptied`; help and
+What's New now render tables (remark-gfm). Rollout: redeploy the console, upload both agent packages in
+Config → Agent updates; keep `/data/keys`. **Push only `v1.0.0`, never `--tags`** ([[Gotchas]]).
+
 **Fork port, item 10 — emulator saves (2026-10-22).** Groups A–E (readers) are merged to `main` (E at
 `38adc88`). **Group F, Switch, is skipped by the maintainer's choice** ([[Decisions]]). Left in the fork:
 G/I/J (#78), the merge picker (#80), H (#81), and the Xbox 360 profile + DLC hand-over (Phase 5c) — all in
