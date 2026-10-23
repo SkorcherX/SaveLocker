@@ -53,9 +53,9 @@ verification that did not happen before the tag. Write-ups:
 
 - **Emulator saves — what is left of the fork port (item 10).** Groups A–E's readers are ported (RetroArch,
   melonDS, Supermodel, Model 2, ScummVM, PCSX2, DuckStation, Dolphin, PrimeHack, PPSSPP, RPCS3, Vita3K,
-  shadPS4, Cemu, Azahar, Xenia). Remaining, one branch each: **F** Switch (Marwanello #73, with a server
-  title key), **G/I/J** own file names + merge, SRM shortcuts, states-only games, icons (#78), the merge
-  picker (#80), **H** real-game checks and emulator pull safety (#81).
+  shadPS4, Cemu, Azahar, Xenia). Remaining, one branch each: **G/I/J** own file names + merge, SRM shortcuts, states-only games, icons (#78), the merge
+  picker (#80), **H** real-game checks and emulator pull safety (#81). **F** (Switch, #73) is skipped by the
+  maintainer's choice — see [[Decisions]].
 - **Xbox 360 profile and DLC hand-over (fork "Phase 5c", left out of the Group E port on 2026-10-22).** The
   Xenia profile carried per game and checked at launch (launch questions), a DLC check that holds a pull
   of a save made with DLC missing here, and a server-brokered DLC hand-over between machines

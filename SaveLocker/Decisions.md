@@ -515,6 +515,14 @@ session can judge an edge case, not to reopen the choice.
   concretely diagnosable per push, via the `upload.delta` audit entry's "N of M files needed fresh
   bytes", rather than needing to guess.
 
+## Fork port: Switch emulator saves are not ported (2026-10-22)
+
+The maintainer chose to skip Marwanello's Group F (#73: Eden, Citron, Yuzu, Suyu, Sudachi, Ryujinx). It is
+the one emulator group that needs a server title key (Ryujinx's per-install save folders), per-device user
+folders, device saves, copies across emulators on one machine and a shared-user rename — about 9k lines,
+much of it on fork plumbing this repo lacks. Don't re-propose it unless the maintainer asks; the other
+emulator groups (A–E readers) are merged.
+
 ## Environment facts (user-provided)
 - Games are standalone builds, not bought on Steam/Epic → manifest-based detection + manual
   `--dir` fallback is the primary path, not a fallback, on Linux.

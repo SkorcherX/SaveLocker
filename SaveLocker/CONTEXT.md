@@ -25,15 +25,18 @@ Not on the Decky store and cannot honestly be submitted — see `logs/2026-08-15
 Since Phase 5 (below) the **agent keeps it updated**, so the custom-store setting is no longer the
 only route to an update.
 
-**Fork port, item 10 — emulator saves, Group E readers (2026-10-22, branch `port/emulator-group-e`, off
-`main`, awaiting review).** The reader half of Marwanello #68 (`4290a2a`): Cemu (Wii U), Azahar (3DS, Citra's
+**Fork port, item 10 — emulator saves (2026-10-22).** Groups A–E (readers) are merged to `main` (E at
+`38adc88`). **Group F, Switch, is skipped by the maintainer's choice** ([[Decisions]]). Left in the fork:
+G/I/J (#78), the merge picker (#80), H (#81), and the Xbox 360 profile + DLC hand-over (Phase 5c) — all in
+[[Backlog]].
+
+**Fork port, item 10 — emulator saves, Group E readers (2026-10-22, merged to `main` at `38adc88`).** The reader half of Marwanello #68 (`4290a2a`): Cemu (Wii U), Azahar (3DS, Citra's
 old folders too) and Xenia (Xbox 360, both layouts, device saves as a `device` folder); names from Cemu's
 title cache, the 3DS ROM's NCCH product code (No-Intro) and the Xbox 360 title ID (Redump + No-Intro), added
 to the bundled title table. Agent only, no API change. **Phase 5c (Xbox 360 profile at launch, DLC check and
 DLC hand-over) was left out on purpose** — see [[Backlog]]; each machine syncs a Xenia game into its own
 profile's folder. Verified: Core.Tests 247 (25 new; two 5c tests left out, two rewritten for own-profile
-folders), the PowerShell suites unchanged, Linux 239. **Not done:** real emulator installs. Next: Group F,
-Switch (fork #73).
+folders), the PowerShell suites unchanged, Linux 239. **Not done:** real emulator installs.
 
 **Fork port, item 10 — emulator saves, Group D (2026-10-22, merged to `main` at `38dca35`).** Marwanello #65 (`ff2444a`): PPSSPP, RPCS3, Vita3K, shadPS4 — one game per game-ID folder
 (`TitleFolders`), named by Redump's PSP/PS3 sets or the save's PARAM.SFO (`ParamSfo`); states-only PSP games
