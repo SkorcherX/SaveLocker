@@ -15,6 +15,9 @@ import restoreSafety from './restore-safety.md?raw';
 import steamLibraryArtwork from './steam-library-artwork.md?raw';
 import deckyPlugin from './decky-plugin.md?raw';
 import databaseBackups from './database-backups.md?raw';
+import emulatorSaves from './emulator-saves.md?raw';
+import multipleSaveFolders from './multiple-save-folders.md?raw';
+import saveFolderEmptied from './save-folder-emptied.md?raw';
 
 export interface Article {
   slug: string;
@@ -34,6 +37,8 @@ export const articles: Article[] = [
   { slug: 'emulator-backups', title: 'Emulator backup best practices',       category: 'Syncing',        content: emulatorBackups },
   { slug: 'glob-patterns',   title: 'Exclude patterns (glob filters)',         category: 'Configuration',  content: globPatterns },
   { slug: 'adding-games',    title: 'Adding games & mapping save folders',     category: 'Configuration',  content: addingGames },
+  { slug: 'multiple-save-folders', title: 'Games with more than one save folder', category: 'Configuration', content: multipleSaveFolders },
+  { slug: 'emulator-saves',  title: 'Setting up emulator saves',              category: 'Configuration',  content: emulatorSaves },
   { slug: 'steam-library-artwork', title: 'Steam Library artwork (Steam Deck)', category: 'Configuration', content: steamLibraryArtwork },
   { slug: 'decky-plugin',    title: 'The Decky plugin (Steam Deck)',           category: 'Configuration',  content: deckyPlugin },
   { slug: 'save-retention',  title: 'Save retention',                         category: 'Configuration',  content: saveRetention },
@@ -41,6 +46,7 @@ export const articles: Article[] = [
   { slug: 'agent-update',    title: 'Agent auto-update & fetching from GitHub','category': 'Maintenance', content: agentUpdate },
   { slug: 'cli-reference',   title: 'Agent CLI reference',                    category: 'Reference',      content: cliReference },
   { slug: 'troubleshooting', title: 'Troubleshooting',                        category: 'Troubleshooting',content: troubleshooting },
+  { slug: 'save-folder-emptied', title: 'When every save file disappears',     category: 'Troubleshooting',content: saveFolderEmptied },
   { slug: 'restore-safety',  title: 'When a save is refused on restore',      category: 'Troubleshooting',content: restoreSafety },
 ];
 

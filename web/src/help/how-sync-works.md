@@ -32,16 +32,23 @@ On **Windows** this lifecycle is driven by a process watcher that notices the ga
 
 ## Push flow
 
-1. Agent zips the save directory (respecting exclude patterns).
-2. Hashes the archive.
-3. Sends the archive with the **parent version ID** (the last version this machine successfully pulled or pushed).
-4. Server compares parent to current head → FastForward, NoChange, or Conflict.
+1. Agent hashes every file in the game's save folders (respecting exclude patterns), and the save as a whole.
+2. It tells the server the save's file list and hashes, with the **parent version ID** (the last version this machine successfully pulled or pushed).
+3. Server compares parent to current head → FastForward, NoChange, or Conflict.
+4. For a new version of a larger save, the server says which files it doesn't already have, and the agent uploads **only those**: a 150 MB save where one 40 KB file changed uploads about 40 KB. The server builds the new version from those files and the ones it already holds. A small save is simply uploaded whole.
+5. Large uploads are sent in chunks and are **all-or-nothing**: an upload that is interrupted publishes no version and leaves nothing half-written on the server.
 
 ## Pull flow
 
 1. Agent requests the current head version from the server.
 2. Server streams the zip.
-3. Agent atomically replaces the save directory with the extracted archive.
+3. Agent replaces each of the game's save folders with the version's files. Files this machine **excludes** (see [exclude patterns](#help/glob-patterns)) are left where they are, since they were never part of the save.
+
+A game can sync several folders; each is pushed and pulled together as one version. See [Games with more than one save folder](#help/multiple-save-folders).
+
+## When every save file disappears
+
+If every file in a game's save folder vanishes at once, the agent holds the game instead of syncing the empty folder to your other machines, and asks you what to do. See [When every save file disappears](#help/save-folder-emptied).
 
 ## Offline queue
 

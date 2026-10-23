@@ -126,27 +126,18 @@ SaveLocker downloads the [Ludusavi community manifest](https://github.com/mtkenn
 
 ## Games with more than one save folder
 
-Some games keep saves in two places — say `Documents\My Games\…` and `AppData\Local\…` — and an emulator keeps its save states beside its saves. A game can sync any number of folders. The first one is its **main** folder; every other one has a short **name** (`states`, `config`, …) that every machine knows it by. The name is also where that folder's files go inside each save, so it can never be renamed or reused.
+A game can sync several folders — saves in both Documents and AppData, or an emulator's states beside its saves. When the save database knows another folder for a game, Add Games lists it under the game as **Also found**, ticked. See [Games with more than one save folder](#help/multiple-save-folders).
 
-**Where SaveLocker finds them.** When the save database lists more than one location for a game and they exist on your machine, the agent offers the others as **Also found**:
+## Emulator games
 
-- **Add games** lists them under the game, **ticked**. Untick any you don't want before adding the game.
-- On a **game's page** in the agent, each one has **Add** and **Don't sync**.
-- When the agent starts and a game you already track has folders nobody has decided about, it asks once — the same one-game-at-a-time window as a sync conflict, with every folder ticked. **Skip for now** leaves them on the game's page for later; nothing is added unless you leave it ticked.
-- On a **Steam Deck in Game Mode**, the SaveLocker app does the same: **Add a game** lists them ticked under each game, a game's page has **Add** / **Don't sync**, and opening the app asks once (**More save folders found**) about games you already track.
+Emulator saves are found by their save files, not by a launcher's library: pick the **Emulators** filter in Add Games. See [Setting up emulator saves](#help/emulator-saves).
 
-The database cannot tell a second save folder from a settings folder or another store's copy of the game, which is why SaveLocker always asks instead of adding them on its own. A folder an emulator reader *knows* belongs to the game is added without asking.
+## A Steam shortcut with more than one AppID
 
-**Adding one yourself.** On the game's page in the agent: **Add save folder…**, pick the folder, give it a name and — optionally — only the files that belong to the game (`*.sav`). The console's **Save folders** card does the same for every machine at once (a template such as `<winLocalAppData>/Game/States`), and the CLI has `add-path`. **Remove…** stops syncing a folder on every machine; its files stay where they are.
-
-**A machine without that folder** still syncs the game. Its agent keeps a hidden copy of the folder in its own state, so the folder is never dropped from a save, and uses it the moment you choose where the folder lives on that machine. If that machine's folder already holds different files, you are asked which copy every machine should keep.
-
-**In the console**, the Save folders card shows each folder as its own section — its template, each machine's folder, its include patterns, and what Latest holds (file count, size, and the file list). A version you **download** from the console shows the extra folders inside a `.savelocker/paths/<name>/` folder of the zip: that is where SaveLocker stores them, not a folder of the game.
-
-**Older agents** (before 0.7.0) still sync such a game without losing anything, but they keep its extra folders as that `.savelocker/` folder *inside* the main one until they update. The console marks those machines with *agent too old for several folders*.
+When a launcher re-creates a non-Steam shortcut instead of updating it, Steam ends up with the same game under two or more AppIDs, and only ever launches one of them. Add Games marks such a game with **N duplicate AppIDs** and says which AppID SaveLocker will track. If that is the stale one, its saves are never backed up: remove the stale shortcut in Steam (or set the save folder by hand), then rescan. Game Mode shows the same warning on the game's row.
 
 ## Tips
 
 - Point the save path at the **save folder**, not the game's install directory. Pointing at the install directory will exceed the 200 MB upload cap and archive unnecessary files.
-- If the game writes saves to multiple folders, add each one — see *Games with more than one save folder* above — and exclude irrelevant subdirectories with [glob patterns](#help/glob-patterns).
+- If the game writes saves to multiple folders, add each one — see [Games with more than one save folder](#help/multiple-save-folders) — and exclude irrelevant subdirectories with [glob patterns](#help/glob-patterns).
 - Disabling a game in the dashboard (Configuration → game toggle) pauses sync without deleting history.
